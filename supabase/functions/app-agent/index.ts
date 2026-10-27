@@ -6,7 +6,8 @@ import { createClient } from 'npm:@supabase/supabase-js@2.108.1';
 import { AGENT_VERSION, createAgentRuntime } from './agent.ts';
 import { buildItineraryCard, extractItineraryBrief } from './itinerary-card.ts';
 import { SupabaseAgentSession } from './session.ts';
-import { bindRunClient, parseJsonString, releaseRunClient } from './tools.ts';
+import { addGear, bindRunClient, parseJsonString, releaseRunClient } from './tools.ts';
+import { gearFastPathReply } from './gear-fast-path.ts';
 import { bindPackingDraftStore, releasePackingDraftStore, readPackingDraft } from './packing-draft-store.ts';
 import type { ModelMetric } from './model-metrics.ts';
 import type { AgentAttachment, AgentContext, AgentIntent, AgentMessageUi, AgentModelMetric, AgentQuickReply, AgentResponse, AgentRunActivity, AgentSource } from './types.ts';
@@ -19,6 +20,7 @@ import { latestTravelContext, travelContextSchema } from './travel-context-schem
 import type { TravelContext } from './travel-context.ts';
 import { prepareAgentContext } from './context.ts';
 import { prepareTask } from './task-store.ts';
+import { loadSmartPlanJourney, smartPlanMessage } from './smart-plan.ts';
 import { answeredDeparturePrompt, departurePromptUi, departureQuestion, pendingDeparturePrompt, stoppedRunDeparturePrompt } from './departure-prompt.ts';
 import { checkTopic, offTopicResponse } from './topic-boundary.ts';
 import { runPipeline, useStagedPipeline } from './pipeline.ts';
@@ -854,12 +856,22 @@ Deno.serve(async (req) => {
     };
     const budget = modelBudget(jobAdmin,'run:'+runId);
     const interpretation = createAgentRuntime(config, false, undefined, recordMetric, budget);
+    // The smart plan command carries no text the server trusts: the request is
+    // rebuilt from the journey it names. A journey that cannot be read leaves
+    // the app's message to the checked model path.
+    const smartPlan = body.intent === 'smart_plan' && resolvedCurrentJourneyId
+      ? await loadSmartPlanJourney(client, resolvedCurrentJourneyId) : null;
+    if (smartPlan) effectiveMessage = smartPlanMessage(smartPlan, body.locale);
     const task = await prepareTask(client, jobAdmin, {
       runId, threadId, userId: user.id, journeyId: resolvedCurrentJourneyId || null,
       message: effectiveMessage, intent: body.intent, temporalContext,
       attachments: attachments.map(({ name, kind }) => ({ name, kind })),
       routerMode: intentRouterMode(Deno.env.get('KAIPA_INTENT_ROUTER')),
       resumeWaitingPlan,
+      // Kill switch for the rule-based gear add (gear-fast-path.ts).
+      gearFastPath: Deno.env.get('KAIPA_GEAR_FAST_PATH')?.trim().toLowerCase() !== 'off',
+      turnHasAttachments: uploadedNow.length > 0,
+      smartPlan,
     }, interpretation.interpret,
     input => checkTopic(input, { url: Deno.env.get('TOPIC_GUARD_URL') || '',
       token: Deno.env.get('TOPIC_GUARD_TOKEN') || '', budget, recordMetric }),
@@ -905,6 +917,56 @@ Deno.serve(async (req) => {
       shouldPersistFailure = false;
       return json({ threadId, runId, status: 'completed', message: output.text,
         quickReplies: ui.quickReplies, ui } satisfies AgentResponse);
+    }
+    // Tool writes carry the run id so the database attributes them to this run.
+    const agentClient = createClient(supabaseUrl, anonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'x-kaipa-agent-run-id': runId,
+        },
+      },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    if (task.rules?.intent === 'gear_add') {
+      // Rules already parsed the items. Each one goes through the add_gear tool
+      // (scope check, dedupe, tool-call audit) one at a time, then the outcome
+      // is checked against the recorded calls like any other turn.
+      const context: AgentContext = { userId: user.id, threadId, runId, task, originalUserMessage: effectiveMessage, locale: body.locale };
+      bindRunClient(runId, agentClient, jobAdmin);
+      const added: string[] = [], existing: string[] = [], failed: string[] = [];
+      for (const item of task.rules.items) {
+        const result = await addGear.invoke({ context } as never, JSON.stringify(item), undefined);
+        // The SDK turns a thrown tool error into a message string.
+        const output = (typeof result === 'string' ? parseJsonString(result) : result) as { id?: unknown; name?: string; existing?: boolean } | string | null;
+        const name = output && typeof output === 'object' && output.name || item.name;
+        if (output && typeof output === 'object' && output.id) {
+          if (output.existing) existing.push(name);
+          else added.push(item.quantity > 1 ? `${name} ×${item.quantity}` : name);
+        } else failed.push(item.name);
+      }
+      const output = { text: gearFastPathReply(added, existing, failed, body.locale), quickReplies: [] as AgentQuickReply[],
+        pendingQuestion: null, draft: null, blocker: failed.length ? failed.join('、') : null };
+      const ui = await messageUiForRun(client, runId, [], false, body.locale, null);
+      ui.taskOutcome = taskOutcome(task, output, ui.activities || []);
+      ui.requestId = runId;
+      // Partial keeps the item-by-item reply; the generic partial text would hide which ones failed.
+      const message = output.text;
+      const finalized = await client.rpc('finalize_agent_run', { target_run_id: runId, assistant_message: message, message_ui: ui });
+      if (finalized.error) throw finalized.error;
+      const finished = await jobAdmin.rpc('finish_agent_job', { p_run_id: runId, p_lease: jobLease });
+      if (finished.error) throw finished.error;
+      shouldPersistFailure = false;
+      // Later model turns in this thread read the session, not agent_messages.
+      try {
+        await new SupabaseAgentSession(client, threadId, user.id, interpretation.summarize).addItems([
+          { type: 'message', role: 'user', content: effectiveMessage },
+          { type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: message }] },
+        ]);
+      } catch (error) {
+        console.warn('[AppAgent] session history unavailable', error instanceof Error ? error.message : error);
+      }
+      return json({ threadId, runId, status: 'completed', message, quickReplies: ui.quickReplies, ui } satisfies AgentResponse);
     }
     if (task.decision.mode === 'execute' && task.decision.fullHikingPlan === true && !resolvedCurrentJourneyId) {
       const itineraryCard = await buildItineraryCard({ message: effectiveMessage, temporalContext,
@@ -961,15 +1023,6 @@ Deno.serve(async (req) => {
       originalUserMessage: effectiveMessage,
       attachments,
     };
-    const agentClient = createClient(supabaseUrl, anonKey, {
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'x-kaipa-agent-run-id': runId,
-        },
-      },
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
     // Tool reads/writes use the user-scoped client; shared external cache access
     // is isolated behind service-role RPCs and never exposed to the client JWT.
     bindRunClient(runId, agentClient, jobAdmin);

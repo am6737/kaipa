@@ -37,6 +37,8 @@ export interface DataValue {
   journeysLoading: boolean;
   createJourney: (poi: Partial<Poi>) => Promise<Poi | null>;
   updateJourney: (id: string, patch: Partial<Poi>) => Promise<void>;
+  /** Owner only; throws when the server refuses. */
+  setJourneyVisibility: (id: string, visibility: NonNullable<Poi['visibility']>) => Promise<void>;
   updateRoute: (id: string, patch: Partial<Poi>) => Promise<void>;
   toggleRouteFavorite: (id: string, current: boolean) => Promise<void>;
   deleteJourney: (id: string) => Promise<void>;
@@ -60,6 +62,8 @@ export interface DataValue {
   /** False when the write didn't reach the server (offline, error). */
   updateTrack: (id: string, patch: Partial<TrackDraft>) => Promise<boolean>;
   deleteTrack: (id: string) => Promise<void>;
+  /** For tracks not on a journey; throws when the server refuses. */
+  setTrackVisibility: (id: string, visibility: NonNullable<Track['visibility']>) => Promise<void>;
   deleteTracks: (ids: string[]) => Promise<void>;
   refetchTracks: () => Promise<Track[]>;
   cats: GearCat[];
@@ -75,6 +79,7 @@ export interface DataValue {
   addSet: (name: string, itemIds: number[], overrides?: Record<string, GearSetOverride>, description?: string) => Promise<void>;
   updateSet: (id: string, name: string, itemIds: number[], overrides?: Record<string, GearSetOverride>, description?: string) => Promise<void>;
   deleteSet: (id: string) => Promise<void>;
+  setSetVisibility: (id: string, visibility: NonNullable<GearSet['visibility']>) => Promise<void>;
   refetchGear: () => Promise<void>;
   notifList: Notif[];
   notifUnread: number;
@@ -103,12 +108,12 @@ export function DataProvider({ userId, children }: { userId: string; children: R
   const { routes, loading: routesLoading, updateRoute, toggleFavorite: toggleRouteFavorite, refetch: refetchRoutes } = useRoutes(userId);
   const {
     tracks, loading: tracksLoading,
-    createTrack, updateTrack, deleteTrack, deleteTracks,
+    createTrack, updateTrack, deleteTrack, deleteTracks, setTrackVisibility,
     refetch: refetchTracks,
   } = useTracks(userId);
   const {
     journeys, trashedJourneys, loading: journeysLoading,
-    createJourney, updateJourney, deleteJourney, restoreJourney, permanentlyDeleteJourney, leaveJourney, toggleFav,
+    createJourney, updateJourney, setJourneyVisibility, deleteJourney, restoreJourney, permanentlyDeleteJourney, leaveJourney, toggleFav,
     refetch: refetchJourneys,
   } = useJourneys(userId, profile);
   const { content: journeyHomeContent, loading: journeyHomeContentLoading, refetch: refetchJourneyHomeContent } = useJourneyHomeContent();
@@ -117,7 +122,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     cats, items, sets, loading: gearLoading,
     addCat, updateCat, deleteCat,
     addItem, updateItem, deleteItem,
-    addSet, updateSet, deleteSet,
+    addSet, updateSet, deleteSet, setSetVisibility,
     refetch: refetchGear,
   } = useGear(userId);
   const {
@@ -154,10 +159,12 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     createTrack: useStable(createTrack),
     updateTrack: useStable(updateTrack),
     deleteTrack: useStable(deleteTrack),
+    setTrackVisibility: useStable(setTrackVisibility),
     deleteTracks: useStable(removeTracks),
     refetchTracks: useStable(refetchTracks),
     createJourney: useStable(createJourney),
     updateJourney: useStable(updateJourney),
+    setJourneyVisibility: useStable(setJourneyVisibility),
     updateRoute: useStable(updateRoute),
     toggleRouteFavorite: useStable(toggleRouteFavorite),
     deleteJourney: useStable(deleteJourney),
@@ -177,6 +184,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     addSet: useStable(addSet),
     updateSet: useStable(updateSet),
     deleteSet: useStable(deleteSet),
+    setSetVisibility: useStable(setSetVisibility),
     refetchGear: useStable(refetchGear),
     markNotifRead: useStable(markNotifRead),
     markAllNotifsRead: useStable(markAllNotifsRead),

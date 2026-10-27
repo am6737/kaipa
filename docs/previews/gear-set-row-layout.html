@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>清单行布局方案 · 件数 / 类数 / 重量 / 价值</title>
+<style>
+  :root {
+    --bg: #F2F2F7;
+    --surface: #FFFFFF;
+    --field: rgba(0,0,0,0.045);
+    --text: #000000;
+    --text2: rgba(60,60,67,0.62);
+    --text3: rgba(60,60,67,0.32);
+    --hairline: rgba(0,0,0,0.08);
+    --border: rgba(0,0,0,0.06);
+    --accent: #0A84FF;
+    --frame: rgba(0,0,0,0.10);
+    --shadow: 0 24px 60px rgba(0,0,0,0.10);
+  }
+  [data-theme="dark"] {
+    --bg: #000000;
+    --surface: #000000;
+    --field: rgba(255,255,255,0.07);
+    --text: #EBEBF5;
+    --text2: rgba(235,235,245,0.62);
+    --text3: rgba(235,235,245,0.30);
+    --hairline: rgba(255,255,255,0.10);
+    --border: rgba(255,255,255,0.10);
+    --accent: #0A84FF;
+    --frame: rgba(255,255,255,0.14);
+    --shadow: 0 24px 60px rgba(0,0,0,0.6);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding: 40px 28px 80px;
+    transition: background .25s, color .25s;
+  }
+  .mono { font-family: Menlo, "SF Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+  /* ── page chrome ───────────────────────────────────────── */
+  .doc { max-width: 1680px; margin: 0 auto; }
+  .doc > h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.6px; }
+  .doc > p.lead { font-size: 14px; line-height: 23px; color: var(--text2); margin-top: 10px; max-width: 860px; }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin: 22px 0 8px; }
+  .toolbar button {
+    font: inherit; font-size: 13px; font-weight: 600; color: var(--text);
+    background: var(--field); border: none; border-radius: 999px; padding: 8px 16px; cursor: pointer;
+  }
+  .toolbar button:hover { background: var(--border); }
+
+  .boards { display: flex; flex-wrap: wrap; gap: 32px; margin-top: 28px; align-items: flex-start; }
+  .board { width: 375px; }
+  .board > .head { padding: 0 4px 12px; }
+  .board > .head b { display: block; font-size: 15px; font-weight: 800; letter-spacing: -0.2px; }
+  .board > .head span { display: block; font-size: 12px; line-height: 18px; color: var(--text2); margin-top: 4px; }
+  .board.now > .head b { color: var(--text3); }
+  .board.rec > .head b::after {
+    content: "推荐"; font-size: 11px; font-weight: 700; color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-radius: 999px; padding: 2px 8px; margin-left: 8px; vertical-align: 2px;
+  }
+
+  .phone {
+    background: var(--surface); border: 1px solid var(--frame); border-radius: 34px;
+    box-shadow: var(--shadow); overflow: hidden; height: 468px;
+  }
+  .statusbar { height: 34px; display: flex; align-items: center; justify-content: center; }
+  .statusbar i { width: 96px; height: 26px; border-radius: 999px; background: var(--field); display: block; }
+  .screen { padding: 6px 16px 16px; }
+  .screenbar { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 6px 0 10px; }
+  .screenbar h2 { font-size: 25px; font-weight: 800; letter-spacing: -0.5px; }
+  .screenbar em { font-style: normal; font-size: 11.5px; color: var(--text3); }
+  .group { font-size: 12px; font-weight: 600; letter-spacing: 0.4px; color: var(--text2); padding: 12px 0 2px; display: flex; gap: 4px; align-items: center; }
+
+  /* ── shared row pieces ─────────────────────────────────── */
+  .row { display: flex; gap: 12px; padding: 12px; margin: 0 -12px; border-radius: 16px; align-items: center; }
+  .row:nth-child(odd) { background: transparent; }
+  .name { font-size: 15px; font-weight: 700; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cap { font-size: 11.5px; line-height: 16px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .desc { color: var(--text3); }
+  .metric { font-size: 16px; font-weight: 800; }
+  .pin { color: var(--accent); font-size: 11px; font-weight: 700; }
+
+  .strip { display: flex; gap: 6px; margin-top: 10px; }
+  .strip.small { margin-top: 0; }
+  .th { width: 40px; height: 40px; border-radius: 11px; background: var(--field); position: relative; overflow: hidden; flex: none; }
+  .th svg { position: absolute; inset: 0; margin: auto; opacity: .55; }
+  .th.photo { border: .5px solid var(--hairline); }
+  .th.more { display: flex; align-items: center; justify-content: center; font-size: 11.5px; font-weight: 700; color: var(--text2); }
+  .th.xs { width: 26px; height: 26px; border-radius: 8px; }
+
+  /* ── now ───────────────────────────────────────────────── */
+  .v-now .col { flex: 1; min-width: 0; }
+  .v-now .l1 { display: flex; align-items: baseline; gap: 12px; }
+  .v-now .l1 .name { flex: 1; }
+  .v-now .l2 { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+  .v-now .l2 .cap { flex: 1; }
+  .v-now .l2 .val { font-size: 11.5px; color: var(--text2); }
+
+  /* ── A: numbers stacked in a right column ──────────────── */
+  .v-A .body { flex: 1; min-width: 0; }
+  .v-A .stack { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; padding-left: 4px; }
+  .v-A .stack .val { font-size: 11.5px; color: var(--text2); }
+  .v-A .meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+
+  /* ── B: one icon-led meta line ─────────────────────────── */
+  .v-B .body { flex: 1; min-width: 0; }
+  .v-B .line { display: flex; align-items: center; gap: 14px; margin-top: 6px; }
+  .v-B .stat { display: flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--text2); white-space: nowrap; }
+  .v-B .stat svg { flex: none; opacity: .5; }
+  .v-B .stat strong { font-weight: 700; color: var(--text); }
+  .v-B .desc { display: block; margin-top: 4px; font-size: 11.5px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ── C: four-cell stat band ────────────────────────────── */
+  .v-C .body { flex: 1; min-width: 0; }
+  .v-C .band { display: flex; margin-top: 10px; background: var(--field); border-radius: 11px; padding: 8px 0; }
+  .v-C .cell { flex: 1; display: flex; flex-direction: column; align-items: flex-start; padding: 0 12px; gap: 2px; }
+  .v-C .cell + .cell { border-left: .5px solid var(--hairline); }
+  .v-C .cell i { font-style: normal; font-size: 10px; color: var(--text3); letter-spacing: .2px; }
+  .v-C .cell b { font-size: 13px; font-weight: 800; }
+
+  /* ── D: thumbnails moved to the leading column ─────────── */
+  .v-D .row { align-items: flex-start; }
+  .v-D .lead { width: 54px; flex: none; display: grid; grid-template-columns: 26px 26px; grid-auto-rows: 26px; gap: 2px; margin-top: 2px; }
+  .v-D .body { flex: 1; min-width: 0; }
+  .v-D .stack { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .v-D .stack .val { font-size: 11.5px; color: var(--text2); }
+  .v-D .meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+
+  .notes { max-width: 860px; margin-top: 44px; }
+  .notes h3 { font-size: 16px; font-weight: 800; margin-bottom: 10px; }
+  .notes ul { list-style: none; }
+  .notes li { font-size: 13.5px; line-height: 21px; color: var(--text2); padding-left: 16px; position: relative; margin-bottom: 6px; }
+  .notes li::before { content: ""; position: absolute; left: 2px; top: 9px; width: 5px; height: 5px; border-radius: 3px; background: var(--text3); }
+  .notes li b { color: var(--text); font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="doc">
+  <h1>清单页 row：件数 / 类数 / 重量 / 价值 怎么排</h1>
+  <p class="lead">
+    现在四类数字分散在三个基线上——重量在标题右侧、价值在第二行右侧、件数类数和描述挤在第二行左侧，
+    所以竖着扫的时候眼睛要来回跳，宽度一紧就被 ellipsis 吃掉。下面四个方案都保留「缩略图条」这个识别物，只是重新分配对齐关系。
+  </p>
+  <div class="toolbar">
+    <button onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'">切换深色 / 浅色</button>
+    <button onclick="document.querySelectorAll('.desc').forEach(e => e.dataset.hidden === '1' ? (e.style.display='', delete e.dataset.hidden) : (e.style.display='none', e.dataset.hidden='1'))">隐藏描述（看长文案挤压）</button>
+  </div>
+
+  <div class="boards" id="boards"></div>
+
+  <div class="notes">
+    <h3>怎么选</h3>
+    <ul>
+      <li><b>A 数值右栏</b>：改动最小，直接沿用装备库 ItemRow 的「重量在上、价值在下」右栏，两个清单页竖着扫时数字在同一列。代价是件数/类数仍留在左下，一行的信息重心还是两段。</li>
+      <li><b>B 图标元数据单行</b>：四项放到同一条基线，用极小图标区分含义，数字用等宽字体对齐；描述单独一行、只在有时出现。行高最矮、最干净，但数字不再成列，靠图标逐个识别。</li>
+      <li><b>C 四格统计条</b>：像仪表，label 在上、值在下，四格等宽，最能看懂「这是什么数字」，也最容易日后加「最重件」「体积」。代价是每行高约 28pt，一屏少一到两条，密集列表会显得笨。</li>
+      <li><b>D 缩略图前置</b>：把 6 格图条压成左侧 2×2 小方块当行首图标，标题/描述/件数类数走满整行宽度，数字仍然右栏。行高和装备库一致，整页节奏统一；代价是单件照片识别度下降。</li>
+    </ul>
+    <ul>
+      <li>如果按「重量」或「价值」排序，右栏那个值可以用 accent 强调一下，让用户知道当前排序键——四个方案都能加。</li>
+      <li>中文界面里件数与类数之间用空格分隔（<span class="mono">18 件 6 类</span>），不加 <span class="mono">·</span>。</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+const SETS = [
+  { name: '三日重装 · 武线', items: 18, cats: 6, weight: '9.42 kg', value: '¥23,600', desc: '含帐篷睡袋，冬季备用', pinned: true,
+    thumbs: [['#FF9500', 1], ['#0A84FF', 1], ['#34C759', 0], ['#AF52DE', 0], ['#FF3B30', 1], ['#8E8E93', 0]], more: 12 },
+  { name: '周末轻装', items: 11, cats: 5, weight: '4.62 kg', value: '¥8,900', desc: '', thumbs: [['#34C759', 0], ['#FF9500', 1], ['#0A84FF', 0], ['#FFCC00', 0]], more: 0 },
+  { name: '冬季雪线', items: 24, cats: 8, weight: '12.8 kg', value: '¥41,200', desc: '冰爪、羽绒、炉具三件套', thumbs: [['#5AC8FA', 1], ['#AF52DE', 0], ['#8E8E93', 0], ['#FF3B30', 1], ['#34C759', 0], ['#FF9500', 0]], more: 18 },
+  { name: '溪谷溯溪', items: 7, cats: 4, weight: '3.15 kg', value: '¥5,400', desc: '防水袋单独打包', thumbs: [['#0A84FF', 1], ['#34C759', 0], ['#5AC8FA', 0]], more: 0 },
+  { name: '空清单', items: 0, cats: 0, weight: '', value: '', desc: '', thumbs: [], more: 0 },
+];
+
+const GLYPH = (c, s = 15) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="1.7"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5"/><path d="M12 12v10"/></svg>`;
+const ICON = {
+  box: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8V19H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>`,
+  layers: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>`,
+  scale: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18"/><path d="M5 7h14"/><path d="M5 7 2 14h6zM19 7l-3 7h6z"/></svg>`,
+  coin: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M14.5 9h-3a1.5 1.5 0 0 0 0 3h1.5a1.5 1.5 0 0 1 0 3H10"/><path d="M12 7v10"/></svg>`,
+};
+
+function strip(s, cls = '') {
+  if (!s.items) return `<div class="strip ${cls}" style="margin-top:${cls ? 0 : 10}px"><div class="th more" style="width:auto;height:40px;padding:0 12px;border:1.5px dashed var(--border);border-radius:11px;font-weight:500;color:var(--text2)">还没有装备</div></div>`;
+  const shown = s.thumbs.slice(0, s.more ? 5 : 6);
+  return `<div class="strip ${cls}"${cls ? ' style="margin-top:0"' : ''}>${shown.map(([c, photo]) =>
+    `<div class="th ${photo ? 'photo' : ''}" ${photo ? `style="background:linear-gradient(135deg, ${c}66, ${c}22)"` : ''}>${GLYPH(c)}</div>`).join('')}${
+    s.more ? `<div class="th more mono">+${s.more}</div>` : ''}</div>`;
+}
+const counts = (s) => s.items ? `<span class="mono">${s.items} 件</span> <span class="mono">${s.cats} 类</span>` : '';
+const head = (title, n) => `<div class="screenbar"><h2>${title}</h2><em class="mono">${n} 份</em></div>`;
+
+const renderers = {
+  now: (s) => `<div class="row v-now"><div class="col">
+      <div class="l1"><div class="name">${s.pinned ? '<span class="pin">▴ </span>' : ''}${s.name}</div>${s.items ? `<div class="metric mono">${s.weight}</div>` : ''}</div>
+      <div class="l2"><div class="cap">${counts(s)}${s.desc ? `  <span class="desc">${s.desc}</span>` : ''}</div>${s.items ? `<div class="val mono">${s.value}</div>` : ''}</div>
+      ${strip(s)}
+    </div></div>`,
+
+  A: (s) => `<div class="row v-A"><div class="body">
+      <div class="name">${s.pinned ? '<span class="pin">▴ </span>' : ''}${s.name}</div>
+      <div class="meta"><div class="cap">${counts(s)}${s.desc ? `  <span class="desc">${s.desc}</span>` : ''}</div></div>
+      ${strip(s)}
+    </div>${s.items ? `<div class="stack"><div class="metric mono">${s.weight}</div><div class="val mono">${s.value}</div></div>` : ''}</div>`,
+
+  B: (s) => `<div class="row v-B"><div class="body">
+      <div class="name">${s.pinned ? '<span class="pin">▴ </span>' : ''}${s.name}</div>
+      <div class="line">${s.items ? [
+        `<span class="stat">${ICON.box}<span class="mono"><strong>${s.items}</strong> 件</span></span>`,
+        `<span class="stat">${ICON.layers}<span class="mono"><strong>${s.cats}</strong> 类</span></span>`,
+        `<span class="stat">${ICON.scale}<span class="mono"><strong>${s.weight}</strong></span></span>`,
+        `<span class="stat">${ICON.coin}<span class="mono"><strong>${s.value}</strong></span></span>`,
+      ].join('') : '<span class="cap desc">还没有装备</span>'}</div>
+      ${s.desc ? `<div class="desc">${s.desc}</div>` : ''}
+      ${strip(s, 'small')}
+    </div></div>`,
+
+  C: (s) => `<div class="row v-C" style="align-items:flex-start"><div class="body">
+      <div class="name">${s.pinned ? '<span class="pin">▴ </span>' : ''}${s.name}</div>
+      ${s.desc ? `<div class="cap desc" style="margin-top:4px">${s.desc}</div>` : ''}
+      ${strip(s, 'small')}
+      <div class="band">${[['件数', s.items || '—'], ['类别', s.cats || '—'], ['重量', s.weight || '—'], ['价值', s.value || '—']]
+        .map(([l, v]) => `<div class="cell"><i>${l}</i><b class="mono">${v}</b></div>`).join('')}</div>
+    </div></div>`,
+
+  D: (s) => `<div class="row v-D">${s.items ? `<div class="lead">${s.thumbs.slice(0, 4).map(([c, p]) =>
+        `<div class="th xs ${p ? 'photo' : ''}" ${p ? `style="background:linear-gradient(135deg, ${c}66, ${c}22)"` : ''}>${GLYPH(c, 11)}</div>`).join('')}</div>`
+      : `<div class="lead"><div class="th xs more" style="border:1.5px dashed var(--border);grid-column:span 2;height:26px;border-radius:8px"></div></div>`}
+    <div class="body">
+      <div class="name">${s.pinned ? '<span class="pin">▴ </span>' : ''}${s.name}</div>
+      <div class="meta"><div class="cap">${counts(s)}${s.desc ? `  <span class="desc">${s.desc}</span>` : ''}</div></div>
+    </div>${s.items ? `<div class="stack"><div class="metric mono">${s.weight}</div><div class="val mono">${s.value}</div></div>` : ''}</div>`,
+};
+
+const BOARDS = [
+  ['now', '现状', '重量右上、价值右下、件数类数夹在中间一行'],
+  ['A', '方案 A 数值右栏', '照搬装备库：重量 / 价值固定右对齐成一列'],
+  ['B', '方案 B 图标元数据单行', '四项同一条基线，图标 + 等宽数字'],
+  ['C', '方案 C 四格统计条', 'label 在上、值在下，四格等宽'],
+  ['D', '方案 D 缩略图前置', '图条压成左侧 2×2，数字走右栏，行最矮'],
+];
+
+document.getElementById('boards').innerHTML = BOARDS.map(([key, title, sub], i) => `
+  <div class="board ${key === 'now' ? 'now' : (key === 'B' ? 'rec' : '')}">
+    <div class="head"><b>${title}</b><span>${sub}</span></div>
+    <div class="phone">
+      <div class="statusbar"><i></i></div>
+      <div class="screen">${head('我的清单', 12)}<div class="group">▴ 置顶</div>${
+        SETS.slice(0, 2).map(renderers[key]).join('')}<div class="group">全部</div>${
+        SETS.slice(2).map(renderers[key]).join('')}</div>
+    </div>
+  </div>`).join('');
+</script>
+</body>
+</html>

@@ -1,29 +1,32 @@
 // GearSetsList.tsx — “我的清单 / 查看全部” pushed page.
 //
-// The gallery borrows the tall, photographic two-column rhythm from the
-// reference while keeping Kaipa's floating chrome, quiet surfaces and the
-// weight/value vocabulary used by the redesigned gear detail pages.
+// Rows follow the gear library (GearItemsList): no card or divider, only a
+// press or selection tints them. Each row ends in a strip of the set's
+// heaviest items so a list can be recognised without opening it.
 import React, { useMemo, useState } from 'react';
-import { Alert, View, Text, StyleSheet, useWindowDimensions } from 'react-native';
+import { Alert, Pressable, View, Text, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { InteractionManager } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MoreHorizontal, Package, Search, Weight, JapaneseYen, type LucideIcon } from 'lucide-react-native';
-import { Theme, rgba } from '../../theme/theme';
+import { Package, Search, type LucideIcon } from 'lucide-react-native';
+import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
-import { GearItem, GearSet, WeightUnit, fmtWeight, itemPrice, itemWeight } from '../../data/gear';
+import { GearCat, GearItem, GearSet, WeightUnit, fmtWeight, itemPrice, itemWeight } from '../../data/gear';
 import { useI18n } from '../../i18n';
 import { Icon } from '../Icon';
 import type { IconName } from '../Icon';
 import { Press } from '../Press';
 import { Glass } from '../Glass';
-import { AppHeaderSearch, AppIconButton, DetailPage } from '../../design-system';
+import { AppHeaderSearch, DetailPage, layout, radius, space, type } from '../../design-system';
 import { usePersistedSort } from './usePersistedSort';
 import { GearMenuTransition } from './GearMenuTransition';
 import { GearEmptyState } from './GearEmptyState';
+import { formatItemValue } from './GearItemsList';
 
-type LayoutMode = 'grid' | 'list';
 const SORT_STORAGE_KEY = '@kaipa/gear/sets-sort-v1';
 const INITIAL_RENDER_COUNT = 8;
+const STRIP_THUMB = 40;
+const STRIP_MAX = 6;
 function GearHeaderButton({ icon: IconComponent, onPress, label, color }: { icon: LucideIcon; onPress: () => void; label: string; color: string }) {
   return <Press accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><IconComponent color={color} size={25} strokeWidth={2.2} /></Press>;
 }
@@ -44,6 +47,7 @@ export function GearSetsList({
   theme,
   sets,
   allItems,
+  catMap,
   weightUnit,
   onBack,
   onOpenSet,
@@ -52,13 +56,12 @@ export function GearSetsList({
   onDeleteSets,
   pinnedSetIds,
   onSetPinned,
-  onOpenSquare,
-  entryVariant,
   picker,
 }: {
   theme: Theme;
   sets: GearSet[];
   allItems: GearItem[];
+  catMap?: Record<string, GearCat>;
   weightUnit: WeightUnit;
   onBack: () => void;
   onOpenSet: (set: GearSet) => void;
@@ -67,8 +70,6 @@ export function GearSetsList({
   onDeleteSets: (ids: string[]) => void;
   pinnedSetIds: Set<string>;
   onSetPinned: (ids: string[], pinned: boolean) => void;
-  onOpenSquare?: () => void;
-  entryVariant?: 'push' | 'continuationX';
   picker?: {
     title: string;
     selectedIds: Set<string>;
@@ -77,11 +78,8 @@ export function GearSetsList({
 }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
   const [searchOpen, setSearchOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
-  const [layout, setLayout] = useState<LayoutMode>('grid');
   const [query, setQuery] = useState('');
   const [sort, setSort] = usePersistedSort(SORT_STORAGE_KEY);
   const [selectMode, setSelectMode] = useState(false);
@@ -137,8 +135,9 @@ export function GearSetsList({
   }, []);
 
   const renderedRows = rows.slice(0, visibleRowCount);
-  const columns = [renderedRows.filter((_, i) => i % 2 === 0), renderedRows.filter((_, i) => i % 2 === 1)];
-  const cardWidth = (width - 48) / 2;
+  const pinnedRows = renderedRows.filter((row) => row.pinned);
+  const otherRows = renderedRows.filter((row) => !row.pinned);
+  const grouped = pinnedRows.length > 0 && otherRows.length > 0;
   const selectableSetIds = rows.map((row) => row.set.id);
   const allSelected = picker
     ? selectableSetIds.length > 0 && selectableSetIds.every((id) => pickerSelectedIds.has(id))
@@ -152,10 +151,6 @@ export function GearSetsList({
       : sort === 'value'
         ? t('gear.setList.value')
         : t('gear.setList.name');
-  const runFromMenu = (action: () => void) => {
-    setMoreOpen(false);
-    setTimeout(action, 140);
-  };
   const exitSelect = () => {
     setSelectMode(false);
     setSelectedIds(new Set());
@@ -216,9 +211,8 @@ export function GearSetsList({
   return (
     <DetailPage
       theme={theme}
-      entryVariant={entryVariant}
       onBack={picker ? finishPicker : selectMode ? exitSelect : onBack}
-      backgroundColor={theme.groupedBg}
+      backgroundColor={theme.featureSurface}
       flatChrome
       onContentTouchStart={searchOpen ? closeSearch : undefined}
       right={selectMode ? (
@@ -252,7 +246,6 @@ export function GearSetsList({
           actions={(
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <GearHeaderButton icon={Search} onPress={() => setSearchOpen(true)} label={t('common.search')} color={theme.text} />
-              <GearHeaderButton icon={MoreHorizontal} onPress={() => setMoreOpen(true)} label={t('gear.setList.manage')} color={theme.text} />
             </View>
           )}
         />
@@ -263,17 +256,17 @@ export function GearSetsList({
             <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 22, paddingTop: 24, paddingBottom: Math.max(insets.bottom, 14) + 4, flexDirection: 'row', justifyContent: 'space-between', backgroundColor: 'transparent' }}>
               {selectMode ? (
                 <View style={{ flex: 1, flexDirection: 'row', gap: 12 }}>
-                  <Press onPress={selectedIds.size ? togglePinned : undefined} style={{ flex: 1, height: 52, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: bottomControlBg }}>
+                  <Press onPress={selectedIds.size ? togglePinned : undefined} style={{ flex: 1, height: 52, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: bottomControlBg, boxShadow: theme.controlShadow }}>
                     <Icon name="pin" color={selectedIds.size ? theme.accent : theme.text3} size={18} strokeWidth={2} />
                     <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '800', color: selectedIds.size ? theme.text : theme.text3 }}>{allSelectedPinned ? t('gear.setSelect.unpin') : t('gear.setSelect.pin')}</Text>
                   </Press>
-                  <Press onPress={selectedIds.size ? confirmDelete : undefined} style={{ flex: 1.35, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedIds.size ? theme.danger : bottomControlBg }}>
+                  <Press onPress={selectedIds.size ? confirmDelete : undefined} style={{ flex: 1.35, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedIds.size ? theme.danger : bottomControlBg, boxShadow: theme.controlShadow }}>
                     <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '800', color: selectedIds.size ? '#FFFFFF' : theme.text3 }}>{selectedIds.size ? t('gear.setSelect.deleteConfirm', { count: selectedIds.size }) : t('gear.setSelect.deletePrompt')}</Text>
                   </Press>
                 </View>
               ) : pickerMode ? (
                 <View style={{ flex: 1, flexDirection: 'row', gap: 12 }}>
-                  <Press onPress={() => setSortOpen(true)} opacityTo={1} style={{ height: 52, minWidth: 122, paddingHorizontal: 20, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: bottomControlBg }}>
+                  <Press onPress={() => setSortOpen(true)} opacityTo={1} style={{ height: 52, minWidth: 122, paddingHorizontal: 20, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: bottomControlBg, boxShadow: theme.controlShadow }}>
                     <Icon name="arrowDown" color={theme.text} size={19} strokeWidth={2.1} />
                     <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '800', color: theme.text }}>{sortLabel}</Text>
                   </Press>
@@ -288,7 +281,7 @@ export function GearSetsList({
                     <Icon name="plus" color="#FFFFFF" size={19} strokeWidth={2.1} />
                     <Text style={{ fontSize: 16, fontWeight: '800', color: '#FFFFFF' }}>{t('gear.setList.add')}</Text>
                   </Press>
-                  <Press onPress={() => setSortOpen(true)} opacityTo={1} style={{ height: 52, minWidth: 150, paddingHorizontal: 22, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: bottomControlBg }}>
+                  <Press onPress={() => setSortOpen(true)} opacityTo={1} style={{ height: 52, minWidth: 150, paddingHorizontal: 22, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: bottomControlBg, boxShadow: theme.controlShadow }}>
                     <Icon name="arrowDown" color={theme.text} size={19} strokeWidth={2.1} />
                     <Text style={{ fontSize: 16, fontWeight: '800', color: theme.text }}>{sortLabel}</Text>
                   </Press>
@@ -296,16 +289,6 @@ export function GearSetsList({
               )}
             </View>
           </View>
-          <SetsFloatingMenu theme={theme} visible={moreOpen} top={insets.top + 66} width={Math.min(216, width - 28)} onClose={() => setMoreOpen(false)}>
-            {onOpenSquare ? <>
-              <Text style={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: 7, fontSize: 12, fontWeight: '600', color: theme.text2 }}>{t('gear.square.discover')}</Text>
-              <SetsMenuRow theme={theme} icon="globe" label={t('gear.square.sets')} onPress={() => runFromMenu(onOpenSquare)} />
-              <Text style={{ paddingHorizontal: 24, paddingTop: 13, paddingBottom: 7, fontSize: 12, fontWeight: '600', color: theme.text2 }}>{t('gear.setList.display')}</Text>
-            </> : null}
-            {!onOpenSquare ? <Text style={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: 7, fontSize: 12, fontWeight: '600', color: theme.text2 }}>{t('gear.setList.display')}</Text> : null}
-            <SetsMenuRow theme={theme} icon="grid" label={t('gear.setList.grid')} selected={layout === 'grid'} onPress={() => runFromMenu(() => setLayout('grid'))} />
-            <SetsMenuRow theme={theme} icon="list" label={t('gear.setList.list')} selected={layout === 'list'} onPress={() => runFromMenu(() => setLayout('list'))} />
-          </SetsFloatingMenu>
           <SetsSortMenu theme={theme} visible={sortOpen} title={t('gear.setList.sort')} onClose={() => setSortOpen(false)}>
             <SetsCompactMenuRow theme={theme} icon="clock" label={t('gear.setList.created')} selected={sort === 'created'} onPress={() => { setSort('created'); setSortOpen(false); }} />
             <SetsCompactMenuRow theme={theme} icon="arrowDown" label={t('gear.setList.weight')} selected={sort === 'weight'} onPress={() => { setSort('weight'); setSortOpen(false); }} />
@@ -315,23 +298,31 @@ export function GearSetsList({
         </>
       )}
     >
-      <View style={{ paddingHorizontal: 16 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: 5, marginTop: 10, marginBottom: 20 }}>
-            <Text style={{ fontSize: 25, fontWeight: '800', letterSpacing: -0.6, color: theme.text }}>{selectMode ? t('gear.setSelect.title', { count: selectedIds.size }) : picker?.title ?? t('gear.setList.gallery')}</Text>
-            <Text style={{ fontFamily: MONO, fontSize: 12, fontWeight: '700', color: theme.text3 }}>{sets.length} {t('gear.unit.sets')}</Text>
+      <View style={{ paddingHorizontal: layout.pagePadding }}>
+        <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: space.sm, marginTop: space.xs, marginBottom: grouped ? 0 : space.xs }}>
+          <Text numberOfLines={1} style={[type.pageTitle, { flexShrink: 1, color: theme.text }]}>{selectMode ? t('gear.setSelect.title', { count: selectedIds.size }) : picker?.title ?? t('gear.setList.gallery')}</Text>
+          <Text numberOfLines={1} style={[type.caption, { fontFamily: MONO, fontVariant: ['tabular-nums'], color: theme.text3 }]}>{query.trim() ? t('gear.setList.filteredCount', { count: rows.length, total: sets.length }) : `${sets.length} ${t('gear.unit.sets')}`}</Text>
         </View>
 
-        {rows.length && layout === 'grid' ? (
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 16 }}>
-            {columns.map((column, columnIndex) => (
-              <View key={columnIndex} style={{ width: cardWidth, gap: 16 }}>
-                {column.map((row, localIndex) => (
-                  <SetGalleryCard
+        {rows.length ? (
+          <>
+            {(grouped ? [
+              { key: 'pinned', label: t('gear.setList.pinned'), rows: pinnedRows },
+              { key: 'all', label: t('gear.setList.all'), rows: otherRows },
+            ] : [{ key: 'all', label: null, rows: renderedRows }]).map((group) => (
+              <View key={group.key}>
+                {group.label ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs, paddingTop: space.lg, paddingBottom: space.xxs }}>
+                    {group.key === 'pinned' ? <Icon name="pin" color={theme.text2} size={13} strokeWidth={2.1} /> : null}
+                    <Text style={[type.eyebrow, { color: theme.text2 }]}>{group.label}</Text>
+                  </View>
+                ) : null}
+                {group.rows.map((row) => (
+                  <SetRow
                     key={row.set.id}
                     theme={theme}
-                    width={cardWidth}
-                    tall={(localIndex + columnIndex) % 3 === 1}
                     row={row}
+                    catMap={catMap}
                     weightUnit={weightUnit}
                     selectMode={pickerMode || selectMode}
                     selected={picker ? pickerSelectedIds.has(row.set.id) : selectedIds.has(row.set.id)}
@@ -342,13 +333,7 @@ export function GearSetsList({
                 ))}
               </View>
             ))}
-          </View>
-        ) : rows.length ? (
-          <View style={{ gap: 12 }}>
-            {renderedRows.map((row) => (
-              <SetListCard key={row.set.id} theme={theme} row={row} weightUnit={weightUnit} selectMode={pickerMode || selectMode} selected={picker ? pickerSelectedIds.has(row.set.id) : selectedIds.has(row.set.id)} loading={loadingCards} onPress={() => picker ? togglePickerSet(row.set.id) : selectMode ? toggleSelected(row.set.id) : onOpenSet(row.set)} onLongPress={() => { if (!picker) enterSelect(row.set.id); }} />
-            ))}
-          </View>
+          </>
         ) : query.trim() ? (
           <GearEmptyState
             theme={theme}
@@ -373,36 +358,6 @@ export function GearSetsList({
   );
 }
 
-function SetListCard({ theme, row, weightUnit, onPress, onLongPress, selectMode, selected, loading }: { theme: Theme; row: GalleryRow; weightUnit: WeightUnit; onPress: () => void; onLongPress: () => void; selectMode: boolean; selected: boolean; loading: boolean }) {
-  const { t } = useI18n();
-  const handlers = useLongPressGuard(onPress, onLongPress);
-  if (loading) return <View style={{ minHeight: 96, paddingHorizontal: 18, paddingVertical: 16, borderRadius: 22, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}><View style={{ width: '62%', height: 17, borderRadius: 5, backgroundColor: theme.fieldSurface }} /><View style={{ width: '84%', height: 12, borderRadius: 4, backgroundColor: theme.fieldSurface }} /></View>;
-  return (
-    <Press {...handlers} style={{ minHeight: 96, paddingHorizontal: 18, paddingVertical: 16, borderRadius: 22, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-        <Text numberOfLines={2} style={{ flex: 1, fontSize: 16, lineHeight: 21, fontWeight: '800', letterSpacing: -0.25, color: theme.text }}>{row.set.name}</Text>
-        {selectMode ? <SelectionMark theme={theme} selected={selected} /> : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>{row.pinned ? <Icon name="pin" color={theme.accent} size={15} strokeWidth={2.1} /> : null}<View style={{ height: 28, paddingHorizontal: 10, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : '#FFFFFF' }}><Text style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: '700', color: theme.text2 }}>{row.items.length} {t('gear.unit.items')}</Text></View></View>}
-      </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 15 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}><Package color={theme.text2} size={13} strokeWidth={1.7} /><Text style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: '700', color: theme.text2 }}>{row.cats} {t('gear.unit.cats')}</Text></View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 1 }}><Weight color={theme.text2} size={13} strokeWidth={1.7} /><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: '700', color: theme.text2 }}>{fmtWeight(row.weight, weightUnit, true)}</Text></View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, flexShrink: 1 }}><JapaneseYen color={theme.text2} size={12.5} strokeWidth={1.7} /><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: '700', color: theme.text2 }}>{Math.round(row.value)}</Text></View>
-      </View>
-      {selected ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 22, borderWidth: 1.5, borderColor: theme.accent }]} /> : null}
-    </Press>
-  );
-}
-
-function SetsMenuRow({ theme, icon, label, onPress, selected = false }: { theme: Theme; icon: IconName; label: string; onPress: () => void; selected?: boolean }) {
-  return (
-    <Press onPress={onPress} scaleTo={0.985} style={{ height: 58, paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center' }}>
-      <View style={{ width: 28, alignItems: 'center' }}><Icon name={icon} color={theme.text} size={22} strokeWidth={1.9} /></View>
-      <Text style={{ marginLeft: 18, fontSize: 15, fontWeight: '400', color: theme.text }}>{label}</Text>
-      {selected ? <View style={{ marginLeft: 'auto' }}><Icon name="check" color={theme.accent} size={17} strokeWidth={2.2} /></View> : null}
-    </Press>
-  );
-}
-
 function SetsCompactMenuRow({ theme, icon, label, onPress, selected = false }: { theme: Theme; icon: IconName; label: string; onPress: () => void; selected?: boolean }) {
   return (
     <Press onPress={onPress} scaleTo={0.985} style={{ height: 48, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' }}>
@@ -410,21 +365,6 @@ function SetsCompactMenuRow({ theme, icon, label, onPress, selected = false }: {
       <Text style={{ marginLeft: 13, fontSize: 14.5, color: theme.text }}>{label}</Text>
       {selected ? <View style={{ marginLeft: 'auto' }}><Icon name="check" color={theme.accent} size={16} strokeWidth={2.2} /></View> : null}
     </Press>
-  );
-}
-
-function SetsFloatingMenu({ theme, visible, top, width, onClose, children }: { theme: Theme; visible: boolean; top: number; width: number; onClose: () => void; children: React.ReactNode }) {
-  return (
-    <GearMenuTransition
-      theme={theme}
-      visible={visible}
-      onClose={onClose}
-      positionStyle={{ position: 'absolute', top, right: 14, width, borderRadius: 26, overflow: 'hidden', boxShadow: theme.dark ? '0px 18px 46px rgba(0,0,0,0.52)' : '0px 18px 46px rgba(0,0,0,0.18)' }}
-    >
-      <Glass solidOnAndroid theme={theme} radius={26} intensity={76}>
-        <View style={{ backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)', paddingVertical: 13 }}>{children}</View>
-      </Glass>
-    </GearMenuTransition>
   );
 }
 
@@ -475,7 +415,7 @@ function useLongPressGuard(onPress: () => void, onLongPress: () => void) {
   };
 }
 
-type GalleryRow = {
+type SetRowData = {
   set: GearSet;
   items: GearItem[];
   weight: number;
@@ -484,28 +424,69 @@ type GalleryRow = {
   pinned: boolean;
 };
 
-function SetGalleryCard({ theme, width, tall, row, weightUnit, onPress, onLongPress, selectMode, selected, loading }: { theme: Theme; width: number; tall: boolean; row: GalleryRow; weightUnit: WeightUnit; onPress: () => void; onLongPress: () => void; selectMode: boolean; selected: boolean; loading: boolean }) {
+function SetRow({ theme, row, catMap, weightUnit, onPress, onLongPress, selectMode, selected, loading }: { theme: Theme; row: SetRowData; catMap?: Record<string, GearCat>; weightUnit: WeightUnit; onPress: () => void; onLongPress: () => void; selectMode: boolean; selected: boolean; loading: boolean }) {
   const { t } = useI18n();
   const handlers = useLongPressGuard(onPress, onLongPress);
-  const height = tall ? 236 : 204;
-  if (loading) return <View style={{ width, height, padding: 16, borderRadius: 24, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}><View style={{ width: '72%', height: 18, borderRadius: 5, backgroundColor: theme.fieldSurface }} /><View style={{ width: '88%', height: 12, borderRadius: 4, backgroundColor: theme.fieldSurface }} /></View>;
-  const foreground = theme.text;
-  const secondary = theme.text2;
-  return (
-    <Press {...handlers} style={{ width, height, padding: 16, borderRadius: 24, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 7 }}>
-        {row.pinned && !selectMode ? <View style={{ paddingTop: 4 }}><Icon name="pin" color={theme.accent} size={15} strokeWidth={2.1} /></View> : null}
-        <Text numberOfLines={3} style={{ flex: 1, fontSize: 18, lineHeight: 24, fontWeight: '800', letterSpacing: -0.45, color: foreground }}>{row.set.name}</Text>
-        {selectMode ? <SelectionMark theme={theme} selected={selected} /> : <View style={{ paddingHorizontal: 7, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : '#F2F2F3' }}><Text style={{ fontFamily: MONO, fontSize: 9.5, fontWeight: '700', color: theme.text2 }}>{row.items.length} {t('gear.unit.items')}</Text></View>}
-      </View>
-      <View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 12 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 0 }}><Package color={secondary} size={12.5} strokeWidth={1.7} /><Text style={{ fontFamily: MONO, fontSize: 10, fontWeight: '700', color: secondary }}>{row.cats} {t('gear.unit.cats')}</Text></View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 1, minWidth: 0 }}><Weight color={secondary} size={12.5} strokeWidth={1.7} /><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78} style={{ fontFamily: MONO, fontSize: 10, fontWeight: '700', color: secondary }}>{fmtWeight(row.weight, weightUnit, true)}</Text></View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, flexShrink: 1, minWidth: 0 }}><JapaneseYen color={secondary} size={12} strokeWidth={1.7} /><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={{ fontFamily: MONO, fontSize: 10, fontWeight: '700', color: secondary }}>{Math.round(row.value)}</Text></View>
+  const shell = { marginHorizontal: -space.sm, paddingHorizontal: space.sm, paddingVertical: space.sm + 2, borderRadius: radius.card, flexDirection: 'row', alignItems: 'center', gap: space.sm } as const;
+  const heaviest = useMemo(() => [...row.items].sort((a, b) => itemWeight(b) - itemWeight(a)), [row.items]);
+  if (loading) {
+    return (
+      <View style={shell}>
+        <View style={{ flex: 1, gap: space.xs }}>
+          <View style={{ width: '58%', height: 15, borderRadius: radius.control / 2, backgroundColor: theme.fieldSurface }} />
+          <View style={{ width: '32%', height: 11, borderRadius: radius.control / 2, backgroundColor: theme.fieldSurface }} />
+          <View style={{ width: STRIP_THUMB * 4, height: STRIP_THUMB, marginTop: space.xxs, borderRadius: radius.control, backgroundColor: theme.fieldSurface }} />
         </View>
       </View>
-      {selected ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 24, borderWidth: 1.5, borderColor: theme.accent }]} /> : null}
-    </Press>
+    );
+  }
+  const empty = row.items.length === 0;
+  const overflow = heaviest.length > STRIP_MAX;
+  const shown = overflow ? heaviest.slice(0, STRIP_MAX - 1) : heaviest;
+  const weight = fmtWeight(row.weight, weightUnit);
+  const value = `¥${formatItemValue(row.value)}`;
+  const counts = row.cats ? `${row.items.length} ${t('gear.unit.items')}  ${row.cats} ${t('gear.unit.cats')}` : `${row.items.length} ${t('gear.unit.items')}`;
+  const description = row.set.description?.trim();
+  return (
+    <Pressable
+      {...handlers}
+      accessibilityRole="button"
+      accessibilityState={selectMode ? { selected } : undefined}
+      accessibilityLabel={[row.set.name, counts, empty ? null : weight, empty ? null : value].filter(Boolean).join(', ')}
+      style={({ pressed }) => [shell, { backgroundColor: selected ? theme.accentSofter : pressed ? theme.fieldSurface : 'transparent' }]}
+    >
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text numberOfLines={1} style={[type.cardTitle, { lineHeight: 20, color: theme.text }]}>{row.set.name}</Text>
+        {description ? <Text numberOfLines={1} style={[type.caption, { marginTop: space.xxs, color: theme.text3 }]}>{description}</Text> : null}
+        {/* Weight sits in the right column (like ItemRow); value and counts share one caption line. */}
+        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: space.md + 2, marginTop: space.xs }}>
+          {empty ? null : <Text numberOfLines={1} style={[type.caption, { fontFamily: MONO, fontVariant: ['tabular-nums'], color: theme.text2 }]}>{value}</Text>}
+          <Text numberOfLines={1} style={[type.caption, { flexShrink: 1, fontFamily: MONO, fontVariant: ['tabular-nums'], color: theme.text2 }]}>{counts}</Text>
+        </View>
+        <View style={{ flexDirection: 'row', gap: space.xs - 2, marginTop: space.sm }}>
+          {empty ? (
+            <View style={{ height: STRIP_THUMB, paddingHorizontal: space.sm, borderRadius: radius.control, borderWidth: 1.5, borderStyle: 'dashed', borderColor: theme.border, justifyContent: 'center' }}>
+              <Text style={[type.caption, { color: theme.text2 }]}>{t('gear.empty.noItemsYet')}</Text>
+            </View>
+          ) : (
+            <>
+              {shown.map((item, index) => (
+                <View key={`${item.id ?? item.name}-${index}`} style={[{ width: STRIP_THUMB, height: STRIP_THUMB, borderRadius: radius.control, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }, item.photos?.[0] ? { borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline } : null]}>
+                  <Package color={catMap?.[item.cat]?.color || theme.text3} size={15} strokeWidth={1.7} opacity={0.6} />
+                  {item.photos?.[0] ? <Image source={{ uri: item.photos[0] }} contentFit="cover" transition={160} style={StyleSheet.absoluteFill} /> : null}
+                </View>
+              ))}
+              {overflow ? (
+                <View style={{ width: STRIP_THUMB, height: STRIP_THUMB, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
+                  <Text style={[type.caption, { fontFamily: MONO, fontWeight: '700', color: theme.text2 }]}>+{heaviest.length - shown.length}</Text>
+                </View>
+              ) : null}
+            </>
+          )}
+        </View>
+      </View>
+      {empty ? null : <Text numberOfLines={1} style={[type.metric, { flexShrink: 0, fontVariant: ['tabular-nums'], color: theme.text }]}>{weight}</Text>}
+      {selectMode ? <SelectionMark theme={theme} selected={selected} /> : null}
+    </Pressable>
   );
 }

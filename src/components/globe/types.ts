@@ -54,7 +54,7 @@ export type GlobeMapStyle = 'standard' | 'terrain' | 'satellite';
 
 export type GlobeCameraAction =
   | { type: 'fitRoute' | 'resetNorth'; revision: number }
-  | { type: 'fitCoordinates'; revision: number; coordinates: [number, number][]; padding?: [number, number, number, number] }
+  | { type: 'fitCoordinates'; revision: number; coordinates: [number, number][]; padding?: [number, number, number, number]; animated?: boolean }
   | { type: 'locate'; revision: number; coordinate: [number, number] }
   | { type: 'restore'; revision: number; coordinate: [number, number]; zoom: number };
 

@@ -96,6 +96,7 @@ export function toJourneyPoi(j: any, companions?: any[], viewerUserId?: string):
           ? "track"
           : undefined,
     trackPublic: j.track_public ?? false,
+    visibility: j.visibility ?? "private",
     routeShowPhotos: j.route_show_photos ?? true,
     routeShowTimeline: j.route_show_timeline ?? true,
     photoUris: j.photo_uris,
@@ -135,6 +136,7 @@ export function toTrack(r: any): Track {
     ascM: r.asc_m ?? undefined,
     pointCount: r.point_count ?? undefined,
     startedAt: r.started_at ?? undefined,
+    visibility: r.visibility ?? 'private',
     createdAt: r.created_at ?? undefined,
     updatedAt: r.updated_at ?? undefined,
   };
@@ -174,6 +176,7 @@ export function toGearSet(
     id: r.id,
     name: r.name,
     description: r.description ?? undefined,
+    visibility: r.visibility ?? 'private',
     items: itemNames,
     overrides:
       overrides && Object.keys(overrides).length ? overrides : undefined,

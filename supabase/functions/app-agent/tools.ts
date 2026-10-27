@@ -57,6 +57,8 @@ type UploadedTrackData = {
 const requestClients = new Map<string, Client>();
 const cacheClients = new Map<string, Client>();
 const journeyWrites = new Map<string, Promise<unknown>>();
+// Identical replayable calls of one run that are still executing, keyed by run, tool and arguments.
+const callsInFlight = new Map<string, Promise<unknown>>();
 
 // The stage currently executing for a run, and when its budget expires.
 const stageDeadlines = new Map<string, { stage: string; deadlineAt: number }>();
@@ -402,6 +404,20 @@ async function libraryTrackId(client: Client, context: AgentContext, track: Uplo
 }
 
 async function mutate<T>(toolName: string, args: unknown, runContext: RunContext | undefined, operation: (client: Client, context: AgentContext) => Promise<T | UndoableResult<T>>): Promise<T> {
+  if (!canReplayToolResult(toolName)) return mutateSerialized(toolName, args, runContext, operation);
+  // Models sometimes send the same call twice in one parallel batch (加两个X as
+  // two identical add_gear calls). Both would pass a dedupe read before either
+  // writes and share one audit row, so the twin awaits the first call's result
+  // exactly as a replay of the completed call would.
+  const key = `${contextFor(runContext).runId}\u0000${toolName}\u0000${stable(args)}`;
+  const pending = callsInFlight.get(key);
+  if (pending) return pending as Promise<T>;
+  const call = mutateSerialized(toolName, args, runContext, operation);
+  callsInFlight.set(key, call);
+  try { return await call; } finally { callsInFlight.delete(key); }
+}
+
+async function mutateSerialized<T>(toolName: string, args: unknown, runContext: RunContext | undefined, operation: (client: Client, context: AgentContext) => Promise<T | UndoableResult<T>>): Promise<T> {
   if (!writeDependencies(toolName, (args || {}) as Record<string, unknown>).length) return mutateUnlocked(toolName, args, runContext, operation);
   const runId = contextFor(runContext).runId;
   const previous = journeyWrites.get(runId) || Promise.resolve();
@@ -800,7 +816,7 @@ export const runSearchGroundTransport = (args: { origin: string; destination: st
 
 export const addGear = tool({
   name: 'add_gear',
-  description: 'Add one item the user already owns to their gear library. When the user names several items (添加头灯、水袋、登山鞋), call add_gear once per item in the same turn. The user\'s words are the confirmation: never ask about scenarios, budget, preferences, weight, price or brand. Keep the user\'s wording (brand and model included) as the name, fill only what they stated, and leave the rest at the defaults. Use a matching categoryId from the categories given in the task input (or list_gear), or null; there is no need to read the library first. Call add_gear for every named item; an item whose name is already in the library comes back with existing=true and nothing is added, so report it as already in the library.',
+  description: 'Add one item the user already owns to their gear library. When the user names several items (添加头灯、水袋、登山鞋), call add_gear once per item in the same turn. The user\'s words are the confirmation: never ask about scenarios, budget, preferences, weight, price or brand. A stated count goes in quantity on that one call (两个Nalgene is one call with quantity 2), never repeated calls. Keep the user\'s wording (brand and model included) as the name, fill only what they stated, and leave the rest at the defaults. Use a matching categoryId from the categories given in the task input (or list_gear), or null; there is no need to read the library first. Call add_gear for every named item; an item whose name is already in the library comes back with existing=true and nothing is added, so report it as already in the library.',
   parameters: z.object({
     name: z.string().min(1).max(120),
     categoryId: z.string().max(100).nullable().default(null),
@@ -814,11 +830,18 @@ export const addGear = tool({
     // Duplicates are skipped here, not left to the model: a request whose items
     // all exist must still count as done, and must never insert a second copy.
     const key = (name: string) => name.replace(/\s+/g, '').toLocaleLowerCase();
-    const owned = await client.from('gear_items').select('id,name').eq('user_id', context.userId);
+    const [owned, category] = await Promise.all([
+      client.from('gear_items').select('id,name').eq('user_id', context.userId),
+      args.categoryId ? client.from('gear_categories').select('id').eq('user_id', context.userId).eq('id', args.categoryId).maybeSingle() : null,
+    ]);
     if (owned.error) throw owned.error;
+    if (category?.error) throw category.error;
     const match = owned.data.find((item: { name: string }) => key(item.name) === key(args.name));
     if (match) return { ...match, existing: true };
-    const { data, error } = await client.from('gear_items').insert({ user_id: context.userId, name: args.name, cat_id: args.categoryId || null, weight: args.weightKg, price: args.priceCny, qty: args.quantity, status: args.status, note: args.note || null }).select('id,name').single();
+    // gear_items.price holds whole yuan.
+    // A model-chosen category that is not one of the user's (a category name
+    // instead of its id) files the item as uncategorized rather than failing it.
+    const { data, error } = await client.from('gear_items').insert({ user_id: context.userId, name: args.name, cat_id: category?.data?.id ?? null, weight: args.weightKg, price: Math.round(args.priceCny), qty: args.quantity, status: args.status, note: args.note || null }).select('id,name').single();
     if (error) throw error;
     return data;
   }),

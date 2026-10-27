@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { resourceUsageChanged } from '../lib/resourceClient';
 import { supabase } from '../lib/supabase';
 import { useOfflineState } from '../lib/offlineCache';
@@ -11,6 +11,10 @@ export function useGear(userId: string | undefined) {
   const [items, setItems] = useOfflineState<GearItem[]>(userId, 'gear.items', []);
   const [sets, setSets] = useOfflineState<GearSet[]>(userId, 'gear.sets', []);
   const [loading, setLoading] = useState(true);
+  // Sets resolve item IDs to names. A set saved right after new items (按描述搭配
+  // creating its 待购 gear) must see them before the next render does.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
 
   const fetchAll = useCallback(async () => {
     if (!userId) return;
@@ -112,6 +116,7 @@ export function useGear(userId: string | undefined) {
         attrs: item.attrs ?? null,
         note: item.note ?? null,
         status: item.status ?? 'packed',
+        ...(item.owned === false ? { owned: false } : {}),
       })
       .select().single();
     if (error) {
@@ -122,6 +127,7 @@ export function useGear(userId: string | undefined) {
     }
     if (data) {
       const saved = toGearItem(data);
+      itemsRef.current = [...itemsRef.current, saved];
       setItems(prev => [...prev, saved]);
       resourceUsageChanged();
       return saved;
@@ -180,7 +186,7 @@ export function useGear(userId: string | undefined) {
     if (error) throw error;
     if (!data) throw new Error('装备套装保存失败');
     resourceUsageChanged();
-    const itemMap = new Map(items.map(i => [i.id!, i.name]));
+    const itemMap = new Map(itemsRef.current.map(i => [i.id!, i.name]));
     const itemNames = itemIds.map(id => itemMap.get(id)).filter(Boolean) as string[];
     setSets(prev => [...prev, toGearSet(data, itemNames, overrides)]);
   };
@@ -189,9 +195,15 @@ export function useGear(userId: string | undefined) {
     const {error} = await supabase.rpc('save_resource_gear_set',{p_id:id,p_name:name,p_description:description ?? null,p_items:itemIds.map(itemId=>({id:itemId,qty:overrides[String(itemId)]?.qty ?? null,status:overrides[String(itemId)]?.status ?? null}))});
     if (error) throw error;
     resourceUsageChanged();
-    const itemMap = new Map(items.map(i => [i.id!, i.name]));
+    const itemMap = new Map(itemsRef.current.map(i => [i.id!, i.name]));
     const itemNames = itemIds.map(iid => itemMap.get(iid)).filter(Boolean) as string[];
     setSets(prev => prev.map(s => s.id === id ? { ...s, name, description, items: itemNames, overrides } : s));
+  };
+
+  const setSetVisibility = async (id: string, visibility: NonNullable<GearSet['visibility']>) => {
+    const { error } = await supabase.from('gear_sets').update({ visibility }).eq('id', id);
+    if (error) throw error;
+    setSets(prev => prev.map(s => s.id === id ? { ...s, visibility } : s));
   };
 
   const deleteSet = async (id: string) => {
@@ -205,7 +217,7 @@ export function useGear(userId: string | undefined) {
     cats, items, sets, loading: loading && !catsCached,
     addCat, updateCat, deleteCat,
     addItem, updateItem, deleteItem,
-    addSet, updateSet, deleteSet,
+    addSet, updateSet, deleteSet, setSetVisibility,
     refetch: fetchAll,
   };
 }

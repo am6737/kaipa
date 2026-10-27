@@ -159,7 +159,6 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
       if (!lead) return [];
       return [{
         id: `topic-${topic}`,
-        tag: t(`journeyHome.topic.${topic}.tag`, { month }),
         title: t(`journeyHome.topic.${topic}.title`, { month }),
         tone: lead.tone,
         seed: lead.id,
@@ -171,7 +170,6 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
     return [
       ...homeContent.cards.map((card): StarterCard => ({
         id: card.id,
-        tag: card.subtitle,
         title: card.title,
         seed: card.id,
         imageUrl: card.imageUrl,
@@ -182,15 +180,15 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
         },
       })),
       ...(SHOW_PLUS_CARD && membership?.accessSource === 'campaign' ? [{
-        id: 'open-access', tag: t(`${k}.openAccessTag`), title: t(`${k}.openAccessTitle`), tone: 'dusk', seed: 'open-access',
+        id: 'open-access', title: t(`${k}.openAccessTitle`), tone: 'dusk', seed: 'open-access',
         onPress: () => nav.openPlusPoster(),
       }] : []),
       ...topicCard('season'),
       ...topicCard('easy'),
-      { id: 'ai', tag: t(`${k}.aiTag`), title: t(`${k}.aiTitle`), tone: 'snow', seed: 'ai', onPress: () => nav.openAssistant(t(`${k}.aiPrompt`)) },
+      { id: 'ai', title: t(`${k}.aiTitle`), tone: 'snow', seed: 'ai', onPress: () => nav.openAssistant(t(`${k}.aiPrompt`)) },
       ...topicCard('hard'),
-      { id: 'gear', tag: t(`${k}.gearTag`), title: t(`${k}.gearTitle`), tone: 'forest', seed: 'gear', onPress: () => nav.openGearPage('sets') },
-      { id: 'request', tag: t(`${k}.requestTag`), title: t(`${k}.requestTitle`), tone: 'river', seed: 'request', onPress: () => nav.openRouteRequest() },
+      { id: 'gear', title: t(`${k}.gearTitle`), tone: 'forest', seed: 'gear', onPress: () => nav.openGearPage('sets') },
+      { id: 'request', title: t(`${k}.requestTitle`), tone: 'river', seed: 'request', onPress: () => nav.openRouteRequest() },
     ];
   }, [homeContent.cards, data.routes, membership?.accessSource, nav, t]);
 
@@ -272,11 +270,6 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
                       <PhotoTile tone={card.tone} seed={card.seed} resWidth={360} style={StyleSheet.absoluteFill}>
                         {card.imageUrl ? <Image source={{ uri: card.imageUrl }} style={StyleSheet.absoluteFill} /> : null}
                       </PhotoTile>
-                      {card.tag ? (
-                        <View style={styles.starterCardTag}>
-                          <Text numberOfLines={1} style={styles.starterCardTagText}>{card.tag}</Text>
-                        </View>
-                      ) : null}
                       <LinearGradient colors={['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0.5)']} style={styles.starterCardCopy}>
                         <Text numberOfLines={2} style={[styles.starterCardTitle, { color: '#FFFFFF' }]}>{card.title}</Text>
                         <View style={styles.starterCardAction}>
@@ -494,8 +487,6 @@ const styles = StyleSheet.create({
   starterTitle: { paddingHorizontal: layout.pagePadding + space.xxs, fontSize: 25, lineHeight: 34, fontWeight: '700', letterSpacing: 0 },
   starterCards: { gap: space.md, paddingHorizontal: layout.pagePadding + space.xs, paddingTop: space.xxl, paddingBottom: space.xxl },
   starterCard: { width: 168, height: 208, borderRadius: radius.feature, overflow: 'hidden', justifyContent: 'space-between', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 5 },
-  starterCardTag: { alignSelf: 'flex-start', marginTop: space.sm, marginLeft: space.sm, maxWidth: '86%', paddingHorizontal: space.sm, paddingVertical: space.xxs, borderRadius: radius.pill, backgroundColor: 'rgba(255, 255, 255, 0.88)' },
-  starterCardTagText: { fontSize: 12, fontWeight: '600', color: '#4A4A4A' },
   starterCardCopy: { marginTop: 'auto', paddingHorizontal: space.sm, paddingTop: space.xl, paddingBottom: space.sm },
   starterCardTitle: { fontSize: 18, lineHeight: 24, fontWeight: '800', letterSpacing: 0 },
   starterCardAction: { marginTop: space.xxs, flexDirection: 'row', alignItems: 'center', gap: space.xxs },

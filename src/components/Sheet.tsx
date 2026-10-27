@@ -48,6 +48,8 @@ interface Props {
   /** Optional control row rendered immediately above the sheet surface. */
   topAccessory?: React.ReactNode;
   topAccessoryHeight?: number;
+  /** Optional content pinned to the bottom of the sheet surface. */
+  bottomAccessory?: React.ReactNode;
   /** Entrance animation style for overlays that are already replacing a visible sheet. */
   entranceAnimation?: 'spring' | 'timing' | 'none';
   /** Optional value that mirrors the sheet's animated vertical translation. */
@@ -88,6 +90,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     bodyScrollY,
     topAccessory,
     topAccessoryHeight = 0,
+    bottomAccessory,
     onBodyHeightChange,
     onHeaderHeightChange,
     entranceAnimation = 'spring',
@@ -492,6 +495,30 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
           </GestureDetector>
         </View>
       )}
+
+      {/* The sheet slides down by translateY to reach a lower detent, which
+          would carry its bottom edge off-screen. Cancel that out so the
+          accessory stays pinned to the screen bottom; past fully-collapsed
+          (dismissing) it leaves with the sheet. */}
+      {bottomAccessory ? (
+        // box-none: the wrapper spans the screen's bottom edge even when the
+        // accessory itself has slid off-screen (the trail sheet parks its footer
+        // there at the lowest detent). Left as a touch target it wins the hit
+        // test, and touches only bubble to ancestors — so the card body, a
+        // sibling subtree under it, would receive nothing.
+        <Animated.View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            transform: [{ translateY: translateY.interpolate({ inputRange: [0, maxH], outputRange: [0, -maxH], extrapolate: 'clamp' }) }],
+          }}
+        >
+          {bottomAccessory}
+        </Animated.View>
+      ) : null}
     </Animated.View>
   );
 });

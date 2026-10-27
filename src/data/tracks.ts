@@ -38,6 +38,8 @@ export interface Track {
   ascM?: number;
   pointCount?: number;
   startedAt?: string;
+  /** Profile visibility; only used while the track is not on a journey. */
+  visibility?: 'private' | 'followers' | 'public';
   createdAt?: string;
   updatedAt?: string;
 }

@@ -93,7 +93,7 @@ const MarkerRow = React.memo(function MarkerRow({
 
 type FullMapPanel = 'layers' | null;
 
-function FullscreenTrackMap({
+export function FullscreenTrackMap({
   theme,
   info,
   coords,

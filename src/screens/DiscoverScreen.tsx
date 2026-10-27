@@ -28,7 +28,7 @@ import { DiscoverCollectionHeader, DiscoverRouteList } from '../components/disco
 import { RoutePreviewActions, RoutePreviewPanel } from '../components/discover/RoutePreviewPanel';
 import { trailRouteFromPoi, useOpenTrail } from '../trail/trailRoutes';
 import { RouteShareSheet } from '../components/discover/RouteShareSheet';
-import { buildRouteWaypointMarkers, estimateRouteWaypointZoom, projectRouteWaypoints } from '../components/discover/routeWaypointMarkers';
+import { buildRouteWaypointMarkers, buildWaypointLayer, estimateRouteWaypointZoom, waypointOrder, type WaypointLayer, type WaypointLayerLine } from '../components/discover/routeWaypointMarkers';
 import { buildRouteEndpointMarkers } from '../components/discover/routeEndpointMarkers';
 import { isLoopTrack } from '../lib/routeDirection';
 import { directedClimb } from '../data/elevation';
@@ -58,11 +58,13 @@ import { journeyDayDisplayLabel } from '../lib/journeyDays';
 import { JOURNEY_SEGMENT_COLORS, measureTrack } from '../lib/routeSegments';
 import { planJourneyDirections, type PlannedLeg } from '../lib/amapGeocoding';
 import { CurrentPositionError, getCurrentPosition } from '../lib/currentPosition';
+import { launchRegion, rememberLaunchRegion } from '../lib/launchRegion';
 import { isWriteBusy } from '../lib/writeErrors';
 import { BOTTOM_TABS_HEIGHT } from '../components/BottomTabs';
 import { MapStylePickerSheet, type MapPresentationStyle } from '../components/MapStylePickerSheet';
 import { activeRouteFilterCount, applyRouteFilters, DEFAULT_ROUTE_FILTERS, RouteFilterSheet, type RouteFilters } from '../components/discover/RouteFilterSheet';
 import { AssistantMark } from '../components/assistant/AssistantMark';
+import { MarkDetail } from '../components/trail/MarkDetail';
 import { Maximize2, RotateCcw, Search } from 'lucide-react-native';
 import { restoreJourneyVersion } from '../hooks/useJourneyVersions';
 import { refetchJourneyInspo } from '../hooks/useInspo';
@@ -160,6 +162,18 @@ function adminRegionFit(region: string): [number, number][] | undefined {
 // Once per app launch: a remount (or a region the user picked) must not pull
 // the map back to the located province.
 let launchProvinceSettled = false;
+// The map's first frame is the launch region itself, not a flight to it.
+let launchRegionFitted = false;
+
+// Location layer updates closer than this to the last one are dropped.
+const LOCATION_UPDATE_MIN_METRES = 3;
+
+function metresBetween(a: { lng: number; lat: number }, b: { lng: number; lat: number }): number {
+  const cos = Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
+  const dx = (b.lng - a.lng) * cos;
+  const dy = b.lat - a.lat;
+  return Math.sqrt(dx * dx + dy * dy) * 111_320;
+}
 
 function adminRegionOf(poi: Poi): string {
   return poi.region.split('·')[0]?.trim() || poi.region;
@@ -619,6 +633,7 @@ const NO_FOCUS_SEGMENTS: GlobeRouteSegment[] = [];
 
 const NO_COMPANION_PINS: NativeMapMarker[] = [];
 const NO_ROUTE_WAYPOINT_MARKERS: NativeMapMarker[] = [];
+const NO_ROUTE_WAYPOINTS: WaypointLayer = { list: [], details: [], lines: [] };
 
 function DiscoverScreenView({
   theme,
@@ -676,9 +691,9 @@ function DiscoverScreenView({
   const mapMarkerPressAtRef = React.useRef(0);
   const wasMapActiveRef = React.useRef(active);
   const mapCameraEventRef = React.useRef<{ at: number } | null>(null);
-  // Track annotations on the open route card: which waypoint's bubble is up,
-  // and the (debounced, half-step) zoom the annotation groups are clustered at.
-  const [selectedRouteWaypoint, setSelectedRouteWaypoint] = useState<number | null>(null);
+  // Track annotations on the open route card: which waypoint's detail sheet is
+  // open, and the (debounced, half-step) zoom the annotation groups are clustered at.
+  const [openRouteWaypoint, setOpenRouteWaypoint] = useState<number | null>(null);
   // Whether the finish (or a loop's trailhead) shows its 「从这里出发」 bubble.
   const [routeEndpointActionOpen, setRouteEndpointActionOpen] = useState(false);
   const [waypointClusterZoom, setWaypointClusterZoom] = useState<number | null>(null);
@@ -697,7 +712,7 @@ function DiscoverScreenView({
     return () => routeNavigationRequestRef.current?.abort();
   }, [nav.pointInfo?.id]);
   useEffect(() => {
-    setSelectedRouteWaypoint(null);
+    setOpenRouteWaypoint(null);
     setRouteEndpointActionOpen(false);
     setWaypointClusterZoom(null);
     if (waypointZoomTimerRef.current) clearTimeout(waypointZoomTimerRef.current);
@@ -1359,9 +1374,13 @@ function DiscoverScreenView({
     () => (areaRouteIds ? exploreBasePois.filter((p) => areaRouteIds.has(p.id)) : basePois),
     [areaRouteIds, exploreBasePois, basePois],
   );
+  // Only 离我最近 reads the location. Keying every sort on it rebuilt the list,
+  // the place groups and (on Android) every pin marker on each location update,
+  // starting with the launch fix that lands mid province fit.
+  const sortLocation = routeFilters.sort === 'near' ? currentLocation : null;
   const pois = useMemo(
-    () => applyRouteFilters(areaBasePois, routeFilters, { location: currentLocation }),
-    [areaBasePois, routeFilters, currentLocation],
+    () => applyRouteFilters(areaBasePois, routeFilters, { location: sortLocation }),
+    [areaBasePois, routeFilters, sortLocation],
   );
 
   // The sheet's list: scoped to one trailhead when a clustered pin is tapped,
@@ -1416,6 +1435,8 @@ function DiscoverScreenView({
   useEffect(() => {
     const coordinates = adminRegionFit(adminRegion);
     if (!coordinates) return;
+    const animated = launchRegionFitted;
+    launchRegionFitted = true;
     setMapAtCurrentLocation(false);
     setPlaceSel(null);
     setMapCameraAction((current) => ({
@@ -1423,13 +1444,15 @@ function DiscoverScreenView({
       revision: (current?.revision ?? 0) + 1,
       coordinates,
       padding: [24, 24, 24, 24],
+      animated,
     }));
   }, [adminRegion]);
 
   // The whole country is a heap of overlapping avatars, so the map opens on
-  // the user's province instead: locate once at launch and switch the region,
-  // which the effect above turns into a camera fit. A region the user picked
-  // while the fix was pending is left alone.
+  // the user's province instead. It starts on the province the last launch
+  // located (see launchRegion), then locates once and switches only if the user
+  // has moved, which the effect above turns into a camera fit. A region the
+  // user picked while the fix was pending is left alone.
   const adminRegionRef = React.useRef(adminRegion);
   adminRegionRef.current = adminRegion;
   useEffect(() => {
@@ -1456,7 +1479,10 @@ function DiscoverScreenView({
         const province = provinceAt(position.lng, position.lat, geocoded);
         if (cancelled || launchProvinceSettled) return;
         launchProvinceSettled = true;
-        if (province && adminRegionRef.current === '全国') nav.setDiscoverRegion(province);
+        rememberLaunchRegion(province);
+        // Abroad goes back to the national view, as a first launch would show.
+        const located = province ?? '全国';
+        if (adminRegionRef.current === launchRegion() && located !== adminRegionRef.current) nav.setDiscoverRegion(located);
       } catch (error) {
         // Without a fix the map simply stays on the national view.
         console.warn('Failed to locate launch province', error instanceof Error ? error.message : error);
@@ -1702,36 +1728,93 @@ function DiscoverScreenView({
     ];
   }, [comparisonRoutes, focusCoords, nav.pointInfo?.kind]);
   // The route card's own annotation layer: the track's library waypoints drawn
-  // on the open route. Built through `extraMarkers` rather than a MapGlobe prop
-  // because that file's framing test vm-loads it against a fixed import list.
-  const routeWaypointMarkers = useMemo<NativeMapMarker[]>(() => {
+  // on the open route, and the detail sheet's items for the same taps — the same pair the
+  // 徒步导航 page builds, so a tap opens the spot's detail there and here alike.
+  // Built through `extraMarkers` rather than a MapGlobe prop because that file's
+  // framing test vm-loads it against a fixed import list.
+  const routeWaypointLine = useMemo<WaypointLayerLine | null>(() => {
     const point = nav.pointInfo;
-    if (!point || point.kind !== 'route' || !point.trackWaypoints?.length || !routeWaypointsVisible) return NO_ROUTE_WAYPOINT_MARKERS;
-    // Shares the opening frame's budget with the kilometre labels: both wait
-    // for the card's camera fit to be reported, when the real zoom is known.
-    if (!distanceMarkersReady || routeNavigation) return NO_ROUTE_WAYPOINT_MARKERS;
+    if (!point || point.kind !== 'route' || !point.trackWaypoints?.length) return null;
     const primary = focusCoords;
-    if (!primary || primary.length < 2) return NO_ROUTE_WAYPOINT_MARKERS;
+    if (!primary || primary.length < 2) return null;
     const drawn = routeReversed ? [...primary].reverse() : primary;
-    const projected = projectRouteWaypoints(drawn, point.trackWaypoints, routeReversed);
-    if (!projected.length) return NO_ROUTE_WAYPOINT_MARKERS;
+    return {
+      key: `route-wp-${point.id}`,
+      coords: drawn,
+      waypoints: point.trackWaypoints,
+      color: theme.accent,
+      elevation: point.trackElevation,
+      flipKm: routeReversed,
+    };
+  }, [focusCoords, nav.pointInfo?.id, nav.pointInfo?.kind, nav.pointInfo?.trackElevation, nav.pointInfo?.trackWaypoints, routeReversed, theme.accent]);
+  // The card's detail sheet reads off this ungated layer, so a spot opens even
+  // while the map's own waypoint layer is off or still waiting for its zoom.
+  const routeWaypointListLayer = useMemo<WaypointLayer>(() => (
+    routeWaypointLine ? buildWaypointLayer([routeWaypointLine]) : NO_ROUTE_WAYPOINTS
+  ), [routeWaypointLine]);
+  // The map's own copy, sharing the opening frame's budget with the kilometre
+  // labels: both wait for the card's camera fit to be reported, when the real
+  // zoom is known, and it rides the layer switch.
+  const routeWaypointLayer = useMemo<WaypointLayer>(() => (
+    routeWaypointLine && routeWaypointsVisible && distanceMarkersReady && !routeNavigation
+      ? buildWaypointLayer([routeWaypointLine])
+      : NO_ROUTE_WAYPOINTS
+  ), [distanceMarkersReady, routeNavigation, routeWaypointLine, routeWaypointsVisible]);
+  // Walking-order numbers, one per waypoint, drawn in the map's circles; they
+  // renumber when the line is drawn reversed.
+  const routeWaypointNumbers = useMemo(
+    () => waypointOrder(routeWaypointListLayer.details),
+    [routeWaypointListLayer],
+  );
+  // The list, its order and the direction it was built for can all change under
+  // an open sheet; the spot it shows is then gone.
+  useEffect(() => {
+    setOpenRouteWaypoint(null);
+  }, [routeWaypointListLayer]);
+  const routeWaypointMarkers = useMemo<NativeMapMarker[]>(() => {
+    if (!routeWaypointLayer.list.length) return NO_ROUTE_WAYPOINT_MARKERS;
     return buildRouteWaypointMarkers({
       theme,
-      waypoints: projected,
-      zoom: waypointClusterZoom ?? estimateRouteWaypointZoom(drawn, width - 108, Math.max(140, height * 0.42)),
-      selected: selectedRouteWaypoint,
+      waypoints: routeWaypointLayer.list,
+      // Numbered circles; the names surface in the detail sheet a tap opens.
+      variant: 'numbered',
+      numbers: routeWaypointNumbers,
+      // The opening box is the same whichever way the line is drawn.
+      zoom: waypointClusterZoom ?? estimateRouteWaypointZoom(focusCoords ?? [], width - 108, Math.max(140, height * 0.42)),
       onWaypointPress: (index) => {
         // A marker press bubbles to the map background on both platforms; the
-        // guard is what keeps the bubble from dismissing itself.
+        // guard is what keeps the card from dismissing itself.
         mapMarkerPressAtRef.current = Date.now();
-        setSelectedRouteWaypoint((current) => current === index ? null : index);
+        setOpenRouteWaypoint(index);
       },
       onClusterPress: (coordinates) => {
         mapMarkerPressAtRef.current = Date.now();
         setMapCameraAction({ type: 'fitCoordinates', revision: Date.now(), coordinates });
       },
     });
-  }, [distanceMarkersReady, focusCoords, nav.pointInfo?.kind, nav.pointInfo?.id, nav.pointInfo?.trackWaypoints, routeNavigation, routeReversed, routeWaypointsVisible, selectedRouteWaypoint, theme, waypointClusterZoom, width, height]);
+  }, [focusCoords, routeWaypointLayer, routeWaypointNumbers, theme, waypointClusterZoom, width, height]);
+  const openWaypointLine = openRouteWaypoint != null
+    ? routeWaypointListLayer.lines.find((line) => openRouteWaypoint >= line.start && openRouteWaypoint < line.end)
+    : undefined;
+  // The sheet swipes in walking order, not the library's save order: reversing
+  // the line reorders the pages too. `index` inside the sheet is the position
+  // in this page list; it maps back to the layer's details index.
+  const openWaypointIndexes = useMemo(() => {
+    if (!openWaypointLine) return null;
+    const ordered = routeWaypointListLayer.details
+      .map((detail, index) => ({ index, number: routeWaypointNumbers[index] ?? index + 1 }))
+      .filter((entry) => entry.index >= openWaypointLine.start && entry.index < openWaypointLine.end)
+      .sort((a, b) => a.number - b.number || a.index - b.index)
+      .map((entry) => entry.index);
+    return ordered.length ? ordered : null;
+  }, [openWaypointLine, routeWaypointListLayer, routeWaypointNumbers]);
+  const routeWaypointItems = useMemo(
+    () => (openWaypointIndexes ? openWaypointIndexes.map((index) => routeWaypointListLayer.details[index]) : []),
+    [openWaypointIndexes, routeWaypointListLayer],
+  );
+  const openWaypointPage = openRouteWaypoint != null && openWaypointIndexes
+    ? openWaypointIndexes.indexOf(openRouteWaypoint)
+    : -1;
   // The itinerary's own navigation layer: every stop that carries a place, and
   // the road between two stops of the same day. Gated behind `detailReady`
   // because it is derived from the timeline fetch, and a journey opened from the
@@ -1981,8 +2064,10 @@ function DiscoverScreenView({
 
   React.useEffect(() => {
     // Full-screen pickers must cover the bottom tab bar as well as the map.
-    onBlockingOverlayChange?.(mapStylePickerVisible || adminRegionPickerOpen || adminRegionPickerMounted);
-  }, [adminRegionPickerMounted, adminRegionPickerOpen, mapStylePickerVisible, onBlockingOverlayChange]);
+    onBlockingOverlayChange?.(
+      mapStylePickerVisible || adminRegionPickerOpen || adminRegionPickerMounted || routeFilterOpen,
+    );
+  }, [adminRegionPickerMounted, adminRegionPickerOpen, mapStylePickerVisible, onBlockingOverlayChange, routeFilterOpen]);
 
   const locateCurrentPosition = useCallback(async () => {
     if (locating) return;
@@ -2232,9 +2317,13 @@ function DiscoverScreenView({
   // across an open and 113ms across a close, taking it down for the card costs 441ms
   // and 284ms.
   const useRail = railAvailable;
+  // Every region's pins stay mounted; the province only changes which are
+  // visible (placeGroups is region-scoped). Building the rail from the region
+  // unmounted nearly every pin when the launch fix switched 全国 to the user's
+  // province, in the same commit as that province's camera fit.
   const exploreLayerPins = useMemo(
-    () => pinsFromGroups(groupByPlace(regionBasePois), 'explore', null),
-    [regionBasePois],
+    () => pinsFromGroups(groupByPlace(exploreBasePois), 'explore', null),
+    [exploreBasePois],
   );
   const railPins = exploreLayerPins;
   const liveLayerPins = useMemo(
@@ -2442,7 +2531,16 @@ function DiscoverScreenView({
       if (stop) selectJourneyDayFromMap(stop.day ?? '');
     },
     onUserLocationChange: ([lng, lat], accuracy) => {
-      setCurrentLocation((current) => ({ lng, lat, heading: current?.heading, accuracy: accuracy ?? current?.accuracy }));
+      setCurrentLocation((current) => {
+        // The native location layer reports far more often than the dot visibly
+        // moves, and every new object re-renders this whole screen. Keep the
+        // current state for sub-metre jitter so React bails out.
+        if (current && metresBetween(current, { lng, lat }) < LOCATION_UPDATE_MIN_METRES
+          && Math.abs((accuracy ?? current.accuracy ?? 0) - (current.accuracy ?? 0)) < LOCATION_UPDATE_MIN_METRES) {
+          return current;
+        }
+        return { lng, lat, heading: current?.heading, accuracy: accuracy ?? current?.accuracy };
+      });
     },
     onPoiPress: (id) => {
       // Marker presses can also bubble to NativeMap.onPress on iOS and
@@ -2489,11 +2587,9 @@ function DiscoverScreenView({
         return;
       }
       if (nav.pointInfo) {
-        // On a route card, a tap that is not a marker closes the waypoint
-        // or trailhead bubble if one is up; otherwise the card stays put.
-        if (nav.pointInfo.kind === 'route' && selectedRouteWaypoint != null) {
-          setSelectedRouteWaypoint(null);
-        }
+        // On a route card, a tap that is not a marker closes the 「从这里出发」
+        // bubble if one is up; otherwise the card stays put. The waypoint
+        // detail is a sheet over the map, so it dismisses itself.
         if (nav.pointInfo.kind === 'route') setRouteEndpointActionOpen(false);
         return;
       }
@@ -3139,9 +3235,9 @@ function DiscoverScreenView({
                 label: t('journey.map.trackWaypointMarkers'),
                 value: routeWaypointsVisible,
                 onChange: (visible: boolean) => {
-                  // Drop an open bubble with its markers, so back doesn't
+                  // Drop an open detail sheet with its markers, so back doesn't
                   // spend a press dismissing something no longer drawn.
-                  if (!visible) setSelectedRouteWaypoint(null);
+                  if (!visible) setOpenRouteWaypoint(null);
                   setRouteWaypointsVisible(visible);
                 },
               }] : []),
@@ -3590,6 +3686,12 @@ function DiscoverScreenView({
           <RoutePreviewActions theme={theme} poi={nav.pointInfo} onPlanRoute={planRouteJourney} onNavigate={navigateToRoute} navigationActive={routeNavigationRouteId === nav.pointInfo.id} onFollow={followRoute} />
         </View>
       ) : null}
+      <MarkDetail
+        theme={theme}
+        items={routeWaypointItems}
+        index={openWaypointPage >= 0 ? openWaypointPage : null}
+        onClose={() => setOpenRouteWaypoint(null)}
+      />
       <JourneyGroupMoveSheet
         theme={theme}
         visible={timelineMovePicker != null}

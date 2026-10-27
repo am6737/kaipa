@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useOfflineState } from "../lib/offlineCache";
 import { toJourneyPoi, toTrack, trackProjection } from "../lib/mappers";
 import { ensureCloudMedia } from "../lib/storage";
+import { setOutingVisibility } from "./useSocial";
 import { MAX_JOURNEY_PARTICIPANTS, type Poi } from "../data/pois";
 import type { UserProfile } from "./useProfile";
 
@@ -564,8 +565,15 @@ export function useJourneys(userId: string | undefined, profile?: UserProfile) {
     );
   };
 
+  // Owner only, and not a journey version: goes through set_outing_visibility.
+  const setJourneyVisibility = async (id: string, visibility: NonNullable<Poi["visibility"]>) => {
+    await setOutingVisibility({ journeyId: id, trackId: null }, visibility);
+    setJourneys((prev) => prev.map((j) => (j.id === id ? { ...j, visibility } : j)));
+  };
+
   return {
     journeys,
+    setJourneyVisibility,
     trashedJourneys,
     loading: loading && !cached,
     createJourney,

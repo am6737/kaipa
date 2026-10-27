@@ -40,6 +40,9 @@ import { JourneyPassphraseSheet } from './components/overlays/JourneyPassphraseS
 import { JourneyCodeEntrySheet } from './components/overlays/JourneyCodeEntrySheet';
 import { ItineraryImportPage } from './components/overlays/ItineraryImportPage';
 import { JourneyVersionHistoryPage } from './components/journey/JourneyVersionHistoryPage';
+import { UserProfilePage } from './components/social/UserProfilePage';
+import { PeoplePage } from './components/social/PeoplePage';
+import { GearSetPreviewPage } from './components/social/GearSetPreviewPage';
 import { SharePoster } from './components/overlays/SharePoster';
 import { SearchScreen } from './screens/SearchScreen';
 import { Toast } from './components/Toast';
@@ -118,8 +121,11 @@ function AppShell() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       {/* Own stacking context: TabPage raises the shown page with zIndex,
-          which must not lift it over the overlays rendered after this. */}
-      <View style={StyleSheet.absoluteFill}>
+          which must not lift it over the overlays rendered after this.
+          collapsable={false}: a style-only View is flattened away by Fabric,
+          which made the pages siblings of the overlays, so the zIndex 1 page
+          drew over every overlay opened from it. */}
+      <View collapsable={false} style={StyleSheet.absoluteFill}>
         {/* Never take Discover out of the hierarchy. On iOS a MapView that
             leaves and re-enters the window comes back with empty reused
             annotation views (every route pin gone); on Android display:none
@@ -145,21 +151,21 @@ function AppShell() {
             whole page's native views on every tab switch, which lagged the tap. */}
         <TabPage selected={nav.mainTab === 'journey'} covered={detailOpen} whenHidden="transparent">
           {() => (
-            <FrozenNav frozen={nav.mainTab !== 'journey' || detailOpen}>
+            <FrozenNav frozen={nav.mainTab !== 'journey' || detailOpen} covered={nav.blockingOverlayOpen}>
               <JourneyScreen theme={theme} />
             </FrozenNav>
           )}
         </TabPage>
         <TabPage selected={nav.mainTab === 'gear'} covered={detailOpen} whenHidden="none">
           {() => (
-            <FrozenNav frozen={nav.mainTab !== 'gear' || detailOpen}>
+            <FrozenNav frozen={nav.mainTab !== 'gear' || detailOpen} covered={nav.blockingOverlayOpen}>
               <GearScreen theme={theme} />
             </FrozenNav>
           )}
         </TabPage>
         <TabPage selected={nav.mainTab === 'me'} covered={detailOpen} whenHidden="transparent">
           {() => (
-            <FrozenNav frozen={nav.mainTab !== 'me' || detailOpen}>
+            <FrozenNav frozen={nav.mainTab !== 'me' || detailOpen} covered={nav.blockingOverlayOpen}>
               <MeScreen theme={theme} />
             </FrozenNav>
           )}
@@ -261,6 +267,8 @@ function AppShell() {
               totalDays != null && totalDays > 0
                 ? t(hasTrack ? 'journeyEdit.form.smartPlanTrackRequest' : 'journeyEdit.form.smartPlanRequest', { name: saved.name, count: totalDays })
                 : t(hasTrack ? 'journeyEdit.form.smartPlanTrackRequestUnset' : 'journeyEdit.form.smartPlanRequestUnset', { name: saved.name }),
+              false,
+              'smart_plan',
             );
             return true;
           }}
@@ -432,6 +440,13 @@ function AppShell() {
           onToast={(message) => nav.showToast(message)}
         />
       )}
+      {nav.socialStack.map((page, index) => page.kind === 'profile' ? (
+        <UserProfilePage key={`${index}:${page.userId}`} theme={theme} userId={page.userId} onBack={nav.closeSocialPage} />
+      ) : page.kind === 'people' ? (
+        <PeoplePage key={`${index}:${page.userId}:${page.tab}`} theme={theme} userId={page.userId} tab={page.tab} onBack={nav.closeSocialPage} />
+      ) : page.kind === 'gearSet' ? (
+        <GearSetPreviewPage key={`${index}:${page.setId}`} theme={theme} setId={page.setId} onBack={nav.closeSocialPage} />
+      ) : null)}
       {nav.searchOpen && <SearchScreen theme={theme} onOpaqueChange={setSearchOpaque} />}
       <AppAssistant
         theme={theme}
@@ -439,6 +454,7 @@ function AppShell() {
         initialPrompt={nav.assistantPrompt}
         initialDisplayPrompt={nav.assistantDisplayPrompt}
         autoSubmitInitialPrompt={nav.assistantAutoSubmit}
+        autoSubmitIntent={nav.assistantIntent}
         startNewConversation={nav.assistantStartNewConversation}
         currentJourneyId={nav.assistantJourneyId}
         onClearPrompt={() => nav.clearAssistantPrompt()}

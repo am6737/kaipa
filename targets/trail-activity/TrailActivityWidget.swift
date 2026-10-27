@@ -87,26 +87,16 @@ private struct TrailStat: View {
   }
 }
 
-/// Distance, ascent and descent in three columns split by hairlines.
+/// Distance, ascent and descent in three even columns; the gaps between them carry the separation.
 private struct TrailStats: View {
   let state: TrailActivityAttributes.ContentState
 
   var body: some View {
     HStack(spacing: 0) {
       TrailStat(value: state.distance, label: state.distanceLabel)
-      TrailStatDivider()
       TrailStat(value: state.ascent, label: state.ascentLabel)
-      TrailStatDivider()
       TrailStat(value: state.descent, label: state.descentLabel)
     }
-  }
-}
-
-private struct TrailStatDivider: View {
-  var body: some View {
-    Rectangle()
-      .fill(Color.secondary.opacity(0.35))
-      .frame(width: 1, height: 22)
   }
 }
 

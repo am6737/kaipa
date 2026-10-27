@@ -1272,12 +1272,13 @@ function ThreadSwipeActions({
   );
 }
 
-export function AppAssistant({ theme, visible, initialPrompt, initialDisplayPrompt, autoSubmitInitialPrompt = false, startNewConversation = false, currentJourneyId, onClose, onClearPrompt, onOpenJourney, onOpenRoute, onOpenGear }: {
+export function AppAssistant({ theme, visible, initialPrompt, initialDisplayPrompt, autoSubmitInitialPrompt = false, autoSubmitIntent = 'plan_journey', startNewConversation = false, currentJourneyId, onClose, onClearPrompt, onOpenJourney, onOpenRoute, onOpenGear }: {
   theme: Theme;
   visible: boolean;
   initialPrompt?: string;
   initialDisplayPrompt?: string;
   autoSubmitInitialPrompt?: boolean;
+  autoSubmitIntent?: AgentIntent;
   startNewConversation?: boolean;
   currentJourneyId?: string;
   onClose: () => void;
@@ -1935,7 +1936,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       }
     }
     const travel = [...turns].reverse().find(turn => turn.role === 'assistant' && turn.travelContext !== undefined)?.travelContext;
-    const effectiveLocationIntent = locationIntent || (intent === 'plan_journey' ? 'transport' : undefined);
+    const effectiveLocationIntent = locationIntent || (intent === 'plan_journey' || intent === 'smart_plan' ? 'transport' : undefined);
     // Round-trip transport needs a departure. The server stores the request
     // with a departure question instead of running it, so the plan runs once
     // and the question stays in the conversation.
@@ -2091,7 +2092,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     pendingAutoSubmitRef.current = undefined;
     pendingAutoDisplayRef.current = undefined;
     onClearPrompt();
-    void submit(prompt, 'plan_journey', true, undefined, displayPrompt);
+    void submit(prompt, autoSubmitIntent, true, undefined, displayPrompt);
   }, [attachmentUploading, loading, restoring, trackPicking, visible]);
 
   useEffect(() => {

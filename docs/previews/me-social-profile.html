@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kaipa 我的主页与关注体系预览</title>
+<style>
+:root{
+  --accent:#0A84FF;
+  --bg:#F2F2F7;--groupedBg:#F4F4F5;--featureSurface:#FFFFFF;--controlSurface:#FFFFFF;
+  --fieldSurface:rgba(0,0,0,.045);--surfaceTop:#FFFFFF;--hairline:rgba(0,0,0,.08);
+  --text:#000;--text2:rgba(60,60,67,.62);--text3:rgba(60,60,67,.32);
+  --controlShadow:0 6px 18px rgba(0,0,0,.08);--like:#E5484D;--trailMine:#FF5C3A;
+  --mapLand:#EEF0EA;--mapWater:#BFD9EE;--mapPark:#D7E8C9;--mapRoad:#FFFFFF;
+}
+body.dark{
+  --bg:#000;--groupedBg:#1C1C1E;--featureSurface:#000;--controlSurface:#2C2C2E;
+  --fieldSurface:rgba(255,255,255,.08);--surfaceTop:#1C1C1E;--hairline:rgba(255,255,255,.12);
+  --text:#FFF;--text2:rgba(235,235,245,.62);--text3:rgba(235,235,245,.3);
+  --controlShadow:0 6px 18px rgba(0,0,0,.5);
+  --mapLand:#222326;--mapWater:#1E3446;--mapPark:#23331F;--mapRoad:#3A3A3C;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;min-height:100vh;background:#DCDCE0;color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC","Helvetica Neue",sans-serif;
+  display:flex;flex-direction:column;align-items:center;gap:14px;padding:16px 0 40px}
+body.dark{background:#111}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;padding:0}
+.num{font-variant-numeric:tabular-nums}
+
+/* preview controls */
+.ctrl{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:430px;padding:0 12px}
+.seg{display:flex;background:rgba(0,0,0,.08);border-radius:999px;padding:3px}
+body.dark .seg{background:rgba(255,255,255,.1)}
+.seg button{padding:7px 14px;border-radius:999px;font-size:13px;color:var(--text2)}
+.seg button.on{background:var(--controlSurface);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.note{max-width:400px;font-size:12px;line-height:1.55;color:var(--text2);text-align:center;padding:0 16px}
+
+/* phone */
+.phone{position:relative;width:390px;max-width:100vw;height:844px;border-radius:44px;overflow:hidden;
+  background:var(--featureSurface);box-shadow:0 24px 60px rgba(0,0,0,.22)}
+@media(max-width:430px){.phone{border-radius:0;height:calc(100vh - 120px)}}
+.scroll{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:none}
+.scroll::-webkit-scrollbar{display:none}
+.status{position:absolute;top:0;left:0;right:0;height:50px;display:flex;align-items:center;justify-content:space-between;
+  padding:6px 30px 0;font-size:15px;font-weight:600;z-index:30;pointer-events:none}
+
+/* top bar */
+.topbar{position:absolute;top:0;left:0;right:0;z-index:20;padding:50px 16px 8px;display:flex;align-items:center;gap:8px;
+  transition:background .2s, box-shadow .2s}
+.topbar.solid{background:var(--featureSurface)}
+.topbar .title{flex:1;min-width:0;font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  opacity:0;transform:translateY(6px);transition:opacity .2s, transform .2s}
+.topbar.solid .title{opacity:1;transform:none}
+.cbtn{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--controlSurface);
+  box-shadow:var(--controlShadow);flex:none;position:relative}
+.topbar.solid .cbtn{box-shadow:none;background:var(--fieldSurface)}
+.cbtn svg{width:22px;height:22px}
+.badge{position:absolute;top:1px;right:1px;min-width:17px;height:17px;border-radius:9px;background:#FF3B30;color:#fff;
+  font-size:9.5px;font-weight:800;display:grid;place-items:center;border:2px solid var(--featureSurface);padding:0 3px}
+
+/* hero */
+.hero{padding:112px 16px 4px}
+.avatar{width:88px;height:88px;border-radius:50%;display:grid;place-items:center;font-size:34px;font-weight:700;color:#fff;
+  background:linear-gradient(145deg,var(--accent),#5AC8FA)}
+.name{margin:16px 0 2px;font-size:28px;font-weight:700;letter-spacing:-.02em}
+.handle{font-size:14px;color:var(--text2)}
+.bio{margin:10px 0 0;font-size:15px;line-height:1.5;color:var(--text2)}
+.social{display:flex;align-items:center;margin-top:18px}
+.social{gap:28px}
+.social button{display:flex;flex-direction:column;align-items:flex-start}
+.social b{font-size:20px;font-weight:650}
+.social span{font-size:13px;color:var(--text2);margin-top:1px}
+.social .spacer{flex:1}
+.findbtn{width:44px;height:44px;border-radius:14px;background:var(--fieldSurface);display:grid;place-items:center}
+.findbtn svg{width:21px;height:21px}
+.actions{display:flex;gap:8px;margin-top:18px}
+.pill{flex:1;height:44px;border-radius:999px;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px}
+.pill.primary{background:var(--accent);color:#fff}
+.pill.soft{background:var(--fieldSurface)}
+.pill.icon{flex:none;width:44px}
+.pill svg{width:19px;height:19px}
+
+
+/* tabs */
+.tabs{position:sticky;top:102px;z-index:10;background:var(--featureSurface);display:flex;margin-top:22px;padding-top:4px}
+.tabs button{flex:1;height:46px;font-size:16px;color:var(--text2);position:relative}
+.tabs button.on{color:var(--text);font-weight:600}
+.tabs button.on::after{content:"";position:absolute;left:28px;right:28px;bottom:-1px;height:2.5px;border-radius:2px;background:var(--text)}
+
+.panel{display:none;padding:18px 16px 140px}
+.panel.on{display:block}
+
+/* overview */
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{position:relative;min-height:112px;padding:14px;border-radius:20px;background:var(--fieldSurface);text-align:left;
+  display:flex;flex-direction:column;justify-content:space-between}
+.tile .ic{position:absolute;top:13px;right:13px;color:var(--text2)}
+.tile .ic svg{width:21px;height:21px}
+.tile b{font-size:30px;font-weight:650;line-height:1}
+.tile b.empty{color:var(--text3)}
+.tile span{font-size:14px;display:flex;align-items:center;justify-content:space-between}
+.tile span i{font-style:normal;color:var(--text3);font-size:18px}
+.sec{margin-top:30px}
+.sechead{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.sechead h3{margin:0;font-size:20px;font-weight:650}
+.sechead i{font-style:normal;color:var(--text3);font-size:22px}
+.gearcard{display:flex;gap:10px}
+.gearcard > div{flex:1;padding:14px;border-radius:20px;background:var(--fieldSurface)}
+.gearcard b{display:block;font-size:22px;font-weight:650}
+.gearcard span{font-size:13px;color:var(--text2)}
+.sets{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.set{display:flex;align-items:center;gap:12px;padding:14px;border-radius:20px;background:var(--fieldSurface)}
+.set .sc{flex:1;min-width:0}
+.set .sc b{display:block;font-size:16px;font-weight:600}
+.set .sc span{display:block;margin-top:3px;font-size:13px;color:var(--text2)}
+.set .vis{flex:none}
+.savebtn{flex:none;height:32px;padding:0 13px;border-radius:999px;background:var(--controlSurface);font-size:13px;font-weight:600;color:var(--accent);box-shadow:var(--controlShadow)}
+.savebtn.done{color:var(--text2);box-shadow:none;background:transparent}
+.yearbars{display:flex;align-items:flex-end;gap:6px;height:96px;padding:0 2px}
+.yearbars div{flex:1;border-radius:6px 6px 3px 3px;background:var(--fieldSurface)}
+.yearbars div.cur{background:var(--accent)}
+.months{display:flex;gap:6px;padding:6px 2px 0}
+.months span{flex:1;text-align:center;font-size:10px;color:var(--text3)}
+.statline{display:flex;gap:22px;margin-top:14px}
+.statline b{display:block;font-size:18px;font-weight:650}
+.statline span{font-size:12px;color:var(--text2)}
+
+/* timeline */
+.chips{display:flex;gap:8px;margin-bottom:6px}
+.chip{height:36px;padding:0 14px;border-radius:999px;background:var(--fieldSurface);font-size:14px;display:flex;align-items:center;gap:6px}
+.chip.on{background:var(--text);color:var(--featureSurface)}
+.chip svg{width:17px;height:17px}
+.entry{padding:0}
+.entry + .entry{margin-top:34px}
+.chips{margin-bottom:24px !important}
+.ehead{display:flex;align-items:center;gap:12px}
+.eav{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--fieldSurface);color:var(--text)}
+.eav svg{width:22px;height:22px}
+.ehead .who{flex:1;min-width:0}
+.ehead .who b{display:block;font-size:15px;font-weight:600}
+.ehead .who span{font-size:13px;color:var(--text3)}
+.vis{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text2);padding:4px 8px;border-radius:999px;background:var(--fieldSurface)}
+.vis svg{width:14px;height:14px}
+.etitle{margin:14px 0 2px;font-size:19px;font-weight:650}
+.eplace{font-size:13px;color:var(--text2)}
+.estats{display:grid;grid-template-columns:repeat(4,1fr);column-gap:10px;margin:14px 0}
+.estats span{display:block;font-size:12px;color:var(--text2)}
+.estats b{font-size:16px;font-weight:650}
+.map{position:relative;height:200px;border-radius:18px;overflow:hidden;background:var(--mapLand)}
+.map svg{position:absolute;inset:0;width:100%;height:100%}
+.privacy-hint{position:absolute;left:10px;bottom:10px;font-size:11px;padding:4px 8px;border-radius:999px;background:var(--controlSurface);color:var(--text2);box-shadow:var(--controlShadow)}
+.ebar{display:flex;justify-content:space-around;margin-top:12px;color:var(--text2)}
+.ebar button{display:flex;align-items:center;gap:6px;font-size:13px;padding:6px 10px}
+.ebar svg{width:21px;height:21px}
+.ebar button.done{color:var(--accent)}
+.review{display:flex;align-items:center;gap:12px;margin-top:14px;padding:14px;border-radius:18px;background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.review .rc{flex:1;min-width:0}
+.review .rc b{display:block;font-size:15px;font-weight:600}
+.review .rc span{display:block;margin-top:3px;font-size:13px;color:var(--text2)}
+.review .stars{display:flex;gap:2px;margin-top:8px;color:var(--text3)}
+.review .stars svg{width:20px;height:20px}
+.review button.go{flex:none;height:34px;padding:0 15px;border-radius:999px;background:var(--accent);color:#fff;font-size:13px;font-weight:600}
+.reviewed{margin-top:14px;font-size:13px;color:var(--text2);display:flex;align-items:center;gap:6px}
+.reviewed svg{width:16px;height:16px;color:var(--accent)}
+/* photos */
+.pgroup + .pgroup{margin-top:30px}
+.pghead{width:100%;display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px;text-align:left}
+.pghead b{font-size:17px;font-weight:650}
+.pghead span{font-size:13px;color:var(--text3)}
+.pgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.ph{aspect-ratio:1;border-radius:10px;overflow:hidden;position:relative}
+.ph svg{width:100%;height:100%;display:block}
+.ph .more{position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.42);color:#fff;font-size:17px;font-weight:600}
+.phintro{margin:0 0 20px;font-size:13px;color:var(--text2)}
+.strip{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px}
+.mosaic{display:grid;grid-template-columns:2fr 1fr;grid-template-rows:1fr 1fr;gap:4px;height:230px}
+.mosaic .ph{aspect-ratio:auto}
+.mosaic .ph:first-child{grid-row:1 / span 2}
+.entry{margin:0 -10px;padding:10px;border-radius:22px}
+.entry.flash{animation:flash 1.6s ease-out}
+@keyframes flash{0%,30%{background:color-mix(in srgb,var(--accent) 10%,transparent)}100%{background:transparent}}
+.locked{display:flex;align-items:center;gap:8px;margin-top:36px;padding:14px;border-radius:18px;background:var(--fieldSurface);font-size:13px;color:var(--text2)}
+.locked svg{width:18px;height:18px;flex:none}
+/* contributions sheet */
+.phone.csheet-open .scrim{opacity:1;pointer-events:auto}
+.phone.csheet-open #csheet{transform:none}
+.shead{padding:8px 16px 0}
+.shead h2{margin:0;font-size:22px;font-weight:700}
+.shead p{margin:4px 0 0;font-size:13px;color:var(--text2)}
+.cchips{display:flex;gap:8px;overflow-x:auto;padding:16px 16px 4px;scrollbar-width:none}
+.cchips::-webkit-scrollbar{display:none}
+.cchips .chip{flex:none}
+.clist{flex:1;overflow:auto;padding:12px 16px 30px;display:flex;flex-direction:column;gap:10px}
+.citem{padding:14px;border-radius:20px;background:var(--fieldSurface)}
+.citem .ctop{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--text2)}
+.citem .ctop em{font-style:normal;color:var(--accent);font-weight:600}
+.citem b{display:block;margin-top:6px;font-size:16px;font-weight:600}
+.citem p{margin:4px 0 0;font-size:13px;line-height:1.5;color:var(--text2)}
+.citem .cmeta{margin-top:8px;font-size:12px;color:var(--text3)}
+.empty-state{padding:40px 12px;text-align:center}
+.empty-state b{display:block;font-size:17px}
+.empty-state span{display:block;margin-top:6px;font-size:14px;color:var(--text2);line-height:1.5}
+
+/* tabbar */
+.tabbar{position:absolute;left:14px;right:14px;bottom:24px;height:66px;border-radius:999px;background:var(--controlSurface);
+  box-shadow:var(--controlShadow);display:flex;align-items:center;padding:0 6px;z-index:25}
+.tabbar div{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--text2);height:54px;justify-content:center;border-radius:999px}
+.tabbar div.on{color:var(--accent);background:var(--fieldSurface);font-weight:600}
+.tabbar svg{width:23px;height:23px}
+
+/* sheet */
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .2s;z-index:40}
+.sheet{position:absolute;left:0;right:0;bottom:0;height:78%;background:var(--featureSurface);border-radius:26px 26px 0 0;z-index:41;
+  transform:translateY(102%);transition:transform .28s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column}
+.phone.sheet-open .scrim{opacity:1;pointer-events:auto}
+.phone.sheet-open .sheet{transform:none}
+.grab{width:38px;height:5px;border-radius:3px;background:var(--text3);margin:8px auto 4px}
+.stabs{display:flex;margin:6px 16px 0}
+.stabs button{flex:1;height:44px;font-size:15px;color:var(--text2);position:relative}
+.stabs button.on{color:var(--text);font-weight:600}
+.stabs button.on::after{content:"";position:absolute;left:30px;right:30px;bottom:-1px;height:2.5px;border-radius:2px;background:var(--text)}
+.search{margin:12px 16px 4px;height:40px;border-radius:12px;background:var(--fieldSurface);display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--text3);font-size:15px}
+.search svg{width:18px;height:18px}
+.plist{flex:1;overflow:auto;padding:4px 16px 30px}
+.prow{display:flex;align-items:center;gap:12px;padding:10px 0}
+.prow .pav{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;flex:none}
+.prow .pc{flex:1;min-width:0}
+.prow .pc b{display:block;font-size:15px;font-weight:600}
+.prow .pc span{display:block;font-size:13px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fbtn{height:32px;padding:0 14px;border-radius:999px;font-size:13px;font-weight:600;background:var(--accent);color:#fff;flex:none}
+.fbtn.done{background:var(--fieldSurface);color:var(--text)}
+.toast{position:absolute;left:50%;bottom:110px;transform:translate(-50%,10px);opacity:0;transition:.2s;background:rgba(0,0,0,.82);color:#fff;
+  font-size:13px;padding:9px 14px;border-radius:999px;z-index:60;pointer-events:none;white-space:nowrap}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.private{padding:36px 20px;text-align:center}
+.private .lk{width:56px;height:56px;border-radius:50%;margin:0 auto 12px;display:grid;place-items:center;background:var(--fieldSurface)}
+.private .lk svg{width:26px;height:26px}
+.private b{display:block;font-size:17px}
+.private span{display:block;margin-top:6px;font-size:14px;color:var(--text2);line-height:1.5}
+</style>
+</head>
+<body>
+
+<div class="ctrl">
+  <div class="seg" id="segWho"><button data-v="me" class="on">我的主页</button><button data-v="other">他人主页</button><button data-v="private">私密账号</button></div>
+  <div class="seg" id="segMode"><button data-v="light" class="on">浅色</button><button data-v="dark">深色</button></div>
+</div>
+<p class="note">时间线一条就是一次出行，有三种：旅程加轨迹、只有轨迹、只有旅程照片。照片标签里点组标题会跳回时间线对应的那一条。他人主页关注后，会多出只给粉丝看的出行。</p>
+
+<div class="phone" id="phone">
+  <div class="status"><span>16:14</span><span>100%</span></div>
+
+  <div class="topbar" id="topbar">
+    <button class="cbtn" id="backBtn" style="display:none" aria-label="返回"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <button class="cbtn" id="scanBtn" aria-label="扫描"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 012-2h2"/><path d="M17 3h2a2 2 0 012 2v2"/><path d="M21 17v2a2 2 0 01-2 2h-2"/><path d="M7 21H5a2 2 0 01-2-2v-2"/><path d="M7 12h10"/></svg></button>
+    <div class="title" id="barTitle">山野小林</div>
+    <div id="barMe" style="display:flex;gap:8px">
+      <button class="cbtn" aria-label="消息中心"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1112 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 003.4 0"/></svg><span class="badge">3</span></button>
+      <button class="cbtn" aria-label="分享主页"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13"/><path d="M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 002 2h10a2 2 0 002-2v-6"/></svg></button>
+      <button class="cbtn" aria-label="设置"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></button>
+    </div>
+    <div id="barOther" style="display:none;gap:8px">
+      <button class="cbtn" aria-label="分享主页"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13"/><path d="M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 002 2h10a2 2 0 002-2v-6"/></svg></button>
+      <button class="cbtn" aria-label="更多"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg></button>
+    </div>
+  </div>
+
+  <div class="scroll" id="scroll">
+    <section class="hero">
+      <div class="avatar" id="avatar">林</div>
+      <h1 class="name" id="name">山野小林</h1>
+      <div class="handle" id="handle">@xiaolin　广西 南宁</div>
+      <p class="bio" id="bio">周末徒步，偶尔重装。慢慢走完广西的每一条山脊线。</p>
+      <div class="social">
+        <button data-sheet="followers"><b class="num" id="followers">128</b><span>粉丝</span></button>
+        <button data-sheet="following"><b class="num" id="following">56</b><span>关注</span></button>
+        <div class="spacer"></div>
+        <button class="findbtn" id="findBtn" aria-label="找人" data-sheet="find"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/></svg></button>
+      </div>
+      <div class="actions" id="otherActions" style="display:none">
+        <button class="pill primary" id="followBtn">关注</button>
+              </div>
+    </section>
+
+    <div class="tabs" id="tabs"><button data-t="ov" class="on">概览</button><button data-t="tl">时间线</button><button data-t="ph">照片</button></div>
+
+    <section class="panel on" id="ov"></section>
+    <section class="panel" id="tl"></section>
+    <section class="panel" id="ph"></section>
+  </div>
+
+  <nav class="tabbar">
+    <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5V20a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"/></svg>发现</div>
+    <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H17a3.5 3.5 0 000-7H7a3.5 3.5 0 010-7h8.5"/></svg>旅程</div>
+    <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/></svg>记录</div>
+    <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 7h12l-1 13H7z"/><path d="M9 7V5a3 3 0 016 0v2"/></svg>装备</div>
+    <div class="on"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="7.5" r="4.5"/><path d="M3.5 21a8.5 8.5 0 0117 0z"/></svg>我</div>
+  </nav>
+
+  <div class="scrim" id="scrim"></div>
+  <div class="sheet" id="sheet">
+    <div class="grab"></div>
+    <div class="stabs" id="stabs"><button data-s="followers">粉丝</button><button data-s="following">关注</button><button data-s="find">找人</button></div>
+    <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><span id="searchPh">搜索昵称或用户名</span></div>
+    <div class="plist" id="plist"></div>
+  </div>
+  <div class="sheet" id="csheet">
+    <div class="grab"></div>
+    <div class="shead"><h2 id="ctitle">我的贡献</h2><p id="csub">攻略、点评、路况反馈和路线请求，都会帮到后来走这条路的人。</p></div>
+    <div class="cchips" id="cchips"></div>
+    <div class="clist" id="clist"></div>
+  </div>
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+const I = {
+  route:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H17a3.5 3.5 0 000-7H7a3.5 3.5 0 010-7h8.5"/></svg>',
+  pin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-12a7 7 0 0114 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>',
+  heart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 00-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 00-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 000-7.8z"/></svg>',
+  book:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20V3H6.5A2.5 2.5 0 004 5.5z"/><path d="M4 19.5A2.5 2.5 0 006.5 22H20v-5"/></svg>',
+  hike:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 20L9.5 7l4 7 2.5-4 6 10z"/></svg>',
+  lock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>',
+  people:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0113 0"/><path d="M16 4.5a3.5 3.5 0 010 7"/><path d="M18 14a6.5 6.5 0 013.5 6"/></svg>',
+  globe:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 010 18a14 14 0 010-18"/></svg>',
+  download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v8"/><path d="M8.5 12.5l3.5 3.5 3.5-3.5"/></svg>',
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/></svg>',
+  star:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8L3.5 9.7l5.9-.8z"/></svg>',
+  image:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></svg>',
+  search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+  share:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13"/><path d="M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 002 2h10a2 2 0 002-2v-6"/></svg>',
+};
+const VIS = {
+  private:{icon:I.lock,label:'仅自己'},
+  followers:{icon:I.people,label:'粉丝可见'},
+  public:{icon:I.globe,label:'公开'},
+};
+
+const PEOPLE = {
+  me:{name:'山野小林',ch:'林',handle:'@xiaolin　广西 南宁',bio:'周末徒步，偶尔重装。慢慢走完广西的每一条山脊线。',followers:128,following:56,totals:['42','318','12,400']},
+  other:{name:'阿青在路上',ch:'青',handle:'@aqing　云南 大理',bio:'苍山十九峰收集中，已经集到第 11 座。',followers:2310,following:184,totals:['86','1,042','48,900']},
+  private:{name:'木子',ch:'木',handle:'@muzi　四川 成都',bio:'只给朋友看。',followers:37,following:41,totals:['--','--','--']},
+};
+
+const SETS = [
+  {name:'大明山两日重装',count:38,weight:'11.2 kg',trip:'用于 1 段旅程',vis:'public'},
+  {name:'城市夜走轻装',count:9,weight:'2.1 kg',vis:'followers'},
+  {name:'冬季雪山备忘',count:46,weight:'14.8 kg',vis:'private'},
+];
+const SETS_OTHER = [
+  {name:'苍山十九峰单日轻装',count:21,weight:'5.6 kg',trip:'走过 11 次'},
+  {name:'洱海环湖骑行',count:17,weight:'4.3 kg'},
+];
+const CONTRIB = {
+  me:[
+    {type:'攻略',title:'大明山主峰环线 两日重装攻略',body:'从武鸣区上山的补给点、营地水源和下雨天的备用路线。',meta:'36 人觉得有用'},
+    {type:'点评',title:'青秀山环线',body:'台阶多但很好走，傍晚上去看日落刚好，东门停车方便。',meta:'★★★★☆　8 人觉得有用'},
+    {type:'路况',title:'大明山主峰环线',body:'10月19日　山顶段有落石，已经立了警示牌。',meta:'被 2 位路线维护者采纳'},
+    {type:'路线请求',title:'十万大山 天堂顶',body:'希望补充这条路线，附了 1 条自己走的轨迹。',status:'审核中',meta:'10月20日提交'},
+    {type:'路线请求',title:'弄岗 喀斯特小环线',body:'已上线，谢谢你提供的轨迹。',meta:'10月2日上线'},
+  ],
+  other:[
+    {type:'攻略',title:'苍山十九峰 单日轻装路线合集',body:'按难度排了 11 座峰，附每条线的水源和撤退点。',meta:'412 人觉得有用'},
+    {type:'点评',title:'苍山 中和峰',body:'索道上去再走到峰顶只要一个半小时，适合新手。',meta:'★★★★★　57 人觉得有用'},
+    {type:'路况',title:'洱海西岸骑行道',body:'10月8日　才村段在修路，需要绕行 1 km。',meta:'被 1 位路线维护者采纳'},
+  ],
+};
+// 一次出行：有旅程就以旅程为准，挂着它的轨迹和照片；没有旅程的单独轨迹自己算一条。
+// kind: both = 旅程 + 轨迹，track = 只有轨迹，journey = 只有旅程（照片）。
+const OUTINGS = {
+  me:[
+    {id:'o1',kind:'track',title:'江边夜走',place:'广西 南宁　良堤路',when:'今天 09:30',stats:['0:11','0.4 km','2.1 km/h','0 m'],vis:'private',seed:1},
+    {id:'o2',kind:'both',title:'大明山两日',route:'大明山主峰环线',place:'广西 南宁 武鸣区',when:'10月18日 至 19日',stats:['6:12','16.8 km','2.7 km/h','1,120 m'],vis:'followers',seed:2,
+      photos:{n:14,hues:[140,95,200,30,160,210]}},
+    {id:'o3',kind:'both',title:'青秀山登高',route:'青秀山环线',place:'广西 南宁',when:'10月12日',stats:['2:05','7.2 km','3.5 km/h','260 m'],vis:'public',seed:3,reviewed:true,
+      photos:{n:5,hues:[110,45,180,20,150]}},
+    {id:'o4',kind:'journey',title:'大理 洱海三日',place:'云南 大理',when:'10月3日 至 5日',facts:['3 天','9 张','3 人'],vis:'public',
+      photos:{n:9,hues:[195,205,40,180,170,25]}},
+  ],
+  other:[
+    {id:'a1',kind:'both',title:'苍山 中和峰',route:'苍山中和峰',place:'云南 大理',when:'10月21日',stats:['3:40','9.6 km','2.6 km/h','1,050 m'],vis:'public',seed:3,
+      photos:{n:23,hues:[200,150,215,35,120,190]}},
+    {id:'a2',kind:'track',activity:'骑行',title:'洱海西岸骑行',place:'云南 大理　才村',when:'10月8日',stats:['2:30','32.4 km','13.0 km/h','85 m'],vis:'followers',seed:1},
+    {id:'a3',kind:'journey',title:'大理古城慢逛',place:'云南 大理',when:'9月28日',facts:['1 天','8 张','2 人'],vis:'public',
+      photos:{n:8,hues:[30,15,200,45,100,210]}},
+    {id:'a4',kind:'track',title:'夜爬鸡足山',place:'云南 大理 宾川县',when:'9月20日',stats:['4:05','11.2 km','2.7 km/h','980 m'],vis:'private',seed:2},
+  ],
+};
+
+function mapSvg(seed, hideEnds){
+  const paths = {
+    1:'M250 78 C220 80 200 82 180 88 C160 95 140 110 110 128',
+    2:'M70 160 C90 120 120 120 140 90 C160 60 200 50 230 70 C260 90 280 120 300 100 C320 80 300 50 280 40',
+    3:'M80 150 C100 130 110 100 150 90 C190 80 210 110 240 120 C270 130 290 110 300 80',
+  };
+  const d = paths[seed];
+  const [sx,sy] = d.match(/M(\d+) (\d+)/).slice(1).map(Number);
+  const nums = d.match(/-?\d+/g).map(Number); const ex = nums[nums.length-2], ey = nums[nums.length-1];
+  const fuzz = hideEnds ? `<circle cx="${sx}" cy="${sy}" r="26" fill="var(--mapLand)" opacity=".92"/><circle cx="${ex}" cy="${ey}" r="26" fill="var(--mapLand)" opacity=".92"/>` : '';
+  const ends = hideEnds ? '' : `
+    <circle cx="${sx}" cy="${sy}" r="11" fill="#3E7B2F" stroke="#fff" stroke-width="2.5"/><text x="${sx}" y="${sy+4}" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">A</text>
+    <circle cx="${ex}" cy="${ey}" r="11" fill="var(--trailMine)" stroke="#fff" stroke-width="2.5"/><text x="${ex}" y="${ey+4}" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">B</text>`;
+  return `<svg viewBox="0 0 358 200" preserveAspectRatio="xMidYMid slice">
+    <path d="M-10 40 C60 60 100 20 170 40 C240 60 260 10 380 20 L380 -10 L-10 -10Z" fill="var(--mapWater)"/>
+    <path d="M30 200 C50 150 90 170 120 200Z M260 200 C280 160 330 150 370 170 L370 200Z" fill="var(--mapPark)"/>
+    <path d="M-10 175 L380 140 M120 -10 L160 210 M-10 110 L380 95 M260 -10 L230 210" stroke="var(--mapRoad)" stroke-width="7" fill="none"/>
+    <path d="M-10 175 L380 140 M120 -10 L160 210 M-10 110 L380 95 M260 -10 L230 210" stroke="var(--hairline)" stroke-width="1" fill="none"/>
+    ${fuzz}
+    <path d="${d}" stroke="#fff" stroke-width="7" fill="none" stroke-linecap="round"/>
+    <path d="${d}" stroke="var(--accent)" stroke-width="4" fill="none" stroke-linecap="round"/>
+    ${ends}
+  </svg>`;
+}
+
+function renderOverview(who){
+  const ov = document.getElementById('ov');
+  if (who==='private' && !state.followed) { ov.innerHTML = privateBlock(); return; }
+  const mine = who==='me';
+  const tiles = mine
+    ? [['16','我的轨迹',I.route],['8','我的足迹',I.pin],['24','我的收藏',I.heart],['7','我的贡献',I.book]]
+    : [['31','公开轨迹',I.route],['19','点亮路线',I.pin],['12','贡献',I.book],['0','收藏路线',I.heart]];
+  ov.innerHTML = `
+    <div class="grid">${tiles.map(([n,l,ic])=>`
+      <button class="tile" ${l.includes('贡献')?'data-contrib':''}><span class="ic">${ic}</span><b class="num ${n==='0'?'empty':''}">${n==='0'?'--':n}</b><span>${l}<i>›</i></span></button>`).join('')}
+    </div>
+    <div class="sec">
+      <div class="sechead"><h3>${mine?'装备':'公开的装备清单'}</h3><i>›</i></div>
+      ${mine ? `<div class="gearcard">
+        <div><b class="num">32 件</b><span>装备库</span></div>
+        <div><b class="num">8.4 kg</b><span>总重量</span></div>
+        <div><b class="num">4 份</b><span>装备清单</span></div>
+      </div>` : ''}
+      <div class="sets">${(mine ? SETS : SETS_OTHER).map(st=>`
+        <div class="set">
+          <div class="sc"><b>${st.name}</b><span class="num">${st.count} 件　${st.weight}${st.trip?'　'+st.trip:''}</span></div>
+          ${mine ? `<span class="vis">${VIS[st.vis].icon}${VIS[st.vis].label}</span>`
+                 : `<button class="savebtn ${state.saved.has(st.name)?'done':''}" data-save="${st.name}">${state.saved.has(st.name)?'已存入':'存为我的清单'}</button>`}
+        </div>`).join('')}
+      </div>
+    </div>
+    <div class="sec">
+      <div class="sechead"><h3>2026 年统计</h3><i>›</i></div>
+      <div class="yearbars">${[18,10,26,40,22,8,0,30,55,70,20,0].map((h,i)=>`<div class="${i===9?'cur':''}" style="height:${Math.max(h,4)}%"></div>`).join('')}</div>
+      <div class="months">${['1','2','3','4','5','6','7','8','9','10','11','12'].map(m=>`<span>${m}</span>`).join('')}</div>
+      <div class="statline">
+        <div><b class="num">28 次</b><span>今年旅程</span></div>
+        <div><b class="num">214 km</b><span>今年里程</span></div>
+        <div><b class="num">1,546 m</b><span>最高海拔</span></div>
+      </div>
+    </div>`;
+}
+
+function privateBlock(){
+  return `<div class="private"><div class="lk">${I.lock}</div><b>这是私密账号</b><span>关注请求通过后，才能看到 TA 的轨迹和旅程。</span></div>`;
+}
+
+function reviewBlock(e){
+  if (e.reviewed || state.reviewedNow.has(e.title))
+    return `<div class="reviewed">${I.check}已点评「${e.route}」</div>`;
+  return `<div class="review">
+    <div class="rc"><b>走完了「${e.route}」</b><span>说说路况和体验，帮到后来的人</span>
+      <div class="stars">${I.star.repeat(5)}</div></div>
+    <button class="go" data-review="${e.title}">写点评</button>
+  </div>`;
+}
+
+function renderContrib(){
+  const mine = state.who==='me';
+  const list = mine ? CONTRIB.me : CONTRIB.other;
+  const types = ['全部','攻略','点评','路况','路线请求'];
+  document.getElementById('ctitle').textContent = mine ? '我的贡献' : PEOPLE[state.who].name + ' 的贡献';
+  document.getElementById('csub').textContent = mine ? '攻略、点评、路况反馈和路线请求，都会帮到后来走这条路的人。' : '只显示已经公开发布的内容。';
+  document.getElementById('cchips').innerHTML = types.map(t=>{
+    const n = t==='全部' ? list.length : list.filter(c=>c.type===t).length;
+    return `<button class="chip ${state.cfilter===t?'on':''}" data-cf="${t}">${t} ${n}</button>`;}).join('');
+  const rows = state.cfilter==='全部' ? list : list.filter(c=>c.type===state.cfilter);
+  document.getElementById('clist').innerHTML = rows.length ? rows.map(c=>`<div class="citem">
+      <div class="ctop"><span>${c.type}</span>${c.status&&mine?`<em>${c.status}</em>`:''}</div>
+      <b>${c.title}</b><p>${c.body}</p><div class="cmeta">${c.meta}</div></div>`).join('')
+    : `<div class="empty-state"><b>还没有${state.cfilter}</b><span>走完一条路线后，写点评或反馈路况都会出现在这里。</span></div>`;
+  document.querySelectorAll('#cchips [data-cf]').forEach(b=>b.onclick=()=>{ state.cfilter=b.dataset.cf; renderContrib(); });
+}
+
+function photo(h, i){
+  const sky = `hsl(${h} 45% ${72 - (i%3)*6}%)`, far = `hsl(${(h+30)%360} 25% 52%)`, near = `hsl(${(h+60)%360} 30% 34%)`;
+  const a = 30 + (i*17)%40, b = 45 + (i*23)%35;
+  return `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><rect width="100" height="100" fill="${sky}"/>
+    <path d="M0 ${b+10} L${a} ${b-25} L${a+25} ${b} L${a+45} ${b-15} L100 ${b+5} L100 100 L0 100Z" fill="${far}"/>
+    <path d="M0 ${b+30} L${100-a} ${b+5} L100 ${b+25} L100 100 L0 100Z" fill="${near}"/></svg>`;
+}
+
+function photoTiles(p, count){
+  const shown = p.hues.slice(0, count);
+  return shown.map((h,i)=>`<div class="ph">${photo(h,i)}${i===shown.length-1 && p.n>shown.length?`<div class="more">+${p.n-shown.length+1}</div>`:''}</div>`).join('');
+}
+
+// 别人看到的范围：公开的都能看；粉丝可见要已关注；仅自己永远看不到。
+function visibleOutings(who){
+  if (who==='me') return OUTINGS.me;
+  return OUTINGS.other.filter(o => o.vis==='public' || (o.vis==='followers' && state.followed));
+}
+
+function renderPhotos(who){
+  const ph = document.getElementById('ph');
+  if (who==='private' && !state.followed) { ph.innerHTML = privateBlock(); return; }
+  const mine = who==='me';
+  const groups = visibleOutings(who).filter(o=>o.photos);
+  ph.innerHTML = `<p class="phintro">${mine?'照片跟着每次出行走，可见范围也一样。':'只显示你能看到的出行里的照片。'}</p>` + groups.map(o=>`<div class="pgroup">
+      <button class="pghead" data-jump="${o.id}"><b>${o.title}</b><span>${o.when}　${o.photos.n} 张　›</span></button>
+      ${mine ? `<div style="margin:-4px 0 10px"><span class="vis" style="display:inline-flex">${VIS[o.vis].icon}${VIS[o.vis].label}</span></div>` : ''}
+      <div class="pgrid">${photoTiles(o.photos, 6)}</div>
+    </div>`).join('');
+}
+
+function renderTimeline(who){
+  const tl = document.getElementById('tl');
+  if (who==='private' && !state.followed) { tl.innerHTML = privateBlock(); return; }
+  const mine = who==='me';
+  const p = PEOPLE[who];
+  const subject = mine ? '你' : p.name + ' ';
+  const list = visibleOutings(who);
+  const hiddenNote = !mine && !state.followed && OUTINGS.other.some(o=>o.vis==='followers')
+    ? `<div class="locked">${I.people}<span>还有 TA 只给粉丝看的出行，关注后可见</span></div>` : '';
+  tl.innerHTML = `
+    <div class="chips"><button class="chip">${I.search}</button><button class="chip on">全部</button><button class="chip">2026</button><button class="chip">2025</button></div>
+    ${list.map(e=>{
+      const v = VIS[e.vis];
+      const hasTrack = e.kind!=='journey';
+      const hide = !mine;
+      const headline = e.kind==='track' ? `${subject}完成了一次${e.activity||'徒步'}`
+        : e.kind==='both' ? `${subject}完成了一段旅程` : `${subject}记录了一段旅程`;
+      const stats = hasTrack
+        ? [['用时',e.stats[0]],['距离',e.stats[1]],['均速',e.stats[2]],['爬升',e.stats[3]]]
+        : [['天数',e.facts[0]],['照片',e.facts[1]],['同行',e.facts[2]]];
+      return `<article class="entry" id="entry-${e.id}">
+        <div class="ehead">
+          <div class="eav">${hasTrack?I.hike:I.image}</div>
+          <div class="who"><b>${headline}</b><span>${e.when}</span></div>
+          ${mine?`<span class="vis">${v.icon}${v.label}</span>`:''}
+        </div>
+        <div class="etitle">${e.title}</div>
+        <div class="eplace">${e.route?e.route+'　':''}${e.place}</div>
+        <div class="estats">${stats.map(([l,val])=>`<div><span>${l}</span><b class="num">${val}</b></div>`).join('')}</div>
+        ${hasTrack ? `<div class="map">${mapSvg(e.seed, hide)}${hide?'<span class="privacy-hint">起终点附近 200 m 已隐藏</span>':''}</div>` : ''}
+        ${e.photos && hasTrack ? `<div class="strip">${photoTiles(e.photos, 4)}</div>` : ''}
+        ${e.photos && !hasTrack ? `<div class="mosaic">${photoTiles(e.photos, 3)}</div>` : ''}
+        ${mine && e.route ? reviewBlock(e) : ''}
+        <div class="ebar">
+          <button>${hasTrack?I.route:I.book}<span>${e.kind==='track'?'查看轨迹':'查看旅程'}</span></button>
+          ${!mine && hasTrack ? `<button data-dl="${e.title}" class="${state.downloaded.has(e.title)?'done':''}">${state.downloaded.has(e.title)?I.check:I.download}<span>${state.downloaded.has(e.title)?'已离线':'离线下载'}</span></button>` : ''}
+          <button>${I.share}<span>分享</span></button>
+        </div>
+      </article>`;}).join('')}
+    ${hiddenNote}`;
+}
+
+const state = {who:'me', saved:new Set(), downloaded:new Set(), reviewedNow:new Set(), cfilter:'全部', followed:false, sheet:'followers', followSet:new Set(['p2','p4'])};
+
+function renderHero(){
+  const p = PEOPLE[state.who];
+  const mine = state.who==='me';
+  document.getElementById('avatar').textContent = p.ch;
+  document.getElementById('avatar').style.background = mine
+    ? 'linear-gradient(145deg,var(--accent),#5AC8FA)'
+    : state.who==='other' ? 'linear-gradient(145deg,#34A853,#A3D977)' : 'linear-gradient(145deg,#8E8E93,#C7C7CC)';
+  document.getElementById('name').textContent = p.name;
+  document.getElementById('barTitle').textContent = p.name;
+  document.getElementById('handle').textContent = p.handle;
+  document.getElementById('bio').textContent = p.bio;
+  const extra = state.followed ? 1 : 0;
+  document.getElementById('followers').textContent = (p.followers + (mine?0:extra)).toLocaleString('en-US');
+  document.getElementById('following').textContent = p.following.toLocaleString('en-US');
+  document.getElementById('findBtn').style.display = mine ? '' : 'none';
+  document.getElementById('otherActions').style.display = mine ? 'none' : 'flex';
+  document.getElementById('barMe').style.display = mine ? 'flex' : 'none';
+  document.getElementById('barOther').style.display = mine ? 'none' : 'flex';
+  document.getElementById('backBtn').style.display = mine ? 'none' : 'grid';
+  document.getElementById('scanBtn').style.display = mine ? 'grid' : 'none';
+  const fb = document.getElementById('followBtn');
+  if (state.who==='private') {
+    fb.textContent = state.followed ? '已关注' : (state.requested ? '已申请' : '申请关注');
+  } else fb.textContent = state.followed ? '已关注' : '关注';
+  fb.className = 'pill ' + (state.followed || state.requested ? 'soft' : 'primary');
+}
+
+function render(){
+  renderHero(); renderOverview(state.who); renderTimeline(state.who); renderPhotos(state.who);
+  document.querySelectorAll('[data-review]').forEach(b=>b.onclick=()=>{
+    state.reviewedNow.add(b.dataset.review); toast('模拟：打开点评编辑，提交后显示在「我的贡献」'); render();
+  });
+  document.querySelectorAll('[data-dl]').forEach(b=>b.onclick=()=>{
+    const t=b.dataset.dl; if(state.downloaded.has(t)) return;
+    state.downloaded.add(t); toast('已下载，没有信号也能看这条轨迹'); render();
+  });
+  document.querySelectorAll('[data-jump]').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x.dataset.t==='tl'));
+    document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on',p.id==='tl'));
+    const el = document.getElementById('entry-'+b.dataset.jump);
+    scroll.scrollTo({top: el.offsetTop - 160, behavior:'smooth'});
+    el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  });
+  document.querySelectorAll('[data-contrib]').forEach(b=>b.onclick=()=>{
+    state.cfilter='全部'; renderContrib(); phone.classList.add('csheet-open');
+  });
+  document.querySelectorAll('[data-save]').forEach(b=>b.onclick=()=>{
+    const n=b.dataset.save; if(state.saved.has(n)) return;
+    state.saved.add(n); toast('已存为我的清单，可以在装备页调整'); render();
+  });
+}
+
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('on'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('on'),1600); }
+
+document.getElementById('followBtn').onclick = ()=>{
+  if (state.who==='private') {
+    if (state.followed) { state.followed=false; toast('已取消关注'); }
+    else if (state.requested) { state.requested=false; state.followed=true; toast('模拟：对方通过了你的关注请求'); }
+    else { state.requested=true; toast('已发送关注请求，再点一次模拟对方通过'); }
+  } else {
+    state.followed = !state.followed; toast(state.followed?'已关注 '+PEOPLE[state.who].name:'已取消关注');
+  }
+  render();
+};
+
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on',p.id===b.dataset.t));
+});
+
+const scroll = document.getElementById('scroll');
+scroll.addEventListener('scroll',()=>{
+  document.getElementById('topbar').classList.toggle('solid', scroll.scrollTop > 150);
+});
+
+document.getElementById('segWho').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#segWho button').forEach(x=>x.classList.toggle('on',x===b));
+  state.who=b.dataset.v; state.downloaded.clear(); state.followed=false; state.requested=false; scroll.scrollTop=0; render();
+});
+document.getElementById('segMode').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#segMode button').forEach(x=>x.classList.toggle('on',x===b));
+  document.body.classList.toggle('dark', b.dataset.v==='dark');
+});
+
+/* people sheet */
+const PL = [
+  {id:'p1',n:'阿青在路上',h:'@aqing　云南 大理',c:'#34A853'},
+  {id:'p2',n:'夜行的猫',h:'@yexingmao　广西 桂林',c:'#AF52DE'},
+  {id:'p3',n:'重装老王',h:'@laowang　四川 成都',c:'#FF9500'},
+  {id:'p4',n:'Sunny 爬山',h:'@sunny　广东 深圳',c:'#FF2D55'},
+  {id:'p5',n:'木子',h:'@muzi　四川 成都　私密账号',c:'#8E8E93'},
+  {id:'p6',n:'南宁周末徒步群',h:'@nnhike　广西 南宁',c:'#5856D6'},
+];
+function renderSheet(){
+  document.querySelectorAll('#stabs button').forEach(b=>b.classList.toggle('on',b.dataset.s===state.sheet));
+  const mineSheet = state.who==='me';
+  document.getElementById('stabs').querySelector('[data-s="find"]').style.display = mineSheet ? '' : 'none';
+  document.getElementById('searchPh').textContent = state.sheet==='find' ? '搜索昵称、用户名，或扫码添加' : '搜索昵称或用户名';
+  let rows = PL;
+  if (state.sheet==='following') rows = PL.filter((_,i)=>i%2===1);
+  const head = state.sheet==='find'
+    ? `<div style="font-size:13px;color:var(--text2);margin:10px 0 4px">可能认识的人　一起走过同一段旅程，或评论过同一条路线</div>` : '';
+  document.getElementById('plist').innerHTML = head + rows.map(p=>{
+    const f = state.sheet==='following' || state.followSet.has(p.id);
+    const label = f ? (state.sheet==='followers' ? '互相关注' : '已关注') : (state.sheet==='followers' ? '回关' : '关注');
+    return `<div class="prow"><div class="pav" style="background:${p.c}">${p.n[0]}</div>
+      <div class="pc"><b>${p.n}</b><span>${p.h}</span></div>
+      <button class="fbtn ${f?'done':''}" data-id="${p.id}">${label}</button></div>`;
+  }).join('');
+  document.querySelectorAll('#plist .fbtn').forEach(b=>b.onclick=()=>{
+    const id=b.dataset.id; if (state.followSet.has(id)) state.followSet.delete(id); else state.followSet.add(id); renderSheet();
+  });
+}
+const phone = document.getElementById('phone');
+document.querySelectorAll('[data-sheet]').forEach(b=>b.onclick=()=>{ state.sheet=b.dataset.sheet; renderSheet(); phone.classList.add('sheet-open'); });
+document.querySelectorAll('#stabs button').forEach(b=>b.onclick=()=>{ state.sheet=b.dataset.s; renderSheet(); });
+document.getElementById('scrim').onclick = ()=>phone.classList.remove('sheet-open','csheet-open');
+
+render();
+</script>
+</body>
+</html>

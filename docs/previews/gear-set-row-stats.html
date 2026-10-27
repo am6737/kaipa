@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>全部清单 row 布局方案</title>
+<style>
+  :root {
+    --bg: #F2F2F7; --surface: #FFFFFF; --field: rgba(0,0,0,0.045);
+    --text: #000; --text2: rgba(60,60,67,0.62); --text3: rgba(60,60,67,0.32);
+    --border: rgba(0,0,0,0.10); --accent: #0A84FF; --frame: rgba(0,0,0,0.10);
+  }
+  [data-theme="dark"] {
+    --bg: #111; --surface: #000; --field: rgba(255,255,255,0.07);
+    --text: #EBEBF5; --text2: rgba(235,235,245,0.62); --text3: rgba(235,235,245,0.30);
+    --border: rgba(255,255,255,0.14); --frame: rgba(255,255,255,0.14);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, "SF Pro Text", "PingFang SC", sans-serif; padding: 28px 20px 60px; }
+  .mono { font-family: Menlo, "SF Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  h1 { font-size: 22px; font-weight: 800; }
+  .lead { font-size: 13.5px; line-height: 21px; color: var(--text2); margin-top: 8px; max-width: 760px; }
+  .toolbar { display: flex; gap: 8px; margin: 16px 0 4px; flex-wrap: wrap; }
+  .toolbar button { font: inherit; font-size: 13px; font-weight: 600; color: var(--text); background: var(--field); border: none; border-radius: 999px; padding: 8px 14px; cursor: pointer; }
+  .boards { display: flex; flex-wrap: wrap; gap: 28px; margin-top: 22px; align-items: flex-start; }
+  .board { width: 375px; max-width: 100%; }
+  .board .head { padding: 0 4px 10px; }
+  .board .head b { font-size: 15px; font-weight: 800; }
+  .board .head span { display: block; font-size: 12px; line-height: 18px; color: var(--text2); margin-top: 3px; }
+  .board.now .head b { color: var(--text3); }
+  .board.rec .head b::after { content: "推荐"; font-size: 11px; font-weight: 700; color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); border-radius: 999px; padding: 2px 8px; margin-left: 8px; vertical-align: 2px; }
+  .phone { background: var(--surface); border: 1px solid var(--frame); border-radius: 32px; overflow: hidden; padding: 18px 20px 20px; }
+  .title { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+  .title b { font-size: 25px; font-weight: 800; letter-spacing: -0.5px; }
+  .title span { font-size: 11.5px; color: var(--text3); }
+
+  .row { margin: 0 -12px; padding: 12px; border-radius: 18px; }
+  .name { font-size: 15px; font-weight: 700; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .cap { font-size: 11.5px; line-height: 16px; color: var(--text2); white-space: nowrap; }
+  .desc { font-size: 11.5px; line-height: 16px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .metric { font-family: Menlo, "SF Mono", monospace; font-size: 16px; font-weight: 800; white-space: nowrap; }
+  .strip { display: flex; gap: 6px; margin-top: 10px; }
+  .th { width: 40px; height: 40px; border-radius: 11px; background: var(--field); display: flex; align-items: center; justify-content: center; flex: none; }
+  .th.photo { background-size: cover; }
+  .th.more { font-family: Menlo, monospace; font-size: 11.5px; font-weight: 700; color: var(--text2); }
+  .th.empty { width: auto; padding: 0 12px; border: 1.5px dashed var(--border); font-size: 11.5px; color: var(--text2); }
+  .flex { display: flex; align-items: baseline; gap: 12px; }
+  .grow { flex: 1; min-width: 0; }
+  .gap { display: inline-block; width: 12px; }
+  .unit { font-family: -apple-system, "PingFang SC", sans-serif; font-weight: 500; color: var(--text2); margin-left: 2px; }
+
+  /* B 右栏 */
+  .v-B .row { display: flex; gap: 12px; align-items: flex-start; }
+  .v-B .stack { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; padding-top: 1px; }
+  /* C 指标格 */
+  .v-C .cells { display: flex; gap: 22px; margin-top: 8px; }
+  .v-C .cell i { display: block; font-style: normal; font-size: 10.5px; color: var(--text3); margin-bottom: 1px; }
+  .v-C .cell b { font-family: Menlo, monospace; font-size: 13.5px; font-weight: 800; }
+  .v-C .cell b small { font-family: -apple-system, "PingFang SC", sans-serif; font-size: 11px; font-weight: 500; color: var(--text2); margin-left: 2px; }
+  /* D 图条尾注 */
+  .v-D .strip { align-items: center; }
+  .v-D .tail { margin-left: auto; text-align: right; display: flex; flex-direction: column; gap: 2px; padding-left: 6px; }
+
+  .notes { max-width: 780px; margin-top: 36px; }
+  .notes h3 { font-size: 15px; font-weight: 800; margin-bottom: 8px; }
+  .notes li { font-size: 13.5px; line-height: 21px; color: var(--text2); margin: 0 0 6px 18px; }
+  .notes li b { color: var(--text); }
+</style>
+</head>
+<body>
+<h1>全部清单 row：件数 / 类数 / 重量 / 价值</h1>
+<p class="lead">现状四个数字分在三处、三种字号：重量在标题右边（16 粗等宽），价值在第二行右边（11.5 等宽），件数类数和描述挤在第二行左边。下面三个方案都保留缩略图条，只重排数字。</p>
+<div class="toolbar">
+  <button onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? '' : 'dark'">切换深色 / 浅色</button>
+  <button onclick="narrow = !narrow; render()">切换窄屏 320</button>
+</div>
+<div class="boards" id="boards"></div>
+
+<div class="notes">
+  <h3>怎么选</h3>
+  <ul>
+    <li><b>A 一条指标线</b>：重量放大领头，后面价值、件数、类数用同一字号顺排，描述单独一行、没有就不占位。改动小、信息顺序清楚（重量最重要），行高和现在差不多。</li>
+    <li><b>B 右栏数字</b>：四个数全部右对齐竖排，标题、描述、图条在左侧。竖着扫能直接比重量；代价是右栏吃掉宽度，窄屏下图条只能放 4~5 格。</li>
+    <li><b>C 指标格</b>：小标签在上、数值在下，四项一眼看懂是什么，没有底色和分割线，只靠留白分组。最“仪表”，但每行高约 20pt，一屏少一条左右。</li>
+    <li><b>D 图条尾注</b>：标题行只留名字和重量，件数类数与价值收到图条右侧两行小字——图条本来就在讲“装了什么”，件数挨着它最自然。改动最小，但价值存在感最弱。</li>
+    <li>任何方案都可以加：按重量或价值排序时，那个值用 accent 色，提示当前排序键。</li>
+  </ul>
+</div>
+
+<script>
+const SETS = [
+  { name: '三日重装武功山', items: 18, cats: 6, kg: '9.42', value: '23,600', desc: '含帐篷睡袋，冬季备用', thumbs: ['#FF9500','#0A84FF','#34C759','#AF52DE','#FF3B30'], photos: [0, 3], more: 13 },
+  { name: '周末轻装', items: 11, cats: 5, kg: '4.62', value: '8,900', desc: '', thumbs: ['#34C759','#FF9500','#0A84FF','#FFCC00'], photos: [1], more: 0 },
+  { name: '冬季雪线长线穿越装备清单', items: 24, cats: 8, kg: '12.80', value: '41,200', desc: '冰爪、羽绒、炉具三件套', thumbs: ['#5AC8FA','#AF52DE','#8E8E93','#FF3B30','#34C759'], photos: [0, 2], more: 19 },
+  { name: '溪谷溯溪', items: 7, cats: 4, kg: '3.15', value: '5,400', desc: '防水袋单独打包', thumbs: ['#0A84FF','#34C759','#5AC8FA'], photos: [], more: 0 },
+  { name: '新清单', items: 0, cats: 0, kg: '', value: '', desc: '', thumbs: [], photos: [], more: 0 },
+];
+let narrow = false;
+const glyph = (c) => `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="1.7" opacity=".6"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5"/><path d="M12 12v10"/></svg>`;
+const photo = (c) => `background-image: linear-gradient(135deg, ${c}, color-mix(in srgb, ${c} 45%, #222));`;
+
+function strip(s, max, tail = '') {
+  if (!s.items) return `<div class="strip"><div class="th empty">还没有装备</div>${tail}</div>`;
+  let thumbs = s.thumbs.slice(0, max);
+  const hidden = s.items - thumbs.length;
+  if (hidden > 0 && thumbs.length === max) thumbs = thumbs.slice(0, max - 1);
+  const cells = thumbs.map((c, i) => s.photos.includes(i) ? `<div class="th photo" style="${photo(c)}"></div>` : `<div class="th">${glyph(c)}</div>`).join('');
+  const more = s.items - thumbs.length > 0 && s.more ? `<div class="th more">+${s.items - thumbs.length}</div>` : '';
+  return `<div class="strip">${cells}${more}${tail}</div>`;
+}
+const counts = (s) => s.items ? `${s.items} 件<span class="gap"></span>${s.cats} 类` : '0 件';
+const kg = (s) => `${s.kg}<span class="unit">kg</span>`;
+
+const VARIANTS = {
+  now: (s, w) => `
+    <div class="flex"><div class="name grow">${s.name}</div>${s.items ? `<div class="metric">${s.kg} kg</div>` : ''}</div>
+    <div class="flex" style="margin-top:4px"><div class="cap grow" style="overflow:hidden;text-overflow:ellipsis"><span class="mono">${counts(s)}</span>${s.desc ? `<span style="color:var(--text3)">　${s.desc}</span>` : ''}</div>${s.items ? `<div class="cap mono">¥${s.value}</div>` : ''}</div>
+    ${strip(s, 6)}`,
+  A: (s) => `
+    <div class="name">${s.name}</div>
+    ${s.desc ? `<div class="desc" style="margin-top:2px">${s.desc}</div>` : ''}
+    <div class="flex" style="margin-top:5px;gap:0">
+      ${s.items ? `<span class="metric">${kg(s)}</span><span class="cap mono" style="margin-left:14px">¥${s.value}</span><span class="cap mono" style="margin-left:14px">${counts(s)}</span>` : `<span class="cap mono">0 件</span>`}
+    </div>
+    ${strip(s, 6)}`,
+  B: (s, w) => `
+    <div class="grow">
+      <div class="name">${s.name}</div>
+      ${s.desc ? `<div class="desc" style="margin-top:2px">${s.desc}</div>` : ''}
+      ${strip(s, w < 360 ? 4 : 5)}
+    </div>
+    <div class="stack">${s.items ? `<span class="metric">${kg(s)}</span><span class="cap mono">¥${s.value}</span><span class="cap mono">${counts(s)}</span>` : `<span class="cap mono">0 件</span>`}</div>`,
+  C: (s) => `
+    <div class="name">${s.name}</div>
+    ${s.desc ? `<div class="desc" style="margin-top:2px">${s.desc}</div>` : ''}
+    ${s.items ? `<div class="cells">
+      <div class="cell"><i>重量</i><b>${s.kg}<small>kg</small></b></div>
+      <div class="cell"><i>价值</i><b><small style="margin:0 1px 0 0">¥</small>${s.value}</b></div>
+      <div class="cell"><i>件数</i><b>${s.items}<small>件</small></b></div>
+      <div class="cell"><i>类数</i><b>${s.cats}<small>类</small></b></div>
+    </div>` : ''}
+    ${strip(s, 6)}`,
+  D: (s, w) => `
+    <div class="flex"><div class="name grow">${s.name}</div>${s.items ? `<div class="metric">${kg(s)}</div>` : ''}</div>
+    ${s.desc ? `<div class="desc" style="margin-top:2px">${s.desc}</div>` : ''}
+    ${strip(s, w < 360 ? 4 : 5, s.items ? `<div class="tail"><span class="cap mono">${counts(s)}</span><span class="cap mono">¥${s.value}</span></div>` : '')}`,
+};
+const META = [
+  ['now', '现状', '四个数字分在三处、三种字号'],
+  ['A', 'A 一条指标线', '重量领头，其余同字号顺排，描述独立一行'],
+  ['B', 'B 右栏数字', '四个数右对齐竖排，可上下比较'],
+  ['C', 'C 指标格', '标签在上数值在下，只靠留白分组'],
+  ['D', 'D 图条尾注', '件数类数与价值收进图条右侧'],
+];
+function render() {
+  const w = narrow ? 320 : 375;
+  document.getElementById('boards').innerHTML = META.map(([k, t, sub]) => `
+    <div class="board v-${k} ${k === 'now' ? 'now' : k === 'A' ? 'rec' : ''}" style="width:${w}px">
+      <div class="head"><b>${t}</b><span>${sub}</span></div>
+      <div class="phone">
+        <div class="title"><b>全部清单</b><span class="mono">${SETS.length} 个</span></div>
+        ${SETS.map((s) => `<div class="row">${VARIANTS[k](s, w)}</div>`).join('')}
+      </div>
+    </div>`).join('');
+}
+render();
+</script>
+</body>
+</html>

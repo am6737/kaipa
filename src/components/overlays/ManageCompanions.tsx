@@ -24,6 +24,7 @@ import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { NJBottomSheet, NJSharePanel } from './NewJourneySheet';
 import { useI18n, TKey } from '../../i18n';
+import { useNav } from '../../nav/NavContext';
 import { AppIconButton, DetailPage, radius, space, type } from '../../design-system';
 import { rotateJourneyShare, setJourneyInviteEnabled } from '../../lib/journeyShare';
 
@@ -210,6 +211,7 @@ export function ManageCompanions({
   onLeave?: () => Promise<void>;
 }) {
   const { t } = useI18n();
+  const nav = useNav();
   const insets = useSafeAreaInsets();
 
   // The journey host stays pinned; `self` identifies the current signed-in
@@ -442,6 +444,13 @@ export function ManageCompanions({
     </View>
   );
 
+  // 有账号、不是自己的同行者，点头像进对方主页；整行仍是编辑称呼。
+  const profileUserId = (c: Companion) => (!selectMode && c.userId && !c.self ? c.userId : undefined);
+  const openProfile = (c: Companion) => {
+    const id = profileUserId(c);
+    if (id) nav.openUserProfile(id);
+  };
+
   const participantRow = (c: Companion, i: number) => {
     const sel = selected.has(i);
     return (
@@ -454,7 +463,16 @@ export function ManageCompanions({
         delayLongPress={380}
         style={{ minHeight: 68, flexDirection: 'row', alignItems: 'center', paddingVertical: space.sm }}
       >
-        <View style={{ width: 44, height: 44 }}>
+        <Press
+          disabled={!profileUserId(c)}
+          onPress={(event) => {
+            event.stopPropagation();
+            openProfile(c);
+          }}
+          accessibilityRole={profileUserId(c) ? 'button' : undefined}
+          accessibilityLabel={c.name}
+          style={{ width: 44, height: 44 }}
+        >
           <ParticipantAvatar
             theme={theme}
             uri={c.avatarUrl}
@@ -481,7 +499,7 @@ export function ManageCompanions({
               {sel ? <Icon name="check" color="#FFFFFF" size={10} strokeWidth={3} /> : null}
             </View>
           ) : null}
-        </View>
+        </Press>
         <View style={{ flex: 1, minWidth: 0, marginLeft: space.sm }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space.xs }}>
             <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text, flexShrink: 1 }]}>{c.name}</Text>
@@ -627,7 +645,14 @@ export function ManageCompanions({
           <View style={{ paddingTop: space.sm }}>
             {anchor ? (
               <View style={{ minHeight: 68, flexDirection: 'row', alignItems: 'center', paddingVertical: space.sm, opacity: selectMode ? 0.45 : 1 }}>
-                <ParticipantAvatar theme={theme} uri={anchor.avatarUrl} size={44} />
+                <Press
+                  disabled={!profileUserId(anchor)}
+                  onPress={() => openProfile(anchor)}
+                  accessibilityRole={profileUserId(anchor) ? 'button' : undefined}
+                  accessibilityLabel={anchor.name}
+                >
+                  <ParticipantAvatar theme={theme} uri={anchor.avatarUrl} size={44} />
+                </Press>
                 <View style={{ flex: 1, minWidth: 0, marginLeft: space.sm }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space.xs }}>
                     <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text, flexShrink: 1 }]}>{anchor.name}</Text>

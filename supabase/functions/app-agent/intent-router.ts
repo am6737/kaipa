@@ -146,6 +146,9 @@ export const appIntentRoutes: Record<AgentIntent, RouterIntent | null> = {
   gear_onboarding: 'gear_add',
   gear_set_onboarding: 'gear_set',
   journey_review: 'discuss',
+  // Normally decided in task-store.ts from the journey row (smart-plan.ts);
+  // this route applies only when that journey cannot be read.
+  smart_plan: 'hiking_plan',
 };
 
 // Unknown values from older or newer clients are treated as absent, never 400.

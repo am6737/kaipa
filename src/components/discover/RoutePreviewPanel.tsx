@@ -131,7 +131,7 @@ export function RoutePreviewActions({ theme, poi, style, onPlanRoute, onNavigate
         onPress={() => nav.toggleFav()}
       />
       {onNavigate ? <ActionPill theme={theme} icon="locate" label={t('discover.routeNavigate')} active={navigationActive} activeColor={theme.accent} preserveStyle onPress={() => onNavigate(route)} /> : null}
-      {onFollow && route.trackCoords && route.trackCoords.length >= 2 ? <ActionPill theme={theme} icon="route" label={t('trail.entry.followRoute')} preserveStyle onPress={() => onFollow(route)} /> : null}
+      {onFollow && route.trackCoords && route.trackCoords.length >= 2 ? <ActionPill theme={theme} icon="hiker" label={t('trail.entry.followRoute')} preserveStyle onPress={() => onFollow(route)} /> : null}
       <Press
         hitSlop={3}
         onPress={() => onPlanRoute ? onPlanRoute(route) : nav.openNewJourney(route)}

@@ -27,11 +27,13 @@ export function measureAnchor(event: GestureResponderEvent): Promise<MenuAnchor>
   });
 }
 
-export function AddGearMenu({ theme, visible, anchor, onPick, onClose }: {
+export function AddGearMenu({ theme, visible, anchor, onPick, onAssistant, onClose }: {
   theme: Theme;
   visible: boolean;
   anchor: MenuAnchor | null;
   onPick: (method: AddGearMethod) => void;
+  /** Leaves for the assistant chat, so it sits apart from the in-place steps. */
+  onAssistant?: () => void;
   onClose: () => void;
 }) {
   const { t } = useI18n();
@@ -46,7 +48,10 @@ export function AddGearMenu({ theme, visible, anchor, onPick, onClose }: {
       visible={visible}
       anchor={anchor}
       title={t('gear.add.title')}
-      rows={rows.map(([method, icon, label]) => ({ key: method, icon, label, onPress: () => onPick(method) }))}
+      rows={[
+        ...rows.map(([method, icon, label]) => ({ key: method, icon, label, onPress: () => onPick(method) })),
+        ...(onAssistant ? [{ key: 'assistant', icon: 'message' as const, label: t('gear.add.assistant'), onPress: onAssistant }] : []),
+      ]}
       onClose={onClose}
     />
   );

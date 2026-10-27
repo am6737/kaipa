@@ -14,6 +14,12 @@ export async function openNotificationTargetById(
   const { nav, journeys, routes, kind } = ctx;
   if (!targetId) return false;
 
+  // 关注类通知的 target_id 是对方的用户 id。
+  if (kind === 'follow' || kind === 'follow_request' || kind === 'follow_accepted') {
+    nav.openUserProfile(targetId);
+    return true;
+  }
+
   if (kind === 'guide_like') {
     const routeId = await fetchGuideRouteId(targetId);
     const route = routeId ? routes.find((candidate) => candidate.id === routeId) : undefined;

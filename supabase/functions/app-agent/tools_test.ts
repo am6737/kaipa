@@ -1,5 +1,5 @@
 import { newPackingDraft } from './packing-draft.ts';
-import { railCacheTtl, runCommitPackingDraftBestEffort, runAddItinerary, bindRunClient, releaseRunClient, createJourney, addPackingItems, resolvePackingOwner, searchRoutes, searchTransport, kaipaAllTools, kaipaGlobalTools, kaipaJourneyTools } from './tools.ts';
+import { railCacheTtl, runCommitPackingDraftBestEffort, runAddItinerary, bindRunClient, releaseRunClient, createJourney, addPackingItems, resolvePackingOwner, searchRoutes, searchTransport, addGear, kaipaAllTools, kaipaGlobalTools, kaipaJourneyTools } from './tools.ts';
 import type { AgentContext } from './types.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -425,4 +425,39 @@ Deno.test('a throttled or POI-less stop still gets a provider coordinate', async
     globalThis.fetch = originalFetch;
     for (const [name, value] of savedEnv) { if (value === undefined) Deno.env.delete(name); else Deno.env.set(name, value); }
   }
+});
+
+Deno.test('identical add_gear calls sent in one batch insert the item once, with whole-yuan prices', async () => {
+  const context: AgentContext = { userId: 'user', threadId: 'thread', runId: crypto.randomUUID(), originalUserMessage: '加两个Nalgene 99.5元' };
+  context.task = { runId: context.runId, journeyId: null, outcome: null, decision: {
+    objective: 'Add gear', mode: 'execute', domain: null, domainQuote: null, authorizationUnconfirmed: false, fullHikingPlan: false, activeHoursPerDay: null, continuation: false, authorizationQuote: '加两个Nalgene',
+    operations: ['add_gear'], requiredOperations: ['add_gear'], destination: null,
+    days: null, derivedDays: null, plannedDate: null, dateUndecided: false, trackAttachmentName: null, packingMode: 'none', constraints: [],
+  } };
+  const inserted: Array<Record<string, unknown>> = [];
+  const client = {
+    from(table: string) {
+      let pending: Record<string, unknown> | null = null;
+      const chain = {
+        select: () => chain, eq: () => chain, neq: () => chain, upsert: () => chain,
+        update: () => chain,
+        insert: (value: Record<string, unknown>) => { pending = value; return chain; },
+        maybeSingle: async () => ({ data: null, error: null }),
+        single: async () => {
+          if (table === 'gear_items' && pending) { inserted.push(pending); return { data: { id: inserted.length, name: pending.name }, error: null }; }
+          return { data: { id: 'call' }, error: null };
+        },
+        // The library read resolves after a tick, as a real round trip would.
+        then: (resolve: (value: unknown) => unknown) => new Promise(r => setTimeout(r, 5)).then(() => ({ data: [], error: null })).then(resolve),
+      };
+      return chain;
+    },
+  };
+  bindRunClient(context.runId, client);
+  try {
+    const args = JSON.stringify({ name: 'Nalgene', priceCny: 99.5 });
+    await Promise.all([addGear.invoke({ context } as never, args), addGear.invoke({ context } as never, args)]);
+    assert(inserted.length === 1, `inserted ${inserted.length} rows`);
+    assert(inserted[0].price === 100, `price ${inserted[0].price}`);
+  } finally { releaseRunClient(context.runId); }
 });

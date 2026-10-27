@@ -4,6 +4,7 @@ import { validIsoDate } from './itinerary-validation.ts';
 import type { TopicCheck } from './topic-boundary.ts';
 import type { RouterIntent } from './intent-router.ts';
 import type { AgentIntent } from './types.ts';
+import type { ParsedGearItem } from './gear-fast-path.ts';
 
 export const writeOperations = [
   'create_journey', 'add_itinerary_items', 'update_journey_schedule',
@@ -71,7 +72,7 @@ export type TaskOutcome = {
 // when the result was only recorded (shadow mode, continuation, router failure).
 export type TaskRouting = {
   intent: RouterIntent;
-  source: 'app' | 'router' | 'continuation' | 'interpreter';
+  source: 'app' | 'router' | 'continuation' | 'interpreter' | 'rules';
   applied: boolean;
   clarify?: { question: string; options: Array<{ label: string; message: string }> };
   alternatives?: RouterIntent[];
@@ -79,7 +80,10 @@ export type TaskRouting = {
   note?: string;
   error?: string;
 };
-export type TaskState = { runId: string; journeyId: string | null; decision: TaskDecision; outcome: TaskOutcome | null; topicCheck?: TopicCheck; routing?: TaskRouting };
+// Items the rule-based fast path parsed (gear-fast-path.ts). Persisted with the
+// decision so a retried run writes the same items without parsing again.
+export type TaskRules = { intent: 'gear_add'; items: ParsedGearItem[] };
+export type TaskState = { runId: string; journeyId: string | null; decision: TaskDecision; outcome: TaskOutcome | null; topicCheck?: TopicCheck; routing?: TaskRouting; rules?: TaskRules };
 
 // A routed clarification ends the turn with its question; nothing else runs.
 export function taskClarification(task: TaskState) {
@@ -152,9 +156,10 @@ export function constrainTaskDecision(
   if (journeyId) decision.operations = decision.operations.filter(operation => operation !== 'create_journey');
   // A full app planning request includes day boundaries, not just prose distances.
   // Restrict this dependency to authorized full hiking work, never transport/single edits.
-  const fullHike = decision.fullHikingPlan || (context?.intent === 'plan_journey'
+  const planEntry = context?.intent === 'plan_journey' || context?.intent === 'smart_plan';
+  const fullHike = decision.fullHikingPlan || (planEntry
     && decision.packingMode === 'full' && decision.operations.includes('add_itinerary_items'));
-  if (decision.mode === 'execute' && freshAuthorization && (fullHike || context?.intent === 'plan_journey')) {
+  if (decision.mode === 'execute' && freshAuthorization && (fullHike || planEntry)) {
     const excluded = excludedPlanWrites(message, decision);
     if (excluded.packing) {
       decision.packingMode = 'none';

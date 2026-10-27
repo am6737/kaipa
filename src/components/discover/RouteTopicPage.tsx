@@ -34,6 +34,9 @@ const inBand = (route: Poi, band: DistanceBand) => {
   return band === 'all' || (band === 'short' ? km < 20 : km >= 20);
 };
 const hasCover = (route: Poi) => Number(Boolean(route.photoUris?.[0]));
+// Rows built with the page; the rest wait for the slide-in to finish, so a
+// long topic doesn't hold the tap before the page starts moving.
+const FIRST_ROWS = 6;
 
 /** Routes for a topic, best lead first. Shared with the starter cards. */
 export function topicRoutes(routes: Poi[], topic: RouteTopic, month: number): Poi[] {
@@ -73,6 +76,7 @@ export function RouteTopicPage({
   const [region, setRegion] = useState<string | null>(null);
   const [sort, setSort] = useState<TopicSort>('recommended');
   const [filterAnchor, setFilterAnchor] = useState<{ y: number; height: number; right: number } | null>(null);
+  const [entered, setEntered] = useState(false);
   const filterRef = useRef<View>(null);
   const regions = useMemo(() => {
     const counts = new Map<string, number>();
@@ -112,6 +116,7 @@ export function RouteTopicPage({
       scrollable={false}
       hero={<View />}
       left={<PosterBackButton onPress={onClose} />}
+      onEnterComplete={() => setEntered(true)}
       overlay={filterAnchor ? (
         <View style={styles.filterBackdrop}>
           <Press accessibilityRole="button" accessibilityLabel={t('common.cancel')} onPress={() => setFilterAnchor(null)} style={StyleSheet.absoluteFill}>{null}</Press>
@@ -190,7 +195,7 @@ export function RouteTopicPage({
               </View>
             ) : null}
           </View>
-          {visibleRoutes.length ? visibleRoutes.map((route) => (
+          {visibleRoutes.length ? (entered ? visibleRoutes : visibleRoutes.slice(0, FIRST_ROWS)).map((route) => (
             <Press key={route.id} accessibilityRole="button" accessibilityLabel={route.name} onPress={() => onOpenRoute(route)} scaleTo={0.985} style={styles.row}>
               <PhotoTile tone={route.tone} seed={route.id} resWidth={240} radius={radius.card} style={styles.thumb}>
                 {route.photoUris?.[0] ? <Image source={{ uri: route.photoUris[0] }} contentFit="cover" style={StyleSheet.absoluteFill} /> : null}

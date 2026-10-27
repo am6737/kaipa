@@ -72,7 +72,8 @@ export type IconName =
   | 'volume'
   | 'volumeOff'
   | 'record'
-  | 'journey';
+  | 'journey'
+  | 'hiker';
 
 interface Props {
   name: IconName;
@@ -415,6 +416,15 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
           <Circle cx={12} cy={12} r={9} {...common} />
           <Circle cx={12} cy={10} r={2.8} {...common} />
           <Path d="M6.6 17.9c1-1.9 3-3.1 5.4-3.1s4.4 1.2 5.4 3.1" {...common} />
+        </Svg>
+      );
+    case 'hiker':
+      // Walker with backpack and trekking pole — 徒步导航 along a route.
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Circle cx={13} cy={4} r={2} {...common} />
+          <Path d="M12.6 7.6 11 13.6M11 13.6l2.6 3.2.2 4.2M11 13.6l-1.8 3.8L7.4 21M12.4 9l3.2 2.2M15.6 8.8 17.6 21" {...common} />
+          <Path d="M12 7.3l-2.8-.4-1 5.1 2.7.4" {...common} />
         </Svg>
       );
     case 'journey':

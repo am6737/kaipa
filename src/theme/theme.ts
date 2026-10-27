@@ -48,6 +48,8 @@ export interface Theme {
   measureSurface: string;
   measureBorder: string;
   measureShadow: string;
+  // Floating pill controls that sit straight on a white page.
+  controlShadow: string;
   surfaceTop: string;
   surface: string;
   surfaceStrong: string;
@@ -74,6 +76,9 @@ export interface Theme {
   trailFaint: string;
   dotCore: string;
   dotRing: string;
+  // Grade bands under an elevation curve: 8–14% and steeper than 14%.
+  gradeModerate: string;
+  gradeSteep: string;
 }
 
 export function makeTheme(mode: Mode, accent?: string): Theme {
@@ -97,6 +102,7 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
       measureSurface: 'rgba(255,255,255,0.05)',
       measureBorder: 'rgba(255,255,255,0.16)',
       measureShadow: '0px 8px 24px rgba(0,0,0,0.18)',
+      controlShadow: '0px 6px 18px rgba(0,0,0,0.32)',
       surfaceTop: 'rgba(40,40,44,0.92)',
       surface: 'rgba(255,255,255,0.05)',
       surfaceStrong: 'rgba(28,28,30,0.96)',
@@ -121,6 +127,8 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
       trailFaint: 'rgba(255,255,255,0.35)',
       dotCore: '#FFFFFF',
       dotRing: a,
+      gradeModerate: 'rgba(214,148,78,0.55)',
+      gradeSteep: 'rgba(214,102,70,0.60)',
     };
   }
   return {
@@ -137,6 +145,7 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
     measureSurface: '#F7F7F8',
     measureBorder: '#FFFFFF',
     measureShadow: '0px 8px 24px rgba(0,0,0,0.025)',
+    controlShadow: '0px 6px 18px rgba(0,0,0,0.08)',
     surfaceTop: '#FFFFFF',
     surface: 'rgba(245,245,247,0.95)',
     surfaceStrong: '#FFFFFF',
@@ -161,5 +170,7 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
     trailFaint: 'rgba(0,0,0,0.35)',
     dotCore: '#FFFFFF',
     dotRing: a,
+    gradeModerate: '#F6D59A',
+    gradeSteep: '#F2A07B',
   };
 }

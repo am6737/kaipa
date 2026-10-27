@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useOfflineState } from '../lib/offlineCache';
 import { toTrack } from '../lib/mappers';
 import { removeMedia } from '../lib/storage';
+import { setOutingVisibility } from './useSocial';
 import type { Track } from '../data/tracks';
 
 // Geometry is passed whole: a track is created from a parsed file, never
@@ -110,5 +111,10 @@ export function useTracks(userId: string | undefined) {
 
   const deleteTrack = useCallback((id: string) => deleteTracks([id]), [deleteTracks]);
 
-  return { tracks, loading: loading && !cached, createTrack, updateTrack, deleteTrack, deleteTracks, refetch };
+  const setTrackVisibility = useCallback(async (id: string, visibility: NonNullable<Track['visibility']>) => {
+    await setOutingVisibility({ journeyId: null, trackId: id }, visibility);
+    setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, visibility } : t)));
+  }, []);
+
+  return { tracks, loading: loading && !cached, createTrack, updateTrack, deleteTrack, deleteTracks, setTrackVisibility, refetch };
 }

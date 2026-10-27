@@ -34,6 +34,17 @@ limit work to the supported part. There is no output rail in this deployment.
    `POLICY_VERSION` in Python and `TOPIC_POLICY_VERSION` in TypeScript together
    when changing the policy so old verdicts are checked again.
 
+Two kinds of turn skip the check and record `topicCheck.source` instead of a
+verdict from NeMo:
+
+- `rules`: plain gear adds recognized by the grammar (see `agent-gear-sets.md`).
+- `app`: the smart plan button (`intent: 'smart_plan'`, `smart-plan.ts`,
+  2026-10-27). The server reads the named journey and writes the planning
+  request from its own template, so no client text is trusted. It also skips
+  the intent router and the interpreter. A journey it cannot read falls back to
+  the checked path with the app's message. Measured live: the old path spent
+  about 55 s before planning started (topic check, then router and interpreter).
+
 Classifier calls reserve the existing AI service token budget conservatively
 and record `topic_check` model metrics. Provider token usage is currently not
 returned by the check API, so the reservation is retained. Normal task

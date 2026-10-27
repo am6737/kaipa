@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>新建清单 按描述 AI 搭配</title>
+<style>
+  :root {
+    --bg: #F2F2F7;
+    --surface: #FFFFFF;
+    --field: rgba(0,0,0,0.045);
+    --control: #FFFFFF;
+    --control-shadow: 0 6px 18px rgba(0,0,0,0.08);
+    --text: #000000;
+    --text2: rgba(60,60,67,0.62);
+    --text3: rgba(60,60,67,0.32);
+    --border: rgba(0,0,0,0.10);
+    --accent: #0A84FF;
+    --accent-soft: rgba(10,132,255,0.12);
+    --accent-softer: rgba(10,132,255,0.06);
+    --frame: rgba(0,0,0,0.10);
+    --shadow: 0 24px 60px rgba(0,0,0,0.10);
+  }
+  [data-theme="dark"] {
+    --bg: #000000;
+    --surface: #000000;
+    --field: rgba(255,255,255,0.07);
+    --control: rgba(44,44,48,0.96);
+    --control-shadow: 0 6px 18px rgba(0,0,0,0.32);
+    --text: #EBEBF5;
+    --text2: rgba(235,235,245,0.62);
+    --text3: rgba(235,235,245,0.30);
+    --border: rgba(255,255,255,0.16);
+    --accent-soft: rgba(10,132,255,0.18);
+    --accent-softer: rgba(10,132,255,0.10);
+    --frame: rgba(255,255,255,0.14);
+    --shadow: 0 24px 60px rgba(0,0,0,0.6);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding: 40px 28px 80px; transition: background .25s, color .25s;
+  }
+  .mono { font-family: Menlo, "SF Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  button { font: inherit; color: inherit; border: none; background: none; cursor: pointer; }
+
+  .doc { max-width: 1680px; margin: 0 auto; }
+  .doc > h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.6px; }
+  .doc > p.lead { font-size: 14px; line-height: 23px; color: var(--text2); margin-top: 10px; max-width: 900px; }
+  .toolbar { display: flex; gap: 10px; margin: 22px 0 8px; }
+  .toolbar button { font-size: 13px; font-weight: 600; background: var(--field); border-radius: 999px; padding: 8px 16px; }
+
+  .boards { display: flex; flex-wrap: wrap; gap: 32px; margin-top: 28px; align-items: flex-start; }
+  .board { width: 375px; }
+  .board > .head { padding: 0 4px 12px; min-height: 76px; }
+  .board > .head b { display: block; font-size: 15px; font-weight: 800; }
+  .board > .head span { display: block; font-size: 12px; line-height: 18px; color: var(--text2); margin-top: 4px; }
+
+  .phone {
+    background: var(--surface); border: 1px solid var(--frame); border-radius: 34px;
+    box-shadow: var(--shadow); overflow: hidden; height: 760px; position: relative;
+  }
+  .statusbar { height: 34px; display: flex; align-items: center; justify-content: center; }
+  .statusbar i { width: 96px; height: 26px; border-radius: 999px; background: var(--field); display: block; }
+  .nav { display: flex; justify-content: space-between; align-items: center; padding: 4px 16px 6px; }
+  .roundbtn { width: 44px; height: 44px; border-radius: 999px; background: var(--control); box-shadow: var(--control-shadow); display: grid; place-items: center; color: var(--text); }
+  .nav .title { font-size: 17px; font-weight: 700; }
+  .scroll { padding: 4px 16px 120px; height: calc(100% - 88px); overflow-y: auto; scrollbar-width: none; }
+  .scroll::-webkit-scrollbar { display: none; }
+
+  .name { display: flex; align-items: center; gap: 8px; }
+  .name h2, .name input { margin: 0; }
+  .name h2 { flex: 1; font-size: 25px; font-weight: 800; letter-spacing: -0.4px; }
+  .name h2.ph { color: var(--text3); }
+  .count { font-size: 11.5px; color: var(--text3); font-family: Menlo, ui-monospace, monospace; }
+  .desc { margin-top: 20px; font-size: 15px; line-height: 22px; color: var(--text2); min-height: 22px; }
+  .desc.ph { color: var(--text3); }
+  .caret { display: inline-block; width: 2px; height: 18px; background: var(--accent); vertical-align: -3px; margin-left: 1px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* AI entry under the description */
+  .ai-entry { margin-top: 24px; display: flex; align-items: center; gap: 10px; }
+  .ai-entry .ai-hint { flex: 1; }
+  .ai-pill {
+    display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 999px; margin-left: auto;
+    font-size: 14px; font-weight: 700; background: var(--accent); color: #FFFFFF;
+  }
+  .ai-pill.off { background: transparent; color: var(--text3); cursor: default; }
+  .ai-pill.ghost { background: var(--field); padding: 0 14px; margin-left: auto; color: var(--text2); font-weight: 600; }
+  .ai-hint { font-size: 12px; line-height: 19px; color: var(--text3); }
+  .ai-now { font-size: 14px; font-weight: 600; color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .spin { width: 14px; height: 14px; border-radius: 999px; border: 2px solid var(--accent-soft); border-top-color: var(--accent); flex: none; }
+
+  .stats { display: flex; gap: 16px; margin-top: 30px; }
+  .stat { flex: 1; }
+  .stat small { display: block; font-size: 12px; color: var(--text2); }
+  .stat b { display: block; font-family: Menlo, ui-monospace, monospace; font-size: 30px; font-weight: 800; letter-spacing: -1.2px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stat b em { font-style: normal; font-size: 14px; color: var(--text2); letter-spacing: 0; margin-left: 2px; }
+  .stat b.empty { color: var(--text3); }
+  .stat .note { display: block; font-size: 11.5px; color: var(--accent); margin-top: 2px; }
+
+  .section { margin-top: 26px; display: flex; justify-content: space-between; align-items: baseline; }
+  .section h3 { font-size: 18px; font-weight: 800; }
+  .section .count { font-size: 12px; }
+  .sub { font-size: 11.5px; color: var(--text3); margin-top: 2px; }
+
+  .eyebrow { padding: 16px 0 4px; display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; font-weight: 600; color: var(--text2); letter-spacing: 0.3px; }
+  .eyebrow .mono { font-size: 11px; color: var(--text3); font-weight: 500; }
+  .eyebrow.miss { color: var(--accent); }
+
+  .row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; margin: 0 -10px; border-radius: 16px; transition: opacity .2s; }
+  .thumb { width: 44px; height: 44px; border-radius: 16px; background: var(--field); display: grid; place-items: center; flex: none; color: var(--accent); }
+  .thumb.dash { background: transparent; border: 1.5px dashed var(--border); color: var(--text3); }
+  .row .body { flex: 1; min-width: 0; }
+  .row .nm { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .meta { display: flex; gap: 6px; align-items: center; margin-top: 3px; flex-wrap: wrap; }
+  .row .why { font-size: 12px; line-height: 18px; color: var(--text2); margin-top: 3px; }
+  .tag { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; background: var(--field); color: var(--text2); }
+  .tag.buy { background: var(--accent-softer); color: var(--accent); }
+  .tag.ai { background: transparent; color: var(--text3); padding: 2px 0; font-weight: 500; }
+  .row .w { font-family: Menlo, ui-monospace, monospace; font-size: 12px; color: var(--text2); font-variant-numeric: tabular-nums; flex: none; }
+  .row.off { opacity: .42; }
+  .check { width: 24px; height: 24px; border-radius: 999px; border: 1.5px solid var(--border); flex: none; display: grid; place-items: center; }
+  .check.on { background: var(--accent); border-color: var(--accent); color: #FFFFFF; }
+
+  /* progress rows (show the work) */
+  .work { margin-top: 24px; display: flex; flex-direction: column; gap: 12px; }
+  .work .ln { display: flex; gap: 10px; align-items: center; font-size: 12.5px; color: var(--text2); }
+  .work .ln.done { color: var(--text3); }
+  .work .ln.now { color: var(--text); font-weight: 600; }
+  .dot { width: 14px; height: 14px; border-radius: 999px; flex: none; display: grid; place-items: center; }
+  .dot.done { color: var(--text3); }
+  .dot.now { border: 2px solid var(--accent-soft); border-top-color: var(--accent); animation: spin .9s linear infinite; }
+  .dot.wait { border: 1.5px solid var(--border); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .skel { height: 52px; border-radius: 16px; background: var(--field); margin-top: 10px; animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .5; } }
+
+  .ai-summary { margin-top: 16px; font-size: 13px; line-height: 21px; color: var(--text2); }
+  .ai-summary b { color: var(--text); font-weight: 700; }
+
+  .footer { position: absolute; left: 16px; right: 16px; bottom: 24px; display: flex; gap: 10px; }
+  .cta { flex: 1; height: 50px; border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 16px; font-weight: 800; background: var(--accent); color: #FFFFFF; box-shadow: var(--control-shadow); }
+  .cta.off { background: var(--control); color: var(--text3); }
+  .cta-sub { position: absolute; left: 0; right: 0; bottom: 80px; text-align: center; font-size: 11.5px; color: var(--text3); }
+
+  .toast { position: absolute; left: 16px; right: 16px; bottom: 88px; background: var(--control); box-shadow: var(--control-shadow); border-radius: 18px; padding: 12px 14px; font-size: 13px; line-height: 19px; display: none; }
+  .toast.show { display: block; }
+
+  .notes { margin-top: 48px; max-width: 900px; }
+  .notes h2 { font-size: 18px; font-weight: 800; margin-bottom: 10px; }
+  .notes li { font-size: 13.5px; line-height: 23px; color: var(--text2); margin-left: 18px; margin-bottom: 4px; }
+  .notes li b { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="doc">
+  <h1>新建清单：按描述 AI 搭配</h1>
+  <p class="lead">入口放在描述框下面。AI 只从用户自己的装备库里挑，挑好的直接勾进清单；库里没有但这次需要的，单独列成「还缺」一组并写明理由。保存前一切都只是草稿，用户可以逐项取消；只有勾选的缺项才会在创建清单时变成待购装备。第三块面板可以点着试。</p>
+  <div class="toolbar">
+    <button onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? '' : 'dark'">切换浅色 / 深色</button>
+    <button onclick="reset()">重置第三块</button>
+  </div>
+
+  <div class="boards">
+
+    <!-- 1. entry -->
+    <div class="board">
+      <div class="head"><b>① 入口</b><span>提示文案在左，按钮靠右；描述为空时只剩灰色按钮，不额外写说明。名称为空也能点，AI 会顺手起一个名字。</span></div>
+      <div class="phone">
+        <div class="statusbar"><i></i></div>
+        <div class="nav"><div class="roundbtn">✕</div><div class="title">新建清单</div><div style="width:44px"></div></div>
+        <div class="scroll">
+          <div class="name"><h2 class="ph">清单名称</h2><span class="count">0/24</span></div>
+          <div class="desc">三天两夜四姑娘山二峰，营地住帐篷，晚上可能零下<span class="caret"></span></div>
+          <div class="ai-entry">
+            <span class="ai-hint">从你的 42 件装备里挑</span>
+            <button class="ai-pill">按描述搭配</button>
+          </div>
+          <div class="stats">
+            <div class="stat"><small>重量</small><b class="empty">--</b></div>
+            <div class="stat"><small>价值</small><b class="empty">--</b></div>
+          </div>
+          <div class="section"><h3>装备</h3></div>
+          <div style="margin-top:28px;text-align:center;color:var(--text3);font-size:13px;line-height:21px">还没有装备<br>写好描述后可以让 AI 先帮你挑一遍</div>
+        </div>
+        <div class="footer"><div class="cta off">✓ 创建清单</div></div>
+      </div>
+      <div class="head" style="margin-top:16px"><span>描述为空时只剩灰色按钮，不再写「写一句用途后可用」</span><div style="margin-top:8px"><span class="ai-pill off" style="height:28px;font-size:13px;vertical-align:middle">按描述搭配</span></div></div>
+    </div>
+
+    <!-- 2. generating -->
+    <div class="board">
+      <div class="head"><b>② 搭配中</b><span>不弹全屏加载。描述下方一行进度加「停止」按钮，装备区用骨架占位；用户仍然可以改名称。目标几秒内完成。</span></div>
+      <div class="phone">
+        <div class="statusbar"><i></i></div>
+        <div class="nav"><div class="roundbtn">✕</div><div class="title">新建清单</div><div style="width:44px"></div></div>
+        <div class="scroll">
+          <div class="name"><h2 class="ph">清单名称</h2><span class="count">0/24</span></div>
+          <div class="desc">三天两夜四姑娘山二峰，营地住帐篷，晚上可能零下</div>
+          <div class="ai-entry">
+            <span class="spin"></span>
+            <span class="ai-now">正在从 42 件装备里挑选</span>
+            <button class="ai-pill ghost" onclick="toast('已停止，已勾进的装备保持不变')">停止</button>
+          </div>
+          <div class="work">
+            <div class="ln done"><span class="dot done">✓</span>读懂需求：3 天 2 晚，露营，海拔约 5000 m，夜间低温</div>
+            <div class="ln now"><span class="dot now"></span>从 42 件装备里挑选</div>
+            <div class="ln"><span class="dot wait"></span>检查还缺什么</div>
+          </div>
+          <div class="stats">
+            <div class="stat"><small>重量</small><b class="empty">--</b></div>
+            <div class="stat"><small>价值</small><b class="empty">--</b></div>
+          </div>
+          <div class="section"><h3>装备</h3></div>
+          <div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div>
+        </div>
+        <div class="footer"><div class="cta off">✓ 创建清单</div></div>
+      </div>
+    </div>
+
+    <!-- 3. result (interactive) -->
+    <div class="board">
+      <div class="head"><b>③ 结果（可交互）</b><span>已有装备直接进清单，带一个淡淡的「AI 选」。还缺的单独一组，默认勾选，点圆圈取消。底部按钮写清会新增几件待购。</span></div>
+      <div class="phone" id="p3">
+        <div class="statusbar"><i></i></div>
+        <div class="nav"><div class="roundbtn">✕</div><div class="title">新建清单</div><div style="width:44px"></div></div>
+        <div class="scroll">
+          <div class="name"><h2>四姑娘山二峰 3 天</h2><span class="count">10/24</span></div>
+          <div class="desc">三天两夜四姑娘山二峰，营地住帐篷，晚上可能零下</div>
+          <div class="ai-entry">
+            <button class="ai-pill ghost" onclick="toast('会用当前描述重新搭配，你手动改过的会保留')">重新搭配</button>
+          </div>
+          <div class="ai-summary">从你的装备里挑了 <b class="mono" id="pickedN">9</b> 件；<b>还缺 <span class="mono">3</span> 件</b>，主要是保暖和雪坡相关。</div>
+
+          <div class="stats">
+            <div class="stat"><small>重量</small><b><span id="wt">8.42</span><em>kg</em></b><span class="note" id="wnote">不含 3 件待补装备</span></div>
+            <div class="stat"><small>价值</small><b>¥<span id="val">7,860</span></b></div>
+          </div>
+
+          <div class="section"><h3>装备</h3><span class="count"><span id="itemsN">12</span> 件</span></div>
+          <div class="sub">点一件装备可以调整数量和携带方式</div>
+
+          <div class="eyebrow miss"><span>还缺 <span class="mono" id="missN">3</span> 件</span><span class="mono">勾选的会作为待购加入</span></div>
+          <div id="missing"></div>
+
+          <div class="eyebrow"><span>背负</span><span class="mono">2 件  2.35 kg</span></div>
+          <div class="row"><div class="thumb">▲</div><div class="body"><div class="nm">Osprey Aether 65</div><div class="meta"><span class="tag ai">AI 选</span></div></div><span class="w">2.10 kg</span></div>
+          <div class="row"><div class="thumb">▲</div><div class="body"><div class="nm">防雨罩 L</div><div class="meta"><span class="tag ai">AI 选</span></div></div><span class="w">0.25 kg</span></div>
+
+          <div class="eyebrow"><span>睡眠</span><span class="mono">3 件  3.45 kg</span></div>
+          <div class="row"><div class="thumb">☾</div><div class="body"><div class="nm">MSR Hubba Hubba 2</div><div class="meta"><span class="tag ai">AI 选</span></div></div><span class="w">1.72 kg</span></div>
+          <div class="row"><div class="thumb">☾</div><div class="body"><div class="nm">鹅绒睡袋 -5℃</div><div class="meta"><span class="tag ai">AI 选</span></div></div><span class="w">1.18 kg</span></div>
+          <div class="row"><div class="thumb">☾</div><div class="body"><div class="nm">Therm-a-Rest 充气垫</div><div class="meta"><span class="tag ai">AI 选</span></div></div><span class="w">0.55 kg</span></div>
+
+          <div class="eyebrow"><span>服装</span><span class="mono">3 件  1.66 kg</span></div>
+          <div class="row"><div class="thumb">◆</div><div class="body"><div class="nm">始祖鸟 Beta AR 冲锋衣</div><div class="meta"><span class="tag">穿戴</span><span class="tag ai">AI 选</span></div></div><span class="w">0.46 kg</span></div>
+          <div class="row"><div class="thumb">◆</div><div class="body"><div class="nm">抓绒中间层</div><div class="meta"><span class="tag ai">AI 选</span></div></div><span class="w">0.38 kg</span></div>
+          <div class="row"><div class="thumb">◆</div><div class="body"><div class="nm">高帮登山鞋</div><div class="meta"><span class="tag">穿戴</span><span class="tag ai">AI 选</span></div></div><span class="w">0.82 kg</span></div>
+
+          <div class="eyebrow"><span>炊具</span><span class="mono">1 件  0.96 kg</span></div>
+          <div class="row"><div class="thumb">◎</div><div class="body"><div class="nm">火枫炉头 + 230g 气罐</div><div class="meta"><span class="tag">消耗</span><span class="tag ai">AI 选</span></div></div><span class="w">0.96 kg</span></div>
+        </div>
+        <div class="toast" id="toast"></div>
+        <div class="footer"><button class="cta" onclick="toast(createMsg())">✓ <span id="ctaText">创建清单，新增 3 件待购</span></button></div>
+      </div>
+    </div>
+
+    <!-- 4. after save -->
+    <div class="board">
+      <div class="head"><b>④ 创建后</b><span>清单详情沿用现有的待购样式：虚线缩略图 + 「待购」标签，重量和价格显示 —。在装备库里点「已买到」并补重量后，清单统计自动更新。</span></div>
+      <div class="phone">
+        <div class="statusbar"><i></i></div>
+        <div class="nav"><div class="roundbtn">‹</div><div class="title"></div><div class="roundbtn">⋯</div></div>
+        <div class="scroll">
+          <div class="name"><h2>四姑娘山二峰 3 天</h2></div>
+          <div class="desc">三天两夜四姑娘山二峰，营地住帐篷，晚上可能零下</div>
+          <div class="stats">
+            <div class="stat"><small>重量</small><b>8.42<em>kg</em></b><span class="note">3 件待购未计入</span></div>
+            <div class="stat"><small>价值</small><b>¥7,860</b></div>
+          </div>
+          <div class="section"><h3>装备</h3><span class="count">12 件</span></div>
+          <div class="eyebrow"><span>服装</span><span class="mono">4 件  1.66 kg</span></div>
+          <div class="row"><div class="thumb dash">◆</div><div class="body"><div class="nm">羽绒服（800 蓬以上）</div><div class="meta"><span class="tag buy">待购</span></div></div><span class="w">—</span></div>
+          <div class="row"><div class="thumb">◆</div><div class="body"><div class="nm">始祖鸟 Beta AR 冲锋衣</div><div class="meta"><span class="tag">穿戴</span></div></div><span class="w">0.46 kg</span></div>
+          <div class="row"><div class="thumb">◆</div><div class="body"><div class="nm">抓绒中间层</div></div><span class="w">0.38 kg</span></div>
+          <div class="row"><div class="thumb">◆</div><div class="body"><div class="nm">高帮登山鞋</div><div class="meta"><span class="tag">穿戴</span></div></div><span class="w">0.82 kg</span></div>
+          <div class="eyebrow"><span>技术装备</span><span class="mono">2 件  —</span></div>
+          <div class="row"><div class="thumb dash">✦</div><div class="body"><div class="nm">冰爪</div><div class="meta"><span class="tag buy">待购</span></div></div><span class="w">—</span></div>
+          <div class="row"><div class="thumb dash">✦</div><div class="body"><div class="nm">登山杖</div><div class="meta"><span class="tag buy">待购</span></div></div><span class="w">—</span></div>
+          <div class="eyebrow"><span>背负</span><span class="mono">2 件  2.35 kg</span></div>
+          <div class="row"><div class="thumb">▲</div><div class="body"><div class="nm">Osprey Aether 65</div></div><span class="w">2.10 kg</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h2>要点</h2>
+    <ul>
+      <li><b>只是草稿。</b>AI 结果只填进编辑页，不写数据库；取消编辑就什么都不留下。</li>
+      <li><b>缺项默认勾选。</b>创建时勾选的缺项会成为 <span class="mono">owned = false</span> 的待购装备挂进清单，没勾的直接丢弃，不进装备库。</li>
+      <li><b>理由一句话。</b>每个缺项写明为什么需要，方便用户判断是借、是买，还是不带。</li>
+      <li><b>重新搭配</b>会保留用户手动增删过的装备，只重算其余部分。</li>
+      <li><b>「AI 选」</b>只是淡色小字，用户改过数量或携带方式就去掉；保存后不再显示。</li>
+      <li><b>编辑已有清单</b>也显示这个入口，但只补充，不移除用户已经选的装备。</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  const missingSeed = [
+    { name: '羽绒服（800 蓬以上）', cat: '服装', why: '营地夜间零下，现有抓绒加冲锋衣不够暖' },
+    { name: '冰爪', cat: '技术装备', why: '二峰顶部常有冰雪坡，10 月后基本必备' },
+    { name: '登山杖', cat: '技术装备', why: '下撤路段长，能明显减轻膝盖负担' },
+  ];
+  let missing;
+  function reset() { missing = missingSeed.map(m => ({ ...m, on: true })); render(); }
+  function render() {
+    const box = document.getElementById('missing');
+    box.innerHTML = missing.map((m, i) => `
+      <div class="row ${m.on ? '' : 'off'}">
+        <div class="thumb dash">${m.cat === '服装' ? '◆' : '✦'}</div>
+        <div class="body">
+          <div class="nm">${m.name}</div>
+          <div class="meta"><span class="tag buy">待补</span><span class="tag">${m.cat}</span></div>
+          <div class="why">${m.why}</div>
+        </div>
+        <button class="check ${m.on ? 'on' : ''}" onclick="flip(${i})" aria-label="勾选">${m.on ? '✓' : ''}</button>
+      </div>`).join('');
+    const n = missing.filter(m => m.on).length;
+    document.getElementById('missN').textContent = missing.length;
+    document.getElementById('itemsN').textContent = 9 + n;
+    document.getElementById('wnote').textContent = n ? `不含 ${n} 件待补装备` : '';
+    document.getElementById('ctaText').textContent = n ? `创建清单，新增 ${n} 件待购` : '创建清单';
+  }
+  function flip(i) { missing[i].on = !missing[i].on; render(); }
+  function createMsg() {
+    const n = missing.filter(m => m.on).length;
+    return n ? `已创建「四姑娘山二峰 3 天」：9 件已有装备，${n} 件待购已加入装备库` : '已创建「四姑娘山二峰 3 天」：9 件已有装备';
+  }
+  let timer;
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(timer); timer = setTimeout(() => t.classList.remove('show'), 2600);
+  }
+  reset();
+</script>
+</body>
+</html>

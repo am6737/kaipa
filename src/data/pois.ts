@@ -89,6 +89,8 @@ export interface Poi {
   trackFileName?: string;
   heroMode?: "track" | "cover"; // visual shown above the journey detail sheet
   trackPublic?: boolean; // whether this journey's track is shown on the explore page
+  /** journey-only: who sees it on the owner's profile (docs/me-social-profile.md). */
+  visibility?: "private" | "followers" | "public";
   routeShowPhotos?: boolean; // show user photos on the published route card
   routeShowTimeline?: boolean; // show itinerary on the published route card
   // route-catalog season metadata, curated in scripts/route-seasons.json

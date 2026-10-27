@@ -3,10 +3,9 @@ import { ActivityIndicator, Alert, Animated, Easing, Dimensions, Keyboard, Keybo
 import type { GearCarryStatus, GearCat, GearItem, GearSet, WeightUnit } from '../../data/gear';
 import { fmtWeight, itemStatus, splitWeight } from '../../data/gear';
 import type { JourneyPackingItem, JourneyPackingItemInput } from '../../data/journeyPacking';
-import { RECOMMENDED_PACKING_TEMPLATES, type RecommendedPackingTemplate } from '../../data/recommendedPackingTemplates';
 import type { Poi } from '../../data/pois';
 import { useData } from '../../data/DataContext';
-import { AppHeaderSearch, AppIconButton, AppProgressBar, DetailPage, layout, motion, radius, space, type } from '../../design-system';
+import { AppIconButton, AppProgressBar, layout, motion, radius, space, type } from '../../design-system';
 import { refetchJourneyPacking, useJourneyPacking, type JourneyPackingController } from '../../hooks/useJourneyPacking';
 import { supabase } from '../../lib/supabase';
 import * as Crypto from 'expo-crypto';
@@ -20,10 +19,9 @@ import { Press } from '../Press';
 import { ParticipantAvatar } from '../overlays/ParticipantAvatar';
 import { GearItemsList } from '../gear/GearItemsList';
 import { GearSetsList } from '../gear/GearSetsList';
-import { GearSetDetail } from '../gear/GearSetDetail';
 import { usePinnedSets } from '../gear/usePinnedSets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Package, Weight } from 'lucide-react-native';
+import { Package } from 'lucide-react-native';
 
 export type JourneyChecklistFilterMenuOption = {
   key: string;
@@ -91,7 +89,7 @@ function JourneyChecklistTabComponent({
   const controller = useJourneyPacking({ journey, userId, preview });
   const [selectedKey, setSelectedKey] = useState<string>();
   const [sourceOpen, setSourceOpen] = useState(false);
-  const [sourceMode, setSourceMode] = useState<'gear' | 'sets' | 'templates' | null>(null);
+  const [sourceMode, setSourceMode] = useState<'gear' | 'sets' | null>(null);
   const [customItemOpen, setCustomItemOpen] = useState(false);
   const [guideGearCount, setGuideGearCount] = useState(0);
   const [importingGuideGear, setImportingGuideGear] = useState(false);
@@ -1329,7 +1327,7 @@ function SheetFrame({ theme, onClose, onDismissStart, expanded = false, keyboard
   );
 }
 
-function AddSourceSheet({ theme, onClose, onSelect }: { theme: Theme; onClose: () => void; onSelect: (mode: 'gear' | 'sets' | 'templates' | 'custom') => void }) {
+function AddSourceSheet({ theme, onClose, onSelect }: { theme: Theme; onClose: () => void; onSelect: (mode: 'gear' | 'sets' | 'custom') => void }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -1342,7 +1340,7 @@ function AddSourceSheet({ theme, onClose, onSelect }: { theme: Theme; onClose: (
   onSelectRef.current = onSelect;
 
   const rows: {
-    id: 'gear' | 'sets' | 'templates' | 'custom';
+    id: 'gear' | 'sets' | 'custom';
     label: string;
     sub: string;
   }[] = [
@@ -1355,11 +1353,6 @@ function AddSourceSheet({ theme, onClose, onSelect }: { theme: Theme; onClose: (
       id: 'sets',
       label: t('journey.packing.fromSet'),
       sub: t('journey.packing.fromSetSub'),
-    },
-    {
-      id: 'templates',
-      label: t('journey.packing.fromTemplate'),
-      sub: t('journey.packing.fromTemplateSub'),
     },
     {
       id: 'custom',
@@ -1385,7 +1378,7 @@ function AddSourceSheet({ theme, onClose, onSelect }: { theme: Theme; onClose: (
     ]).start();
   }, [backdropOpacity, translateY]);
 
-  const close = (mode?: 'gear' | 'sets' | 'templates' | 'custom') => {
+  const close = (mode?: 'gear' | 'sets' | 'custom') => {
     if (closingRef.current) return;
     closingRef.current = true;
     Animated.parallel([
@@ -1478,54 +1471,14 @@ function AddSourceSheet({ theme, onClose, onSelect }: { theme: Theme; onClose: (
   );
 }
 
-function PackingSourcePicker({ theme, mode, sets, gearItems, categories, weightUnit, existingNames, saving, onBack, onAdd }: { theme: Theme; mode: 'gear' | 'sets' | 'templates'; sets: GearSet[]; gearItems: GearItem[]; categories: GearCat[]; weightUnit: WeightUnit; existingNames: Set<string>; saving: boolean; onBack: () => void; onAdd: (items: JourneyPackingItemInput[]) => Promise<void> }) {
+function PackingSourcePicker({ theme, mode, sets, gearItems, categories, weightUnit, existingNames, saving, onBack, onAdd }: { theme: Theme; mode: 'gear' | 'sets'; sets: GearSet[]; gearItems: GearItem[]; categories: GearCat[]; weightUnit: WeightUnit; existingNames: Set<string>; saving: boolean; onBack: () => void; onAdd: (items: JourneyPackingItemInput[]) => Promise<void> }) {
   const { t } = useI18n();
-  const { width } = useWindowDimensions();
-  const [selectedTemplate, setSelectedTemplate] = useState<RecommendedPackingTemplate | null>(null);
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set());
   const [selectedSetIds, setSelectedSetIds] = useState<Set<string>>(new Set());
-  const [query, setQuery] = useState('');
-  const [plazaSearchOpen, setPlazaSearchOpen] = useState(false);
   const catMap = useMemo(() => new Map(categories.map((category) => [category.id, category])), [categories]);
   const catRecord = useMemo(() => Object.fromEntries(categories.map((category) => [category.id, category])) as Record<string, GearCat>, [categories]);
   const availableGearItems = useMemo(() => gearItems.filter((item) => !existingNames.has(item.name)), [existingNames, gearItems]);
   const { pinnedIds, setPinned } = usePinnedSets();
-  const communityDetail = useMemo(() => {
-    if (!selectedTemplate) return null;
-    const fallbackColors = ['#4F8EF7', '#5BAF7B', '#E09A4A', '#A477D4', '#D46A78', '#4FA9A6'];
-    const categoryNames = [...new Set(selectedTemplate.items.map((item) => item.categoryName || t('gear.uncategorized')))];
-    const detailCategories = categoryNames.map((name, index) => {
-      const existing = categories.find((category) => category.name === name);
-      return (
-        existing ?? {
-          id: `community-category-${index}`,
-          name,
-          color: fallbackColors[index % fallbackColors.length],
-          builtin: true,
-        }
-      );
-    });
-    const categoriesByName = new Map(detailCategories.map((category) => [category.name, category]));
-    const detailItems: GearItem[] = selectedTemplate.items.map((item, index) => ({
-      id: -(index + 1),
-      name: item.name,
-      cat: categoriesByName.get(item.categoryName || t('gear.uncategorized'))?.id ?? detailCategories[0]?.id ?? 'community-category-0',
-      w: item.weightKg ?? 0,
-      p: 0,
-      qty: item.quantity ?? 1,
-      note: item.note,
-    }));
-    return {
-      set: {
-        id: selectedTemplate.id,
-        name: selectedTemplate.name,
-        description: selectedTemplate.description,
-        items: detailItems.map((item) => item.name),
-      } satisfies GearSet,
-      items: detailItems,
-      catMap: Object.fromEntries(detailCategories.map((category) => [category.id, category])) as Record<string, GearCat>,
-    };
-  }, [categories, selectedTemplate, t]);
   const inputsFromSet = (set: GearSet): JourneyPackingItemInput[] =>
     set.items.map((name) => {
       const item = gearItems.find((candidate) => candidate.name === name);
@@ -1544,22 +1497,19 @@ function PackingSourcePicker({ theme, mode, sets, gearItems, categories, weightU
       };
     });
 
-  const sourceItems: JourneyPackingItemInput[] =
-    mode === 'gear'
-      ? gearItems.map((item) => ({
-          sourceType: 'gear',
-          sourceGearItemId: item.id,
-          name: item.name,
-          categoryName: catMap.get(item.cat)?.name,
-          categoryColor: catMap.get(item.cat)?.color,
-          quantity: item.qty ?? 1,
-          weightKg: item.w,
-          carryStatus: itemStatus(item),
-          attrs: item.attrs,
-          note: item.note,
-        }))
-      : (selectedTemplate?.items ?? []);
   if (mode === 'gear') {
+    const sourceItems: JourneyPackingItemInput[] = gearItems.map((item) => ({
+      sourceType: 'gear',
+      sourceGearItemId: item.id,
+      name: item.name,
+      categoryName: catMap.get(item.cat)?.name,
+      categoryColor: catMap.get(item.cat)?.color,
+      quantity: item.qty ?? 1,
+      weightKg: item.w,
+      carryStatus: itemStatus(item),
+      attrs: item.attrs,
+      note: item.note,
+    }));
     return (
       <GearItemsList
         theme={theme}
@@ -1589,256 +1539,44 @@ function PackingSourcePicker({ theme, mode, sets, gearItems, categories, weightU
     );
   }
 
-  if (mode === 'sets') {
-    return (
-      <GearSetsList
-        theme={theme}
-        sets={sets}
-        allItems={gearItems}
-        weightUnit={weightUnit}
-        onBack={onBack}
-        onOpenSet={() => {}}
-        onAdd={() => {}}
-        onDeleteSets={() => {}}
-        pinnedSetIds={pinnedIds}
-        onSetPinned={setPinned}
-        picker={{
-          title: t('journey.packing.selectSet'),
-          selectedIds: selectedSetIds,
-          onDone: (ids) => {
-            if (saving) return;
-            setSelectedSetIds(ids);
-            const names = new Set(existingNames);
-            const selected: JourneyPackingItemInput[] = [];
-            sets
-              .filter((set) => ids.has(set.id))
-              .forEach((set) => {
-                inputsFromSet(set).forEach((item) => {
-                  if (names.has(item.name)) return;
-                  names.add(item.name);
-                  selected.push(item);
-                });
+  return (
+    <GearSetsList
+      theme={theme}
+      sets={sets}
+      allItems={gearItems}
+      catMap={catRecord}
+      weightUnit={weightUnit}
+      onBack={onBack}
+      onOpenSet={() => {}}
+      onAdd={() => {}}
+      onDeleteSets={() => {}}
+      pinnedSetIds={pinnedIds}
+      onSetPinned={setPinned}
+      picker={{
+        title: t('journey.packing.selectSet'),
+        selectedIds: selectedSetIds,
+        onDone: (ids) => {
+          if (saving) return;
+          setSelectedSetIds(ids);
+          const names = new Set(existingNames);
+          const selected: JourneyPackingItemInput[] = [];
+          sets
+            .filter((set) => ids.has(set.id))
+            .forEach((set) => {
+              inputsFromSet(set).forEach((item) => {
+                if (names.has(item.name)) return;
+                names.add(item.name);
+                selected.push(item);
               });
-            if (!selected.length) {
-              onBack();
-              return;
-            }
-            void onAdd(selected);
-          },
-        }}
-      />
-    );
-  }
-
-  if (mode === 'templates' && selectedTemplate && communityDetail) {
-    const itemsToApply = selectedTemplate.items.filter((item) => !existingNames.has(item.name));
-    return (
-      <GearSetDetail
-        theme={theme}
-        set={communityDetail.set}
-        allItems={communityDetail.items}
-        catMap={communityDetail.catMap}
-        weightUnit={weightUnit}
-        onBack={() => {
-          setSelectedTemplate(null);
-          setQuery('');
-        }}
-        onOpenItem={() => {}}
-        onDelete={() => {}}
-        onEdit={() => {}}
-        onDuplicate={() => {}}
-        applicationAction={{
-          label: itemsToApply.length ? t('journey.packing.applyList') : t('journey.packing.listApplied'),
-          disabled: !itemsToApply.length,
-          pending: saving,
-          onPress: () => void onAdd(itemsToApply),
-        }}
-      />
-    );
-  }
-
-  const plazaGridGap = space.sm;
-  const plazaCardWidth = (width - layout.pagePadding * 2 - plazaGridGap) / 2;
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const filteredTemplates = RECOMMENDED_PACKING_TEMPLATES.filter((template) => !normalizedQuery || template.name.toLocaleLowerCase().includes(normalizedQuery) || template.description.toLocaleLowerCase().includes(normalizedQuery) || template.items.some((item) => item.name.toLocaleLowerCase().includes(normalizedQuery) || item.categoryName?.toLocaleLowerCase().includes(normalizedQuery)));
-
-  return (
-    <DetailPage theme={theme} onBack={onBack} title={t('journey.packing.plazaTitle')} backgroundColor={theme.groupedBg} right={<AppHeaderSearch theme={theme} open={plazaSearchOpen} value={query} placeholder={t('journey.packing.plazaSearch')} onChangeText={setQuery} onClose={() => setPlazaSearchOpen(false)} actions={<AppIconButton theme={theme} name="search" onPress={() => setPlazaSearchOpen(true)} noShadow />} />}>
-      <View style={{ paddingHorizontal: layout.pagePadding, marginTop: space.md }}>
-        <View
-          style={{
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            alignItems: 'flex-start',
-            gap: plazaGridGap,
-          }}
-        >
-          {filteredTemplates.map((template) => (
-            <CommunityPackingListCard
-              key={template.id}
-              theme={theme}
-              template={template}
-              weightUnit={weightUnit}
-              width={plazaCardWidth}
-              onPress={() => {
-                setSelectedTemplate(template);
-                setQuery('');
-                setPlazaSearchOpen(false);
-              }}
-            />
-          ))}
-        </View>
-        {!filteredTemplates.length ? (
-          <View
-            style={{
-              minHeight: 300,
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: space.sm,
-            }}
-          >
-            <View
-              style={{
-                width: 64,
-                height: 64,
-                borderRadius: 22,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: theme.accentSofter,
-              }}
-            >
-              <Icon name="search" color={theme.accent} size={25} />
-            </View>
-            <Text style={[type.body, { color: theme.text2 }]}>{t('journey.packing.plazaEmpty')}</Text>
-          </View>
-        ) : null}
-      </View>
-    </DetailPage>
-  );
-}
-
-function CommunityPackingListCard({ theme, template, weightUnit, width, onPress }: { theme: Theme; template: RecommendedPackingTemplate; weightUnit: WeightUnit; width: number; onPress: () => void }) {
-  const { t } = useI18n();
-  const categoryCount = new Set(template.items.map((item) => item.categoryName).filter(Boolean)).size;
-  const totalWeight = template.items.reduce((sum, item) => sum + (item.weightKg ?? 0) * (item.quantity ?? 1), 0);
-
-  return (
-    <Press
-      onPress={onPress}
-      scaleTo={0.985}
-      accessibilityRole="button"
-      style={{
-        width,
-        height: 218,
-        padding: space.md,
-        borderRadius: radius.feature,
-        justifyContent: 'space-between',
-        backgroundColor: theme.surfaceTop,
+            });
+          if (!selected.length) {
+            onBack();
+            return;
+          }
+          void onAdd(selected);
+        },
       }}
-    >
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'flex-start',
-          gap: space.xs,
-        }}
-      >
-        <Text
-          numberOfLines={3}
-          style={{
-            flex: 1,
-            fontSize: 18,
-            lineHeight: 24,
-            fontWeight: '800',
-            letterSpacing: -0.45,
-            color: theme.text,
-          }}
-        >
-          {template.name}
-        </Text>
-        <View
-          style={{
-            height: 22,
-            paddingHorizontal: 7,
-            borderRadius: radius.pill,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: theme.fieldSurface,
-          }}
-        >
-          <Text
-            style={{
-              fontFamily: MONO,
-              fontSize: 9.5,
-              fontWeight: '700',
-              color: theme.text2,
-            }}
-          >
-            {template.items.length} {t('gear.unit.items')}
-          </Text>
-        </View>
-      </View>
-
-      <View>
-        <Text numberOfLines={2} style={[type.caption, { color: theme.text3, lineHeight: 17 }]}>
-          {template.description}
-        </Text>
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: space.sm,
-            marginTop: space.sm,
-          }}
-        >
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: space.xxs,
-              flexShrink: 0,
-            }}
-          >
-            <Package color={theme.text2} size={12.5} strokeWidth={1.7} />
-            <Text
-              style={{
-                fontFamily: MONO,
-                fontSize: 10,
-                fontWeight: '700',
-                color: theme.text2,
-              }}
-            >
-              {categoryCount} {t('gear.unit.cats')}
-            </Text>
-          </View>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: space.xxs,
-              flexShrink: 1,
-              minWidth: 0,
-            }}
-          >
-            <Weight color={theme.text2} size={12.5} strokeWidth={1.7} />
-            <Text
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.72}
-              style={{
-                flexShrink: 1,
-                fontFamily: MONO,
-                fontSize: 10,
-                fontWeight: '700',
-                color: theme.text2,
-              }}
-            >
-              {fmtWeight(totalWeight, weightUnit, true)}
-            </Text>
-          </View>
-        </View>
-      </View>
-    </Press>
+    />
   );
 }
 

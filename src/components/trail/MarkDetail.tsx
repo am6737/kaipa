@@ -1,7 +1,7 @@
 // MarkDetail.tsx — one marked spot in a bottom sheet: its photo, its name, and
 // where and when it was marked. The 徒步导航 page opens it from a mark or a
-// route's named spot on the map, the track page from the row of photos under
-// its stats; each passes the whole list, and a swipe goes through it in order.
+// route's named spot on the map, the track page from its list of marked
+// spots; each passes the whole list, and a swipe goes through it in order.
 //
 // A sheet rather than a full page, whether there is a photo or not, so every
 // spot opens the same way and the map stays in view above it. The photo sits

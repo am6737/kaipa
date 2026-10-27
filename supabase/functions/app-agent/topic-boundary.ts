@@ -8,7 +8,11 @@ export type TopicInput = {
   recentMessages: Array<{ role: string; content: string }>;
   pendingQuestion: string | null;
 };
-export type TopicCheck = { allowed: boolean; policyVersion: string; checkedAt: string };
+// source 'rules': the gear fast path recognized the request, so the topic
+// model was not asked; a recognized gear add is in scope by construction.
+// source 'app': the smart plan button's command (smart-plan.ts), whose message
+// is the server's own template rather than user text.
+export type TopicCheck = { allowed: boolean; policyVersion: string; checkedAt: string; source?: 'rules' | 'app' };
 
 export async function checkTopic(input: TopicInput, options: {
   url: string; token: string; fetcher?: typeof fetch;

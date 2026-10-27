@@ -11,7 +11,7 @@ import ReAnimated, { Easing, cancelAnimation, interpolate, interpolateColor, run
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { JapaneseYen, MoreHorizontal, Package, Plus, Search, Tag, type LucideIcon } from 'lucide-react-native';
+import { JapaneseYen, MoreHorizontal, Package, Plus, Search, type LucideIcon } from 'lucide-react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { GearCat, GearItem, WeightUnit, fmtWeight, itemPrice, itemQty, itemStatus, itemWeight } from '../../data/gear';
@@ -37,6 +37,9 @@ const PILL_HEIGHT = layout.iconButton + space.xs;
 const MENU_ROW_HEIGHT = layout.fieldHeight + space.sm;
 const COMPACT_ROW_HEIGHT = layout.fieldHeight + space.xxs;
 // List-row thumbnail; the row and its empty placeholders share this geometry.
+import { catIcon } from './catIcon';
+import { useRollingText } from './useRollingText';
+
 const THUMB_SIZE = 52;
 const LIST_ROW_MIN_HEIGHT = THUMB_SIZE + space.xs * 2;
 const headerButtonStyle = { width: layout.iconButton, height: layout.iconButton, alignItems: 'center', justifyContent: 'center' } as const;
@@ -54,7 +57,7 @@ type GearPickerConfig = {
   onAdd?: (anchor: MenuAnchor) => void;
 };
 
-const formatItemValue = (value: number) => {
+export const formatItemValue = (value: number) => {
   const rounded = Math.round(value);
   if (Math.abs(rounded) <= 100000) return String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   const wan = rounded / 10000;
@@ -93,8 +96,6 @@ function GearItemsListView({
   onEditCategory,
   onDeleteCategory,
   onDeleteItems,
-  onOpenSquare,
-  entryVariant,
   picker,
 }: {
   theme: Theme;
@@ -110,8 +111,6 @@ function GearItemsListView({
   onEditCategory: (cat: GearCat) => void;
   onDeleteCategory: (cat: GearCat) => void;
   onDeleteItems: (ids: number[]) => void;
-  onOpenSquare?: () => void;
-  entryVariant?: 'push' | 'continuationY';
   picker?: GearPickerConfig;
 }) {
   const { t } = useI18n();
@@ -318,6 +317,7 @@ function GearItemsListView({
       ? t('gear.itemList.pageCount', { count: activeRows.length, pct: weightShare(totalWeight) })
       : `${items.length} ${t('gear.unit.items')}`;
   const weightParts = splitUnit(fmtWeight(totalWeight, weightUnit));
+  const shownCountText = useRollingText(libraryEmpty ? `0 ${t('gear.unit.items')}` : countText);
   const gridCardWidth = (width - layout.pagePadding * 2 - space.sm) / 2;
   const pagerHeight = Math.max(pageHeights[pages[settledIndex]?.key ?? ALL_PAGE] || 0, viewportHeight - TAB_BAR_HEIGHT);
   const selectableIds = activeRows.map((item) => item.id).filter((id): id is number => id != null);
@@ -455,9 +455,8 @@ function GearItemsListView({
   return (
     <DetailPage
       theme={theme}
-      entryVariant={entryVariant}
       onBack={picker ? finishPicker : selectMode ? exitSelect : onBack}
-      backgroundColor={theme.groupedBg}
+      backgroundColor={theme.featureSurface}
       flatChrome
       scrollable={false}
       title={collapsed && !searchOpen ? (picker || selectMode ? pageTitle : activePage?.name) : undefined}
@@ -508,7 +507,7 @@ function GearItemsListView({
                   <BottomControl theme={theme} icon="check" label={t('gear.setEditor.pickerDone', { count: pickerSelectedNames.size })} onPress={finishPicker} primary style={{ flex: 1 }} />
                 </View>
               ) : selectMode ? (
-                <Press onPress={selectedIds.size ? confirmDelete : undefined} style={{ flex: 1, height: PILL_HEIGHT, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedIds.size ? theme.danger : theme.controlSurface }}>
+                <Press onPress={selectedIds.size ? confirmDelete : undefined} style={{ flex: 1, height: PILL_HEIGHT, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedIds.size ? theme.danger : theme.controlSurface, boxShadow: theme.controlShadow }}>
                   <Text style={[type.cardTitle, { color: selectedIds.size ? '#FFFFFF' : theme.text3 }]}>{selectedIds.size ? t('gear.select.deleteConfirm', { count: selectedIds.size }) : t('gear.select.deletePrompt')}</Text>
                 </Press>
               ) : libraryEmpty ? (
@@ -528,12 +527,7 @@ function GearItemsListView({
           </View>
 
           <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + layout.topBarHeight + space.md} width={Math.min(232, width - space.sm * 2)} onClose={closeMore}>
-            {onOpenSquare ? <>
-              <MenuCaption theme={theme} text={t('gear.square.discover')} />
-              <MenuRow theme={theme} icon="globe" label={t('gear.square.items')} onPress={() => closeMoreThen(onOpenSquare)} />
-              <MenuCaption theme={theme} text={t('gear.itemList.manage')} spaced />
-            </> : null}
-            {!onOpenSquare ? <MenuCaption theme={theme} text={t('gear.itemList.manage')} /> : null}
+            <MenuCaption theme={theme} text={t('gear.itemList.manage')} />
             <MenuRow theme={theme} icon="checkAll" label={t('gear.itemList.batchManage')} onPress={() => closeMoreThen(beginSelect)} />
             <MenuRow theme={theme} icon="gearSettings" label={t('gear.category.manage')} onPress={() => closeMoreThen(() => setCategoryManagerOpen(true))} />
             <MenuCaption theme={theme} text={t('gear.setList.display')} spaced />
@@ -629,7 +623,7 @@ function GearItemsListView({
         <View onLayout={(event) => { headerHeight.value = event.nativeEvent.layout.height; }} style={{ paddingHorizontal: layout.pagePadding, paddingTop: space.xs, paddingBottom: space.md }}>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: space.sm }}>
             <Text numberOfLines={1} style={[type.pageTitle, { flexShrink: 1, color: theme.text }]}>{pageTitle}</Text>
-            <Text numberOfLines={1} style={[type.caption, { flexShrink: 1, fontFamily: MONO, fontVariant: ['tabular-nums'], color: theme.text3 }]}>{libraryEmpty ? `0 ${t('gear.unit.items')}` : countText}</Text>
+            <Text numberOfLines={1} style={[type.caption, { flexShrink: 1, fontFamily: MONO, fontVariant: ['tabular-nums'], color: theme.text3 }]}>{shownCountText}</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: space.md, marginTop: space.lg }}>
             <SummaryStat
@@ -651,7 +645,7 @@ function GearItemsListView({
 
         {libraryEmpty ? (
           <View style={{ paddingHorizontal: layout.pagePadding, paddingTop: space.sm }}>
-            <EmptyLibraryCards theme={theme} onAdd={onAdd} />
+            <EmptyPlaceholderCards theme={theme} title={t('gear.empty.addFirstItem')} subtitle={t('gear.empty.firstItemSub')} onPress={(event) => measureAnchor(event).then(onAdd)} />
           </View>
         ) : (
           <CategoryTabs theme={theme} pages={pages} activeIndex={pageIndex} pagerX={pagerX} pageWidth={pageWidth} onSelect={goToPage} onOpenAll={() => setJumpOpen(true)} />
@@ -774,20 +768,21 @@ function useCardPress(onPress: () => void, onLongPress?: () => void) {
   return { handlePress, handleLongPress };
 }
 
-function ItemThumb({ theme, photo, color, showPhoto, iconSize, style }: { theme: Theme; photo?: string; color: string; showPhoto: boolean; iconSize: number; style: StyleProp<ViewStyle> }) {
+export function ItemThumb({ theme, photo, color, showPhoto, iconSize, style }: { theme: Theme; photo?: string; color: string; showPhoto: boolean; iconSize: number; style: StyleProp<ViewStyle> }) {
   return (
-    <View style={[{ borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: theme.fieldSurface }, style]}>
+    // A hairline keeps white-backed product shots from melting into the white page.
+    <View style={[{ borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: theme.fieldSurface }, photo && showPhoto ? { borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline } : null, style]}>
       <Package color={color} size={iconSize} strokeWidth={1.6} opacity={0.6} />
       {photo && showPhoto ? <Image source={{ uri: photo }} contentFit="cover" transition={160} style={StyleSheet.absoluteFill} /> : null}
     </View>
   );
 }
 
-function SkeletonBar({ theme, width, height }: { theme: Theme; width: `${number}%`; height: number }) {
+export function SkeletonBar({ theme, width, height }: { theme: Theme; width: `${number}%`; height: number }) {
   return <View style={{ width, height, borderRadius: radius.control / 2, backgroundColor: theme.fieldSurface }} />;
 }
 
-function SelectMark({ theme, selected, overImage = false }: { theme: Theme; selected: boolean; overImage?: boolean }) {
+export function SelectMark({ theme, selected, overImage = false }: { theme: Theme; selected: boolean; overImage?: boolean }) {
   return (
     <View style={{ width: space.xl, height: space.xl, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: selected ? theme.accent : overImage ? '#FFFFFF' : theme.text3, backgroundColor: selected ? theme.accent : overImage ? 'rgba(0,0,0,0.22)' : 'transparent' }}>
       {selected ? <Icon name="check" color="#FFFFFF" size={15} strokeWidth={2.4} /> : null}
@@ -809,13 +804,14 @@ function ItemValue({ theme, value }: { theme: Theme; value: string }) {
 }
 
 // List row with no card behind it, so the page reads as one surface; only a
-// press or a selection tints it. Weight over value on the right keeps both
-// scannable down the column. The category shows only on 全部.
-function ItemRow({ theme, item, cat, showCategory, weightUnit, onPress, onLongPress, selectMode, selected, showImage, showPhoto, loading, showWeight, showValue }: ItemCardProps & { showCategory: boolean }) {
+// press or a selection tints it. Weight alone on the right scans down the
+// column; value sits in the meta line beside the category. The category shows only on 全部.
+export function ItemRow({ theme, item, cat, showCategory, weightUnit, onPress, onLongPress, selectMode, selected, showImage, showPhoto, loading, showWeight, showValue, hint }: ItemCardProps & { showCategory: boolean; hint?: string }) {
   const { t } = useI18n();
   const { handlePress, handleLongPress } = useCardPress(onPress, onLongPress);
   const rowPress = useDragCancelledPress(handlePress, React.useContext(PressDragGuardContext));
   const category = cat?.name || t('gear.uncategorized');
+  const CatGlyph = catIcon(cat?.name);
   const accent = cat?.color || theme.text3;
   const toBuy = item.owned === false;
   const qty = itemQty(item);
@@ -823,7 +819,7 @@ function ItemRow({ theme, item, cat, showCategory, weightUnit, onPress, onLongPr
   const statusLabel = status === 'worn' ? t('gear.pack.worn') : status === 'consumable' ? t('gear.pack.consumable') : status === 'optional' ? t('gear.status.optional') : null;
   const weight = toBuy ? '—' : fmtWeight(itemWeight(item), weightUnit);
   const value = toBuy ? '—' : `¥${formatItemValue(itemPrice(item))}`;
-  const shell = { minHeight: showImage ? LIST_ROW_MIN_HEIGHT : layout.listRowMinHeight, marginHorizontal: -space.sm, paddingHorizontal: space.sm, paddingVertical: space.xs, borderRadius: radius.card, flexDirection: 'row', alignItems: 'center', gap: space.sm } as const;
+  const shell = { minHeight: showImage ? LIST_ROW_MIN_HEIGHT : layout.listRowMinHeight, marginHorizontal: -space.sm, paddingHorizontal: space.sm, paddingVertical: space.sm + 2, borderRadius: radius.card, flexDirection: 'row', alignItems: 'center', gap: space.sm } as const;
   if (loading) {
     return <View style={shell}>
       {showImage ? <View style={{ width: THUMB_SIZE, height: THUMB_SIZE, borderRadius: radius.card, backgroundColor: theme.fieldSurface }} /> : null}
@@ -841,13 +837,15 @@ function ItemRow({ theme, item, cat, showCategory, weightUnit, onPress, onLongPr
   const meta = [
     showCategory ? (
       <View key="cat" style={{ flexShrink: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: space.xxs }}>
-        <View style={{ width: space.xs, height: space.xs, borderRadius: radius.pill, backgroundColor: accent }} />
+        <CatGlyph color={theme.text2} size={13} strokeWidth={1.8} />
         <Text numberOfLines={1} style={[type.caption, { flexShrink: 1, color: theme.text2 }]}>{category}</Text>
       </View>
     ) : null,
+    showValue && !toBuy ? <Text key="value" numberOfLines={1} style={[type.caption, { fontFamily: MONO, fontVariant: ['tabular-nums'], color: theme.text2 }]}>{value}</Text> : null,
     qty > 1 && !toBuy ? <Text key="qty" numberOfLines={1} style={[type.caption, { fontFamily: MONO, fontVariant: ['tabular-nums'], color: theme.text2 }]}>{t('gear.itemList.qtyEach', { qty, weight: fmtWeight(item.w, weightUnit) })}</Text> : null,
     statusLabel ? tag(statusLabel, theme.text2, theme.fieldSurface) : null,
     toBuy ? tag(t('gear.toBuy'), theme.accent, theme.accentSofter) : null,
+    hint ? <Text key="hint" numberOfLines={1} style={[type.caption, { color: theme.text3 }]}>{hint}</Text> : null,
   ].filter(Boolean);
   return (
     <Pressable
@@ -868,16 +866,12 @@ function ItemRow({ theme, item, cat, showCategory, weightUnit, onPress, onLongPr
           style={[{ width: THUMB_SIZE, height: THUMB_SIZE }, toBuy ? { borderWidth: 1.5, borderStyle: 'dashed', borderColor: theme.border, backgroundColor: 'transparent' } : null]}
         />
       ) : null}
-      <View style={{ flex: 1, minWidth: 0, gap: space.xxs }}>
+      <View style={{ flex: 1, minWidth: 0, gap: space.xs }}>
         <Text numberOfLines={2} style={[type.cardTitle, { lineHeight: 20, color: theme.text }]}>{item.name}</Text>
-        {meta.length ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, minWidth: 0 }}>{meta}</View> : null}
+        {meta.length ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minWidth: 0 }}>{meta}</View> : null}
       </View>
-      {showWeight || showValue ? (
-        <View style={{ flexShrink: 0, alignItems: 'flex-end', gap: space.xxs }}>
-          {showWeight ? <Text numberOfLines={1} style={[type.metric, { fontVariant: ['tabular-nums'], color: toBuy ? theme.text3 : theme.text }]}>{weight}</Text> : null}
-          {showValue ? <Text numberOfLines={1} style={[type.caption, { fontFamily: MONO, fontVariant: ['tabular-nums'], color: toBuy ? theme.text3 : theme.text2 }]}>{value}</Text> : null}
-        </View>
-      ) : null}
+      {/* Weight stays alone in the right column so it still scans as a column; value moved into the meta line. */}
+      {showWeight ? <Text numberOfLines={1} style={[type.metric, { flexShrink: 0, fontVariant: ['tabular-nums'], color: toBuy ? theme.text3 : theme.text }]}>{weight}</Text> : null}
       {selectMode ? <SelectMark theme={theme} selected={selected} /> : null}
     </Pressable>
   );
@@ -887,11 +881,12 @@ function ItemGridCard({ theme, item, cat, weightUnit, width, onPress, onLongPres
   const { t } = useI18n();
   const { handlePress, handleLongPress } = useCardPress(onPress, onLongPress);
   const category = cat?.name || t('gear.uncategorized');
+  const CatGlyph = catIcon(cat?.name);
   const accent = cat?.color || theme.accent;
   const weight = fmtWeight(itemWeight(item), weightUnit, true);
   const value = `¥${formatItemValue(itemPrice(item))}`;
   const imageHeight = Math.max(116, width - space.sm * 2);
-  const shell = { width, borderRadius: radius.feature, padding: space.sm, backgroundColor: theme.featureSurface } as const;
+  const shell = { width, borderRadius: radius.feature, padding: space.sm, backgroundColor: theme.fieldSurface } as const;
   if (loading) {
     return <View style={shell}>
       {showImage ? <View style={{ height: imageHeight, borderRadius: radius.card, backgroundColor: theme.fieldSurface }} /> : null}
@@ -907,7 +902,7 @@ function ItemGridCard({ theme, item, cat, weightUnit, width, onPress, onLongPres
       <View style={{ marginTop: showImage ? space.sm : 0, gap: space.xs }}>
         <Text numberOfLines={2} style={[type.cardTitle, { lineHeight: 21, color: theme.text }]}>{item.name}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs, minWidth: 0 }}>
-          <Tag color={accent} size={13} strokeWidth={1.8} />
+          <CatGlyph color={theme.text2} size={13} strokeWidth={1.8} />
           <Text numberOfLines={1} style={[type.caption, { flex: 1, minWidth: 0, color: theme.text2 }]}>{category}</Text>
         </View>
         {(showWeight || showValue) ? (
@@ -924,36 +919,37 @@ function ItemGridCard({ theme, item, cat, weightUnit, width, onPress, onLongPres
 }
 
 // One of the two summary totals. Weight and value sit side by side at the
-// same size; the unit is set smaller so the number leads.
-function SummaryStat({ theme, label, value, prefix, suffix, empty = false }: { theme: Theme; label: string; value: string; prefix?: string; suffix?: string; empty?: boolean }) {
+// same size; the unit is set smaller so the number leads. The number rolls to
+// its new value when the page or selection changes.
+export function SummaryStat({ theme, label, value, prefix, suffix, empty = false }: { theme: Theme; label: string; value: string; prefix?: string; suffix?: string; empty?: boolean }) {
   const unit = [type.liveUnit, { letterSpacing: 0, color: theme.text2 }];
+  const shown = useRollingText(value);
   return (
     <View style={{ flex: 1, minWidth: 0, gap: space.xs }}>
       <Text numberOfLines={1} style={[type.eyebrow, { letterSpacing: 0, color: theme.text2 }]}>{label}</Text>
       <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={[type.summaryValue, { color: empty ? theme.text3 : theme.text }]}>
         {prefix ? <Text style={unit}>{prefix} </Text> : null}
-        {value}
+        {shown}
         {suffix ? <Text style={unit}> {suffix}</Text> : null}
       </Text>
     </View>
   );
 }
 
-// Dashed stand-ins shaped like ItemRow: the first one adds an item, the
+// Dashed stand-ins shaped like ItemRow: the first one is the add action, the
 // fading ones behind it hint at the list that will fill in.
-function EmptyLibraryCards({ theme, onAdd }: { theme: Theme; onAdd: (anchor: MenuAnchor) => void }) {
-  const { t } = useI18n();
+export function EmptyPlaceholderCards({ theme, title, subtitle, onPress }: { theme: Theme; title: string; subtitle: string; onPress: (event: GestureResponderEvent) => void }) {
   const dashed = { minHeight: LIST_ROW_MIN_HEIGHT, borderRadius: radius.feature, padding: space.sm, flexDirection: 'row' as const, alignItems: 'center' as const, gap: space.md, borderWidth: 1.5, borderStyle: 'dashed' as const, borderColor: theme.border };
   const thumb = { width: THUMB_SIZE, height: THUMB_SIZE, borderRadius: radius.card, alignItems: 'center' as const, justifyContent: 'center' as const };
   return (
     <View style={{ gap: space.sm }}>
-      <Press accessibilityRole="button" accessibilityLabel={t('gear.empty.addFirstItem')} onPress={(event) => measureAnchor(event).then(onAdd)} style={dashed}>
+      <Press accessibilityRole="button" accessibilityLabel={title} onPress={onPress} style={dashed}>
         <View style={[thumb, { backgroundColor: theme.fieldSurface }]}>
           <Plus color={theme.text2} size={26} strokeWidth={2} />
         </View>
         <View style={{ flex: 1, minWidth: 0, gap: space.xxs }}>
-          <Text numberOfLines={1} style={[type.cardTitle, { lineHeight: 21, color: theme.text }]}>{t('gear.empty.addFirstItem')}</Text>
-          <Text numberOfLines={2} style={[type.hint, { color: theme.text2 }]}>{t('gear.empty.firstItemSub')}</Text>
+          <Text numberOfLines={1} style={[type.cardTitle, { lineHeight: 21, color: theme.text }]}>{title}</Text>
+          <Text numberOfLines={2} style={[type.hint, { color: theme.text2 }]}>{subtitle}</Text>
         </View>
       </Press>
       {[0.55, 0.28].map((opacity) => (
@@ -1023,7 +1019,7 @@ function CategoryTabs({ theme, pages, activeIndex, pagerX, pageWidth, onSelect, 
     scrollRef.current?.scrollTo({ x: Math.max(0, tab.x + tab.width / 2 - viewportWidth / 2), animated: true });
   }, [activeIndex, viewportWidth]);
   return (
-    <View style={{ height: TAB_BAR_HEIGHT, backgroundColor: theme.groupedBg }}>
+    <View style={{ height: TAB_BAR_HEIGHT, backgroundColor: theme.featureSurface }}>
       <ScrollView
         ref={scrollRef}
         horizontal
@@ -1050,7 +1046,7 @@ function CategoryTabs({ theme, pages, activeIndex, pagerX, pageWidth, onSelect, 
         <ReAnimated.View pointerEvents="none" style={[{ position: 'absolute', bottom: space.xxs, height: 3, borderRadius: radius.pill }, indicatorStyle]} />
       </ScrollView>
       <View style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: TAB_END_WIDTH, alignItems: 'flex-end', justifyContent: 'center' }}>
-        <LinearGradient pointerEvents="none" colors={[`${theme.groupedBg}00`, theme.groupedBg]} start={{ x: 0, y: 0 }} end={{ x: 0.4, y: 0 }} style={StyleSheet.absoluteFill} />
+        <LinearGradient pointerEvents="none" colors={[`${theme.featureSurface}00`, theme.featureSurface]} start={{ x: 0, y: 0 }} end={{ x: 0.4, y: 0 }} style={StyleSheet.absoluteFill} />
         <Press accessibilityRole="button" accessibilityLabel={t('gear.itemList.allCategories')} onPress={onOpenAll} style={[headerButtonStyle, { marginRight: space.xxs }]}>
           <Icon name="grid" color={theme.text2} size={20} strokeWidth={2} />
         </Press>
@@ -1103,21 +1099,21 @@ function CategoryJumpSheet({ theme, visible, pages, pageItems, activeIndex, weig
 }
 
 // Floating capsule of the bottom bar. `primary` marks the page's main action.
-function BottomControl({ theme, icon, leading, label, onPress, primary = false, style }: { theme: Theme; icon?: IconName; leading?: React.ReactNode; label: string; onPress: (event: GestureResponderEvent) => void; primary?: boolean; style?: object }) {
+export function BottomControl({ theme, icon, leading, label, onPress, primary = false, style }: { theme: Theme; icon?: IconName; leading?: React.ReactNode; label: string; onPress: (event: GestureResponderEvent) => void; primary?: boolean; style?: object }) {
   const color = primary ? '#FFFFFF' : theme.text;
   return (
-    <Press onPress={onPress} opacityTo={1} style={[{ height: PILL_HEIGHT, paddingHorizontal: space.xl, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, backgroundColor: primary ? theme.accent : theme.controlSurface }, style]}>
+    <Press onPress={onPress} opacityTo={1} style={[{ height: PILL_HEIGHT, paddingHorizontal: space.xl, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, backgroundColor: primary ? theme.accent : theme.controlSurface, boxShadow: theme.controlShadow }, style]}>
       {leading ?? (icon ? <Icon name={icon} color={color} size={19} strokeWidth={2.1} /> : null)}
       <Text numberOfLines={1} style={[type.cardTitle, { color }]}>{label}</Text>
     </Press>
   );
 }
 
-function MenuCaption({ theme, text, spaced = false }: { theme: Theme; text: string; spaced?: boolean }) {
+export function MenuCaption({ theme, text, spaced = false }: { theme: Theme; text: string; spaced?: boolean }) {
   return <Text style={[type.eyebrow, { paddingHorizontal: space.xl, paddingTop: spaced ? space.lg : space.xxs, paddingBottom: space.xs, color: theme.text2 }]}>{text}</Text>;
 }
 
-function MenuRow({ theme, icon, label, onPress, selected = false, trailing }: { theme: Theme; icon: IconName; label: string; onPress: () => void; selected?: boolean; trailing?: React.ReactNode }) {
+export function MenuRow({ theme, icon, label, onPress, selected = false, trailing }: { theme: Theme; icon: IconName; label: string; onPress: () => void; selected?: boolean; trailing?: React.ReactNode }) {
   return (
     <Press onPress={onPress} scaleTo={0.985} style={{ minHeight: MENU_ROW_HEIGHT, paddingHorizontal: space.xl, flexDirection: 'row', alignItems: 'center' }}>
       <View style={{ width: space.xl, alignItems: 'center' }}><Icon name={icon} color={theme.text} size={21} strokeWidth={1.9} /></View>
@@ -1127,7 +1123,7 @@ function MenuRow({ theme, icon, label, onPress, selected = false, trailing }: { 
   );
 }
 
-function CompactMenuRow({ theme, icon, label, onPress, selected = false }: { theme: Theme; icon: IconName; label: string; onPress: () => void; selected?: boolean }) {
+export function CompactMenuRow({ theme, icon, label, onPress, selected = false }: { theme: Theme; icon: IconName; label: string; onPress: () => void; selected?: boolean }) {
   return (
     <Press onPress={onPress} scaleTo={0.985} style={{ height: COMPACT_ROW_HEIGHT, paddingHorizontal: space.lg, flexDirection: 'row', alignItems: 'center' }}>
       <View style={{ width: space.xl, alignItems: 'center' }}><Icon name={icon} color={theme.text} size={19} strokeWidth={1.8} /></View>
@@ -1149,7 +1145,7 @@ function DisplaySettingRow({ theme, label, value, onChange, last }: { theme: The
   );
 }
 
-function FloatingMenu({ theme, visible, top, width, onClose, children }: { theme: Theme; visible: boolean; top: number; width: number; onClose: () => void; children: React.ReactNode }) {
+export function FloatingMenu({ theme, visible, top, width, onClose, children }: { theme: Theme; visible: boolean; top: number; width: number; onClose: () => void; children: React.ReactNode }) {
   return (
     <GearMenuTransition
       theme={theme}

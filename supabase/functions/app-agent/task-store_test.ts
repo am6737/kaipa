@@ -1,6 +1,7 @@
 import { prepareTask } from './task-store.ts';
 import { taskClarification, taskDecisionSchema } from './task.ts';
 import { TOPIC_POLICY_VERSION } from './topic-boundary.ts';
+import { smartPlanMessage } from './smart-plan.ts';
 
 Deno.test('task preparation supplies bound-track metadata and persists missing full-plan endpoint dependency', async () => {
   for (const hasTrack of [true, false]) {
@@ -194,4 +195,111 @@ Deno.test('a picked departure resumes the waiting plan without another topic che
   if (finished.interpreted !== 1) throw new Error('A finished task must not be resumed');
   const typed = await run(waiting, false);
   if (typed.interpreted !== 1) throw new Error('Only a picked departure resumes; typed messages are interpreted');
+});
+
+Deno.test('a rule-matched gear add skips the topic check and the models, and retries reuse it', async () => {
+  let persisted: any = null;
+  const client = { from(table: string) {
+    let runQuery = false;
+    const chain = {
+      select: () => chain, eq: (column: string) => { if (column === 'run_id') runQuery = true; return chain; },
+      is: () => chain, order: () => chain, limit: () => chain,
+      maybeSingle: () => ({ error: null, data: runQuery && persisted ? { state: persisted.state } : null }),
+      insert: (value: unknown) => { persisted = value; return { error: null }; },
+      then: (resolve: (value: unknown) => unknown) => resolve({ error: null,
+        data: table === 'gear_categories' ? [{ id: 'sleep', name: '睡眠系统' }] : [] }),
+    };
+    return chain;
+  } };
+  const args = { runId: 'run', threadId: 'thread', userId: 'user', journeyId: null,
+    message: '添加装备：羽绒睡袋 850g、登山杖两根', temporalContext: 'today', attachments: [], gearFastPath: true };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const task = await prepareTask(client, client, args,
+      async () => { throw new Error('Interpreter ran'); },
+      async () => { throw new Error('Topic check ran'); },
+      async () => { throw new Error('Router ran'); });
+    if (task.decision.mode !== 'execute' || task.decision.operations.join() !== 'add_gear') throw new Error('Not authorized');
+    if (task.routing?.source !== 'rules' || task.topicCheck?.source !== 'rules') throw new Error('Rules not recorded');
+    if (JSON.stringify(task.rules?.items) !== JSON.stringify([
+      { name: '羽绒睡袋', quantity: 1, weightKg: 0.85, priceCny: 0, categoryId: 'sleep' },
+      { name: '登山杖', quantity: 2, weightKg: 0, priceCny: 0, categoryId: null },
+    ])) throw new Error('Items not parsed');
+  }
+});
+
+Deno.test('requests the gear rules abstain on, or with the fast path off, take the checked model path', async () => {
+  for (const [message, journeyId, gearFastPath] of [
+    ['添加装备：羽绒睡袋', null, false],
+    ['添加装备：羽绒睡袋', 'journey', true],
+    ['我的装备里有睡袋吗？', null, true],
+  ] as const) {
+    let checked = 0;
+    let interpreted = 0;
+    const client = { from() {
+      const chain = { select: () => chain, eq: () => chain, is: () => chain, order: () => chain, limit: () => chain,
+        maybeSingle: () => ({ error: null, data: null }), insert: () => ({ error: null }),
+        then: (resolve: (value: unknown) => unknown) => resolve({ error: null, data: [] }) };
+      return chain;
+    } };
+    const task = await prepareTask(client, client, { runId: 'run', threadId: 'thread', userId: 'user', journeyId,
+      message, temporalContext: 'today', attachments: [], routerMode: 'off', gearFastPath }, async () => {
+      interpreted++;
+      return taskDecisionSchema.parse({ objective: 'gear', mode: 'discuss', continuation: false, authorizationQuote: '', operations: [],
+        requiredOperations: [], days: null, plannedDate: null, dateUndecided: false, destination: null, trackAttachmentName: null,
+        packingMode: 'none', constraints: [] });
+    }, async () => { checked++; return { allowed: true, policyVersion: TOPIC_POLICY_VERSION, checkedAt: 'now' }; });
+    if (checked !== 1 || interpreted !== 1 || task.rules) throw new Error(`${message}: skipped the checked path`);
+  }
+});
+
+Deno.test('the smart plan command is decided from the journey without the topic check or models', async () => {
+  for (const hasBoundTrack of [true, false]) {
+    let persisted: any = null;
+    const client = { from() {
+      let runQuery = false;
+      const chain = {
+        select: () => chain, eq: (column: string) => { if (column === 'run_id') runQuery = true; return chain; },
+        is: () => chain, order: () => chain, limit: () => chain,
+        maybeSingle: () => ({ error: null, data: runQuery && persisted ? { state: persisted.state } : null }),
+        insert: (value: unknown) => { persisted = value; return { error: null }; },
+        then: (resolve: (value: unknown) => unknown) => resolve({ error: null, data: [] }),
+      };
+      return chain;
+    } };
+    const smartPlan = { id: 'journey', name: '哈天线', plannedDate: null, days: null,
+      track: hasBoundTrack ? { fileName: 'hatian.gpx', distM: null, ascM: null } : null, hasBoundTrack };
+    const message = smartPlanMessage(smartPlan);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const task = await prepareTask(client, client, { runId: 'run', threadId: 'thread', userId: 'user', journeyId: 'journey',
+        message, intent: 'smart_plan', temporalContext: 'today', attachments: [], smartPlan },
+        async () => { throw new Error('Interpreter ran'); },
+        async () => { throw new Error('Topic check ran'); },
+        async () => { throw new Error('Router ran'); });
+      const expected = ['add_itinerary_items', 'add_packing_items', 'update_journey_schedule', 'set_journey_map_location',
+        ...(hasBoundTrack ? ['set_itinerary_group_endpoints'] : [])];
+      if (task.decision.mode !== 'execute' || !task.decision.fullHikingPlan) throw new Error('Not a full plan');
+      if (task.decision.requiredOperations.join() !== expected.join()) throw new Error(`Operations ${task.decision.requiredOperations}`);
+      if (task.decision.destination !== '哈天线' || task.decision.days !== null || !task.decision.dateUndecided) throw new Error('Journey facts lost');
+      if (task.routing?.source !== 'app' || task.topicCheck?.source !== 'app') throw new Error('Source not recorded');
+    }
+  }
+});
+
+Deno.test('a smart plan whose journey cannot be read takes the checked path', async () => {
+  let checked = 0;
+  let interpreted = 0;
+  const client = { from() {
+    const chain = { select: () => chain, eq: () => chain, is: () => chain, order: () => chain, limit: () => chain,
+      maybeSingle: () => ({ error: null, data: null }), insert: () => ({ error: null }),
+      then: (resolve: (value: unknown) => unknown) => resolve({ error: null, data: [] }) };
+    return chain;
+  } };
+  await prepareTask(client, client, { runId: 'run', threadId: 'thread', userId: 'user', journeyId: 'journey',
+    message: '请为旅程“哈天线”做规划', intent: 'smart_plan', temporalContext: 'today', attachments: [], routerMode: 'off', smartPlan: null }, async () => {
+    interpreted++;
+    return taskDecisionSchema.parse({ objective: 'plan', mode: 'discuss', continuation: false, authorizationQuote: '', operations: [],
+      requiredOperations: [], days: null, plannedDate: null, dateUndecided: false, destination: null, trackAttachmentName: null,
+      packingMode: 'none', constraints: [] });
+  }, async () => { checked++; return { allowed: true, policyVersion: TOPIC_POLICY_VERSION, checkedAt: 'now' }; });
+  if (checked !== 1 || interpreted !== 1) throw new Error('skipped the checked path');
 });

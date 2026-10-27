@@ -6,6 +6,7 @@ import {
   Text,
   ScrollView,
   StyleSheet,
+  Switch,
   Pressable,
   Modal,
   BackHandler,
@@ -32,10 +33,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Theme, ACCENT_PRESETS } from "../theme/theme";
 import { Icon, IconName } from "../components/Icon";
 import { Press } from "../components/Press";
-import {
-  ProfileIdentity,
-  ProfileShortcut,
-} from "../components/me/ProfileIdentity";
+import { ProfileHero, ProfileTabs } from "../components/me/profile/ProfileHero";
+import { ProfileOverview, type OverviewTile } from "../components/me/profile/ProfileOverview";
+import { OutingCard } from "../components/me/profile/OutingCard";
+import { ProfilePhotos } from "../components/me/profile/ProfilePhotos";
+import { useProfileOutings, useProfileSummary, setAccountPrivate, type Outing, type Visibility } from "../hooks/useSocial";
+import { useMyRouteComments } from "../hooks/useRouteComments";
+import { ContributionsPage } from "../components/me/ContributionsPage";
+import { openVisibilityPicker } from "../components/social/VisibilityPicker";
 import { Glass } from "../components/Glass";
 import { TwoStageSwipeable } from "../components/TwoStageSwipeable";
 import { Globe } from "../components/globe";
@@ -54,6 +59,7 @@ import {
   type WeightUnit,
 } from "../data/gear";
 import { useNotifCenter, Notif } from "../data/notifications";
+import { yuanWithGap } from "../components/gear/parts";
 import { ColorDot } from "../components/me/parts";
 import { makeMeTheme } from "../components/me/appearance";
 import { AccountPage } from "../components/me/AccountPage";
@@ -120,6 +126,7 @@ type MePage =
   | { type: "journeys" }
   | { type: "footprints" }
   | { type: "favorites" }
+  | { type: "contributions" }
   | { type: "routeGuides" }
   | { type: "routeRequests" }
   | { type: "tracks" }
@@ -1757,6 +1764,9 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
     [data.routes, data.journeys],
   );
   const myRouteGuides = useMyRouteGuides(data.userId);
+  const myComments = useMyRouteComments(data.userId);
+  // 自己发过顶层评论的路线，时间线上就不再提示写评论。
+  const commentedRoutes = useMemo(() => new Set(myComments.comments.map((comment) => comment.routeId)), [myComments.comments]);
   const { unread } = useNotifCenter();
 
   const profile: MeProfile = {
@@ -1789,6 +1799,92 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
   const [appearancePopup, setAppearancePopup] =
     useState<AppearancePopup | null>(null);
   const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
+  const profileSummary = useProfileSummary(data.userId, data.userId);
+  const profileOutings = useProfileOutings(data.userId, data.userId);
+  const [profileTab, setProfileTab] = useState<"overview" | "timeline" | "photos">("overview");
+  // 从粉丝、关注、别人主页回来时，关注数可能变了。
+  const socialOpen = nav.socialStack.length > 0;
+  const refreshSummary = profileSummary.refresh;
+  // 私密账号：本地先按下开关，服务端没写成功再退回原值。
+  const [privateDraft, setPrivateDraft] = useState<boolean | null>(null);
+  const isPrivateAccount = privateDraft ?? Boolean(profileSummary.summary?.isPrivate);
+  const togglePrivateAccount = async (next: boolean) => {
+    if (privateDraft !== null) return;
+    setPrivateDraft(next);
+    try {
+      await setAccountPrivate(next);
+      await refreshSummary();
+      setPrivateDraft(null);
+    } catch {
+      setPrivateDraft(null);
+      nav.showToast(t("profile.actionFailed"));
+    }
+  };
+  const socialWasOpen = useRef(false);
+  useEffect(() => {
+    if (socialWasOpen.current && !socialOpen) void refreshSummary();
+    socialWasOpen.current = socialOpen;
+  }, [socialOpen, refreshSummary]);
+  const [titleShown, setTitleShown] = useState(false);
+  const [highlightedOuting, setHighlightedOuting] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const heroHeight = useRef(0);
+  const panelY = useRef(0);
+  const entryY = useRef<Record<string, number>>({});
+  const jumpTarget = useRef<string | null>(null);
+  // 照片标签点组标题：切到时间线，等那一条排好版再滚过去并闪一下。
+  const tryJump = () => {
+    const id = jumpTarget.current;
+    if (!id || entryY.current[id] == null) return;
+    jumpTarget.current = null;
+    scrollRef.current?.scrollTo({ y: Math.max(0, panelY.current + entryY.current[id] - 52), animated: true });
+    setHighlightedOuting(id);
+  };
+  useEffect(() => {
+    if (!highlightedOuting) return;
+    const timer = setTimeout(() => setHighlightedOuting(null), 1600);
+    return () => clearTimeout(timer);
+  }, [highlightedOuting]);
+  // 旅程或轨迹有变化（完成旅程、录完轨迹、删除）时重取时间线；首次挂载由 hook 自己取。
+  const outingsSeeded = useRef(false);
+  const refreshOutings = profileOutings.refresh;
+  useEffect(() => {
+    if (!outingsSeeded.current) {
+      outingsSeeded.current = true;
+      return;
+    }
+    void refreshOutings();
+  }, [data.journeys, data.tracks, refreshOutings]);
+  const reviewPromptFor = (outing: Outing) => {
+    if (!outing.routeId || myComments.loading || commentedRoutes.has(outing.routeId)) return undefined;
+    const route = data.routes.find((candidate) => candidate.id === outing.routeId);
+    if (!route) return undefined;
+    return {
+      route: outing.routeName ?? route.name,
+      onWrite: () => nav.openRouteGuide({ route, view: "comments", compose: true }),
+    };
+  };
+  const changeOutingVisibility = (outing: Outing) => {
+    openVisibilityPicker(nav, t, outing.visibility, async (visibility: Visibility) => {
+      try {
+        // 走 DataContext 同步本地旅程或轨迹；上面的 effect 随之重取时间线。
+        if (outing.journeyId) await data.setJourneyVisibility(outing.journeyId, visibility);
+        else if (outing.trackId) await data.setTrackVisibility(outing.trackId, visibility);
+        nav.showToast(t("profile.visibilitySaved"));
+      } catch {
+        nav.showToast(t("profile.actionFailed"));
+      }
+    });
+  };
+  const yearDistance = useMemo(() => {
+    const year = new Date().getFullYear();
+    const months = Array.from({ length: 12 }, () => 0);
+    for (const track of data.tracks) {
+      const date = track.startedAt ? new Date(track.startedAt) : null;
+      if (date && date.getFullYear() === year) months[date.getMonth()] += track.distM ?? 0;
+    }
+    return { year, months };
+  }, [data.tracks]);
   const drawerProgress = useSharedValue(0);
   useEffect(() => {
     drawerProgress.value = withTiming(settingsDrawerOpen ? 1 : 0, {
@@ -1911,48 +2007,43 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
   }, [appearancePopup, appearanceProgress]);
 
   const favoriteRoutes = data.routes.filter((route) => route.fav).length;
-  const guideSummary = `已发布 ${myRouteGuides.guides.filter((guide) => guide.status === "approved").length}`;
   const savedRoutes = data.routes.filter((route) => route.fav);
-  const linkedTrackIds = new Set(
-    data.journeys
-      .map((journey) => journey.trackId)
-      .filter((id): id is string => Boolean(id)),
-  );
-  const unusedTrackCount = data.tracks.filter(
-    (track) => !linkedTrackIds.has(track.id),
-  ).length;
-  const latestTrack = [...data.tracks].sort((a, b) =>
-    (b.updatedAt ?? b.createdAt ?? "").localeCompare(
-      a.updatedAt ?? a.createdAt ?? "",
-    ),
-  )[0];
-  const tracksPreviewRows = [
-    ...(unusedTrackCount > 0
-      ? [
-          {
-            label: t("tracks.overview.unused", { count: unusedTrackCount }),
-            value: "",
-            inline: true,
-          },
-        ]
-      : []),
-    {
-      label: t("tracks.overview.recentPrefix"),
-      value: latestTrack?.name || t("tracks.overview.noRecent"),
-      inline: true,
-    },
-  ];
   const gearWeight = data.items.reduce((sum, item) => sum + itemWeight(item), 0);
   const gearValue = data.items.reduce((sum, item) => sum + itemPrice(item), 0);
-  const checklistPreviewRows = data.sets.map((set) => {
-    const weight = set.items.reduce((sum, itemName) => {
+  const gearSets = data.sets.map((set) => {
+    let weight = 0;
+    let price = 0;
+    for (const itemName of set.items) {
       const item = data.items.find((candidate) => candidate.name === itemName);
-      if (!item) return sum;
+      if (!item) continue;
       const override = item.id != null ? (set.overrides?.[String(item.id)] ?? set.overrides?.[itemName]) : set.overrides?.[itemName];
-      return sum + item.w * (override?.qty ?? item.qty ?? 1);
-    }, 0);
-    return { label: set.name, value: fmtWeight(weight, data.profile.gearWeightUnit || "kg", true) };
+      const qty = override?.qty ?? item.qty ?? 1;
+      weight += item.w * qty;
+      price += (item.p || 0) * qty;
+    }
+    const weightLabel = fmtWeight(weight, data.profile.gearWeightUnit || "kg", true);
+    return {
+      id: set.id,
+      name: set.name,
+      detail: price > 0 ? `${weightLabel}　${yuanWithGap(price)}` : `${t("profile.gearSetItems", { count: set.items.length })}　${weightLabel}`,
+    };
   });
+  const overviewTiles: OverviewTile[] = [
+    { key: "tracks", icon: "tracks", label: t("me.myTracks"), count: data.tracks.length, onPress: () => push({ type: "tracks" }) },
+    { key: "footprints", icon: "footprints", label: t("me.myFootprints"), count: footprints.litCount, onPress: () => push({ type: "footprints" }) },
+    { key: "favorites", icon: "favorites", label: t("me.myFavorites"), count: favoriteRoutes, onPress: () => push({ type: "favorites" }) },
+    { key: "contributions", icon: "contributions", label: t("profile.myContributions"), count: myRouteGuides.guides.length + myComments.comments.length + data.routeRequests.length, onPress: () => push({ type: "contributions" }) },
+  ];
+  const openOuting = (outing: Outing) => {
+    const journey = outing.journeyId ? data.journeys.find((item) => item.id === outing.journeyId) : undefined;
+    if (journey) nav.openPoint(journey);
+    else if (outing.trackId) push({ type: "trackDetail", trackId: outing.trackId });
+  };
+  const jumpToOuting = (outingId: string) => {
+    jumpTarget.current = outingId;
+    setProfileTab("timeline");
+    tryJump();
+  };
   const renderPage = (pg: MePage) => {
     const theme =
       pg.type === "membership"
@@ -2031,6 +2122,25 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
             onBack={pop}
             onOpenRoute={(route) => {
               nav.openPoint(route);
+            }}
+          />
+        );
+      case "contributions":
+        return (
+          <ContributionsPage
+            theme={theme}
+            guides={myRouteGuides.guides}
+            comments={myComments.comments}
+            requests={data.routeRequests}
+            routes={data.routes}
+            loading={myRouteGuides.loading || myComments.loading || data.routeRequestsLoading}
+            onBack={pop}
+            onOpenGuides={() => push({ type: "routeGuides" })}
+            onOpenRequests={() => push({ type: "routeRequests" })}
+            onOpenComment={(comment) => {
+              const route = data.routes.find((candidate) => candidate.id === comment.routeId);
+              if (route) nav.openRouteGuide({ route, view: "comments" });
+              else showToast(t("profile.contribRouteGone"));
             }}
           />
         );
@@ -2385,101 +2495,7 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.featureSurface }}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        scrollEnabled={!settingsDrawerOpen}
-        contentContainerStyle={{
-          paddingTop: insets.top + space.xs + layout.iconButton + space.xs,
-          paddingBottom: insets.bottom + 120,
-          width: "100%",
-          maxWidth: 600,
-          alignSelf: "center",
-        }}
-      >
-        <ProfileIdentity
-          theme={theme}
-          avatarUri={data.profile.avatarUrl}
-          nick={profile.nick || t("me.unnamed")}
-          username={profile.username}
-          bio={profile.bio}
-          label={t("account.profile.pageTitle")}
-          onPress={() => push({ type: "profile" })}
-        />
-
-        <View style={{ paddingHorizontal: layout.pagePadding, gap: space.sm }}>
-          <View style={{ flexDirection: "row", alignItems: "stretch", gap: space.sm }}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <FootprintShortcut
-                theme={theme}
-                points={footprints.litItems.map((item) => item.route)}
-                title={t("me.myFootprints")}
-                detail={t("me.footprintSummary", { count: footprints.litCount })}
-                onPress={() => push({ type: "footprints" })}
-              />
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <ProfileShortcut
-                variant="tracks"
-                theme={theme}
-                icon="route"
-                title={t("me.myTracks")}
-                detail={t("me.tracksSummary", { count: data.tracks.length })}
-                items={[]}
-                trackItems={data.tracks}
-                previewRows={tracksPreviewRows}
-                onPress={() => push({ type: "tracks" })}
-              />
-            </View>
-          </View>
-          <View style={{ flexDirection: "row", alignItems: "stretch", gap: space.sm }}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <ProfileShortcut
-                variant="gear"
-                theme={theme}
-                icon="bag"
-                title={t("gear.home.myGear")}
-                detail={t("me.gearSummary", { count: data.items.length })}
-                items={data.items.map((item, index) => ({ id: String(item.id ?? index), photoUris: item.photos }))}
-                stats={[
-                  { label: t("gear.stat.totalWeight"), value: fmtWeight(gearWeight, data.profile.gearWeightUnit || "kg") },
-                  { label: t("gear.stat.totalValue"), value: `¥${Math.round(gearValue)}` },
-                ]}
-                onPress={() => nav.openGearPage("items")}
-              />
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <ProfileShortcut
-                variant="checklist"
-                theme={theme}
-                icon="list"
-                title={t("me.myChecklist")}
-                detail={t("me.checklistSummary", { count: data.sets.length })}
-                items={[]}
-                previewRows={checklistPreviewRows}
-                onPress={() => nav.openGearPage("sets")}
-              />
-            </View>
-          </View>
-          <View style={{ flexDirection: "row", flexWrap: "nowrap", alignItems: "stretch", gap: space.sm }}>
-            <View style={{ flex: 1, flexBasis: 0, minWidth: 0 }}>
-              <ProfileShortcut variant="guide" theme={theme} icon="compass" title="我的攻略" detail={guideSummary} items={[]} onPress={() => push({ type: "routeGuides" })} />
-            </View>
-            <View style={{ flex: 1, flexBasis: 0, minWidth: 0 }}>
-              <ProfileShortcut variant="favorites" theme={theme} icon="heart" title={t("me.myFavorites")} detail={t("me.savedSummary", { count: favoriteRoutes })} items={savedRoutes} onPress={() => push({ type: "favorites" })} />
-            </View>
-          </View>
-        </View>
-      </ScrollView>
-
-      <View
-        pointerEvents="box-none"
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-        }}
-      >
+      <View style={{ backgroundColor: theme.featureSurface, zIndex: 2 }}>
         <View
           pointerEvents="box-none"
           style={{
@@ -2501,7 +2517,12 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
           >
             <ScanLine color={theme.text} size={25} strokeWidth={2.2} />
           </Press>
-          <View style={{ flex: 1 }} />
+          <Text
+            numberOfLines={1}
+            style={[type.navTitle, { flex: 1, textAlign: "center", color: theme.text, opacity: titleShown ? 1 : 0, marginHorizontal: space.xs }]}
+          >
+            {profile.nick || t("me.unnamed")}
+          </Text>
           <View style={{ width: layout.iconButton, height: layout.iconButton }}>
             <Press
               onPress={() => push({ type: "inbox" })}
@@ -2550,6 +2571,111 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
         </View>
       </View>
 
+      <ScrollView
+        ref={scrollRef}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={!settingsDrawerOpen}
+        stickyHeaderIndices={[1]}
+        scrollEventThrottle={16}
+        onScroll={(event) => {
+          const shown = event.nativeEvent.contentOffset.y > heroHeight.current - 40;
+          if (shown !== titleShown) setTitleShown(shown);
+        }}
+        contentContainerStyle={{
+          paddingBottom: insets.bottom + 120,
+          width: "100%",
+          maxWidth: 600,
+          alignSelf: "center",
+        }}
+      >
+        <View onLayout={(event) => { heroHeight.current = event.nativeEvent.layout.height; }}>
+          <ProfileHero
+            theme={theme}
+            avatarUri={data.profile.avatarUrl}
+            nick={profile.nick || t("me.unnamed")}
+            username={profile.username}
+            bio={profile.bio}
+            followers={profileSummary.summary?.followers ?? 0}
+            following={profileSummary.summary?.following ?? 0}
+            identityLabel={t("account.profile.pageTitle")}
+            onPressIdentity={() => push({ type: "profile" })}
+            onPressFollowers={() => nav.openPeople(data.userId, "followers")}
+            onPressFollowing={() => nav.openPeople(data.userId, "following")}
+            onFindPeople={() => nav.openPeople(data.userId, "find")}
+          />
+        </View>
+
+        <View style={{ marginTop: space.lg, backgroundColor: theme.featureSurface }}>
+          <ProfileTabs
+            theme={theme}
+            active={profileTab}
+            onChange={setProfileTab}
+            tabs={[
+              { key: "overview", label: t("profile.tabOverview") },
+              { key: "timeline", label: t("profile.tabTimeline") },
+              { key: "photos", label: t("profile.tabPhotos") },
+            ]}
+          />
+        </View>
+
+        <View
+          onLayout={(event) => { panelY.current = event.nativeEvent.layout.y; tryJump(); }}
+          style={{ paddingHorizontal: layout.pagePadding, paddingTop: space.lg }}
+        >
+          {profileTab === "overview" ? (
+            <ProfileOverview
+              theme={theme}
+              tiles={overviewTiles}
+              gear={{
+                itemCount: data.items.length,
+                weightLabel: fmtWeight(gearWeight, data.profile.gearWeightUnit || "kg"),
+                valueLabel: yuanWithGap(gearValue),
+                sets: gearSets,
+                onOpenItems: () => nav.openGearPage("items"),
+                onOpenSets: () => nav.openGearPage("sets"),
+              }}
+              yearDistance={yearDistance}
+            />
+          ) : profileTab === "timeline" ? (
+            profileOutings.outings.length ? (
+              <>
+                {profileOutings.outings.map((outing, index) => (
+                  <View
+                    key={outing.id}
+                    onLayout={(event) => { entryY.current[outing.id] = event.nativeEvent.layout.y; tryJump(); }}
+                    style={{ marginTop: index ? 24 : 0 }}
+                  >
+                    <OutingCard
+                      theme={theme}
+                      outing={outing}
+                      subject={t("profile.you")}
+                      showVisibility
+                      onChangeVisibility={() => changeOutingVisibility(outing)}
+                      reviewPrompt={reviewPromptFor(outing)}
+                      highlighted={highlightedOuting === outing.id}
+                      onOpen={() => openOuting(outing)}
+                    />
+                  </View>
+                ))}
+                {profileOutings.hasMore ? (
+                  <Press
+                    onPress={() => { void profileOutings.loadMore(); }}
+                    accessibilityRole="button"
+                    style={{ alignSelf: "center", marginTop: space.xl, paddingVertical: space.xs, paddingHorizontal: space.lg, borderRadius: radius.pill, backgroundColor: theme.fieldSurface }}
+                  >
+                    <Text style={[type.chip, { color: theme.text }]}>{t("profile.loadMore")}</Text>
+                  </Press>
+                ) : null}
+              </>
+            ) : (
+              <KPState theme={theme} icon="journey" title={t("profile.timelineEmptyTitle")} body={t("profile.timelineEmptyBody")} />
+            )
+          ) : (
+            <ProfilePhotos theme={theme} outings={profileOutings.outings} onJump={jumpToOuting} />
+          )}
+        </View>
+      </ScrollView>
+
       <View
         pointerEvents={settingsDrawerOpen ? "auto" : "none"}
         accessibilityViewIsModal={settingsDrawerOpen}
@@ -2589,6 +2715,41 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
                   paddingBottom: insets.bottom + space.xl,
                 }}
               >
+                <View
+                  style={{
+                    minHeight: layout.listRowMinHeight,
+                    paddingVertical: space.lg,
+                    paddingHorizontal: space.lg,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: space.md,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 44,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Icon name="eyeOff" color={theme.text} size={24} strokeWidth={1.7} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[type.navTitle, { color: theme.text }]}>
+                      {t("profile.privateAccount")}
+                    </Text>
+                    <Text style={[type.caption, { marginTop: space.xxs, lineHeight: 17, color: theme.text3 }]}>
+                      {t("profile.privateAccountHint")}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={isPrivateAccount}
+                    onValueChange={(next) => { void togglePrivateAccount(next); }}
+                    trackColor={{ false: theme.progressTrack, true: theme.accent }}
+                    thumbColor="#FFFFFF"
+                    ios_backgroundColor={theme.progressTrack}
+                  />
+                </View>
                 {drawerItems.map((item, index) => (
                   <Press
                     key={item.key}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { useOfflineState } from '../lib/offlineCache';
 import { removeMedia, uploadMedia } from '../lib/storage';
 import { useMe } from './useMe';
 import type { RouteComment, RouteCommentMedia, RouteCommentReportReason, RouteCommentSort } from '../data/routeComments';
@@ -50,8 +51,11 @@ async function fetchComment(id: string) {
 type CommentEvent = { type: 'upsert'; comment: RouteComment; created?: boolean } | { type: 'remove'; comment: RouteComment };
 type Listener = (event: CommentEvent) => void;
 const subscribers = new Map<string, Set<Listener>>();
+const anyRouteListeners = new Set<() => void>();
 function broadcast(routeId: string, event: CommentEvent) {
   for (const listener of subscribers.get(routeId) ?? []) listener(event);
+  // Only writes and removals change what the user has written; likes don't.
+  if (event.type === 'remove' || event.created) for (const listener of anyRouteListeners) listener();
 }
 
 type State = { comments: RouteComment[]; total: number };
@@ -273,4 +277,42 @@ export async function deleteRouteComment(comment: RouteComment) {
 export async function reportRouteComment(comment: RouteComment, reason: RouteCommentReportReason) {
   const { error } = await supabase.rpc('report_route_comment', { p_id: comment.id, p_reason: reason });
   if (error) throw error;
+}
+
+/** A top-level comment the signed-in user wrote, for 我的贡献 and the 写评论 prompt. */
+export type MyRouteComment = {
+  id: string; routeId: string; body: string; media: RouteCommentMedia[];
+  likeCount: number; replyCount: number; createdAt: string;
+};
+
+/**
+ * The signed-in user's own top-level comments, newest first. Cached so the
+ * profile opens offline; refreshes itself whenever any comment is written or
+ * removed from this device. Hidden (reported) comments are not readable, so
+ * they drop out here as well.
+ */
+export function useMyRouteComments(userId: string | undefined) {
+  const [comments, setComments, cached] = useOfflineState<MyRouteComment[]>(userId, 'myRouteComments', []);
+  const [loading, setLoading] = useState(Boolean(userId));
+  const refresh = useCallback(async () => {
+    if (!userId) { setLoading(false); return; }
+    setLoading(true);
+    const { data, error } = await supabase.from('route_comments')
+      .select('id,route_id,body,media,like_count,reply_count,created_at')
+      .eq('user_id', userId).is('parent_id', null).eq('status', 'visible')
+      .order('created_at', { ascending: false }).limit(200);
+    if (!error && data) setComments(data.map((row: any) => ({
+      id: row.id, routeId: row.route_id, body: row.body,
+      media: Array.isArray(row.media) ? row.media as RouteCommentMedia[] : [],
+      likeCount: row.like_count, replyCount: row.reply_count, createdAt: row.created_at,
+    })));
+    setLoading(false);
+  }, [userId]);
+  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    const listener = () => { void refresh(); };
+    anyRouteListeners.add(listener);
+    return () => { anyRouteListeners.delete(listener); };
+  }, [refresh]);
+  return { comments, loading: loading && !cached, refresh };
 }

@@ -50,7 +50,7 @@ import {
 import { CurrentLocationMarker } from '../globe/CurrentLocationMarker';
 import { TrailSheet } from '../Sheet';
 import { buildRouteEndpointMarkers } from '../discover/routeEndpointMarkers';
-import { buildRouteWaypointMarkers, projectRouteWaypoints, type ProjectedRouteWaypoint } from '../discover/routeWaypointMarkers';
+import { buildRouteWaypointMarkers, buildWaypointLayer } from '../discover/routeWaypointMarkers';
 import { buildTrailKmMarkers, kmStepForZoom } from './trailKmMarkers';
 import { useMapPresentation } from '../maps/MapPresentationContext';
 import { MapCompassReveal, useMapHeading } from '../maps/MapCompass';
@@ -73,6 +73,13 @@ const OVERLAY_COLORS = [JOURNEY_SEGMENT_COLORS[2], JOURNEY_SEGMENT_COLORS[3], JO
 const FOLLOW_ZOOM = 16;
 const NO_MARKERS: NativeMapMarker[] = [];
 
+// How far the pre-start card may be pulled past 展开, and how much card surface
+// is parked under the screen's bottom edge to spend on it: the stretch shows
+// more card, never the map under it.
+const READY_PULL = 0.2;
+const READY_PULL_MAX = 0.15;
+const READY_RESIST = 0.35;
+
 export function TrailNavigationPage({ theme }: { theme: Theme }) {
   const { t } = useI18n();
   const nav = useNav();
@@ -89,6 +96,12 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
   const mapLocation = useRef<Coordinate | null>(null);
   const { height: windowHeight } = useWindowDimensions();
   const [panelHeight, setPanelHeight] = useState(280);
+  // The pre-start card: its full height, the part of it that starts under the
+  // screen's bottom edge, and how far it has been dragged up (0 收起, 1 展开).
+  const [readyHeight, setReadyHeight] = useState(392);
+  const [readyHidden, setReadyHidden] = useState(262);
+  const [readyOpen, setReadyOpen] = useState(false);
+  const readyLift = useRef(new Animated.Value(0)).current;
   const [sheetIndex, setSheetIndex] = useState(1);
   const sheetY = useRef(new Animated.Value(0)).current;
   // Measured so the lower two detents end exactly under their content.
@@ -231,35 +244,32 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
   // A tap on one opens the same detail as the walker's own marks, read-only,
   // with the spots of that one line to swipe through.
   const waypointLayer = useMemo(() => {
-    const list: ProjectedRouteWaypoint[] = [];
-    const details: MarkDetailItem[] = [];
-    const lines: { start: number; end: number }[] = [];
-    const add = (key: string, line: { name: string; coords: Coordinate[]; elevation?: { km: number; ele: number }[]; waypoints: WaypointSource[] }, color: string) => {
-      const start = list.length;
-      placeWaypoints(line.coords, line.waypoints, color).forEach(({ marker, waypoint }, index) => {
-        list.push(marker);
-        details.push({
-          key: `${key}-${index}`,
-          name: waypoint.name,
-          photo: waypoint.photo,
-          at: waypoint.at,
-          alongM: waypoint.km * 1000,
-          lng: marker.coord[0],
-          lat: marker.coord[1],
-          ele: waypoint.ele ?? elevationAtKm(line.elevation, waypoint.km),
-          source: { name: line.name, color },
-        });
-      });
-      if (list.length > start) lines.push({ start, end: list.length });
-    };
-    if (showRouteLayers && route?.waypoints?.length) add(`route-${route.id}`, { ...route, waypoints: route.waypoints }, PLANNED_ROUTE_COLOR);
-    overlayTracks.forEach((track, index) => {
-      if (track.waypoints?.length) add(`track-${track.id}`, { ...track, coords: track.coords!, waypoints: track.waypoints }, OVERLAY_COLORS[index % OVERLAY_COLORS.length]);
-    });
+    const layer = buildWaypointLayer([
+      ...(showRouteLayers && route?.waypoints?.length ? [{
+        key: `route-${route.id}`,
+        coords: route.coords,
+        waypoints: route.waypoints,
+        color: PLANNED_ROUTE_COLOR,
+        elevation: route.elevation,
+        source: { name: route.name, color: PLANNED_ROUTE_COLOR },
+      }] : []),
+      ...overlayTracks.flatMap((track, index) => {
+        if (!track.waypoints?.length) return [];
+        const color = OVERLAY_COLORS[index % OVERLAY_COLORS.length];
+        return [{
+          key: `track-${track.id}`,
+          coords: track.coords!,
+          waypoints: track.waypoints,
+          color,
+          elevation: track.elevation,
+          source: { name: track.name, color },
+        }];
+      }),
+    ]);
     // Android snapshots marker views by id and these ids are list indexes, so
     // they carry what the list is made of.
     const signature = [route?.id ?? '', ...overlayTracks.map((track) => track.id)].join('|');
-    return { list, details, lines, idPrefix: `trail-wp-${hashString(signature)}-${list.length}` };
+    return { ...layer, idPrefix: `trail-wp-${hashString(signature)}-${layer.list.length}` };
   }, [showRouteLayers, route, overlayTracks]);
   useEffect(() => setOpenWaypoint(null), [waypointLayer, layers.waypoints]);
   const waypointMarkers = useMemo(() => (layers.waypoints && waypointLayer.list.length
@@ -267,8 +277,6 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
       theme,
       waypoints: waypointLayer.list,
       zoom: layerZoom,
-      selected: null,
-      callout: false,
       idPrefix: waypointLayer.idPrefix,
       onWaypointPress: setOpenWaypoint,
       onClusterPress: (coordinates) => {
@@ -351,14 +359,106 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
   useEffect(() => {
     if (!live) setSheetIndex(1);
   }, [live]);
+
+  // ─── the pre-start card ───────────────────────────────────────────────────
+  // One card in two states, dragged like the sheet it becomes: the settings are
+  // laid out under the screen's bottom edge and ride up with the card, so
+  // 收起 shows exactly the region the open card shows above them.
+  const readyOver = Math.ceil(readyHidden * READY_PULL);
+  const readyMin = Math.max(space.md, readyHeight - readyHidden - readyOver);
+  const readyAt = useRef(0);
+  const readyFrom = useRef(0);
+  const readyHiddenRef = useRef(readyHidden);
+  readyHiddenRef.current = readyHidden;
+  useEffect(() => {
+    const id = readyLift.addListener(({ value }) => { readyAt.current = value; });
+    return () => readyLift.removeListener(id);
+  }, [readyLift]);
+  const restReady = useCallback((open: boolean) => {
+    setReadyOpen(open);
+    Animated.spring(readyLift, { toValue: open ? 1 : 0, useNativeDriver: true, ...motion.pageSpring }).start();
+  }, [readyLift]);
+  // The recording sheet and the summary take the card's place; the lift reads 0
+  // there, or the map controls stay lifted from the last drag.
+  useEffect(() => {
+    if (!live && status !== 'finished') return;
+    readyLift.setValue(0);
+    readyAt.current = 0;
+    setReadyOpen(false);
+  }, [live, status, readyLift]);
+  const readyDrag = useMemo(() => PanResponder.create({
+    // The card is dragged, not the map under it: a horizontal pull stays a pan.
+    onMoveShouldSetPanResponder: (_event, gesture) => Math.abs(gesture.dy) > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+    // And it is dragged from the handle or the 开始 pill too: those take the
+    // responder on touch-down, so the card claims the move phase instead and
+    // leaves a still finger to them as a tap.
+    onMoveShouldSetPanResponderCapture: (_event, gesture) => Math.abs(gesture.dy) > 10 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+    onPanResponderGrant: () => { readyFrom.current = readyAt.current; },
+    onPanResponderMove: (_event, gesture) => {
+      const span = readyHiddenRef.current;
+      if (span <= 0) return;
+      // The travel is exactly the settings block: 展开 is the card sitting on
+      // the bottom edge and 收起 the same card pushed one block below it. Past
+      // 展开 it stretches against the spare card parked below the edge, so the
+      // pull reads as resistance, never as the map coming into view.
+      const raw = readyFrom.current - gesture.dy / span;
+      readyLift.setValue(raw > 1 ? Math.min(1 + READY_PULL_MAX, 1 + (raw - 1) * READY_RESIST) : Math.max(0, raw));
+    },
+    onPanResponderRelease: (_event, gesture) => {
+      restReady(gesture.vy < -0.2 ? true : gesture.vy > 0.2 ? false : readyAt.current > 0.5);
+    },
+    // A gesture stolen mid-drag (an alert, a system edge swipe) still has to
+    // leave the card parked on one of its two states.
+    onPanResponderTerminate: () => { restReady(readyAt.current > 0.5); },
+  }), [readyLift, restReady]);
+  // Fully open rests on the spare card, not on the screen edge; every point of
+  // 收起 is one card of settings pushed below it.
+  const readySlide = readyLift.interpolate({ inputRange: [0, 1], outputRange: [readyHidden + readyOver, readyOver] });
+  // The controls rest on the collapsed card and climb with it, so they read the
+  // same value the card is sliding by.
+  const readyLifted = Animated.subtract(readySlide, readyHidden + readyOver);
+
   // Fully open covers the map, so the camera keeps framing for the middle.
-  const bottomInset = live ? snapHeights[Math.min(sheetIndex, 1)] : panelHeight;
+  const bottomInset = live ? snapHeights[Math.min(sheetIndex, 1)] : status === 'finished' ? panelHeight : readyOpen ? readyMin + readyHidden : readyMin;
   const cameraPadding = useCallback((): [number, number, number, number] => [topChrome + space.lg, 40, bottomInset + space.lg, 40], [bottomInset, topChrome]);
   // Following frames for the sheet as it is while recording: at the lowest
   // detent the paused footer comes and goes with 暂停 and 继续, and
   // re-centring for it slid the map each time.
-  const followBottom = live ? snapsFor(false)[Math.min(sheetIndex, 1)] : panelHeight;
+  const followBottom = live ? snapsFor(false)[Math.min(sheetIndex, 1)] : bottomInset;
   const followPadding = useCallback((): [number, number, number, number] => [topChrome + space.lg, 40, followBottom + space.lg, 40], [followBottom, topChrome]);
+
+  const liveFooter = (
+    <Animated.View
+      pointerEvents={status === 'recording' && sheetIndex === 0 ? 'none' : 'auto'}
+      style={{
+        flexDirection: 'row', gap: space.sm, paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: insets.bottom + space.sm, backgroundColor: theme.featureSurface,
+        // The transform is always carried, only its output goes to 0: dropping it
+        // from the style while paused left the last native-driven value (footerBar)
+        // on the view, so the footer stayed slid down under the card and its
+        // buttons hung off the bottom of the screen.
+        transform: [{
+          translateY: sheetY.interpolate({
+            inputRange: [snapHeights[2] - snapHeights[1], snapHeights[2] - snapHeights[0]],
+            outputRange: [0, status === 'recording' ? footerBar : 0],
+            extrapolate: 'clamp',
+          }),
+        }],
+      }}
+    >
+      {status === 'paused' ? (
+        <>
+          <TrailControlButton theme={theme} icon="stop" label={t('trail.action.finish')} danger onPress={() => void finishTrail()} />
+          <TrailControlButton theme={theme} icon="play" label={t('trail.action.resume')} primary grow={2} onPress={() => void resumeTrail()} />
+        </>
+      ) : (
+        <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'center' }}>
+          <View style={{ width: 168, flexDirection: 'row' }}>
+            <TrailControlButton theme={theme} icon="pause" label={t('trail.action.pause')} ink onPress={() => void pauseTrail()} />
+          </View>
+        </View>
+      )}
+    </Animated.View>
+  );
 
   // Follow the walker; a pan or pinch hands the camera back to them.
   const lastFollowAt = useRef(0);
@@ -450,12 +550,23 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
   // Where the map controls ride: on top of the card, following the live sheet
   // as it is dragged and fading out before it reaches the top.
   const controlsPointerEvents = live && sheetIndex >= 2 ? 'none' : 'box-none';
+  // Both branches keep transform and opacity animated: these two Animated.Views
+  // outlive the sheet, and a native-driven property that leaves the style keeps
+  // the last value the driver wrote, so after 结束 the controls stayed parked at
+  // the recording sheet's offset and faded out.
   const controlsRide = live ? {
     position: 'absolute' as const,
     bottom: snapHeights[2] + space.md,
     transform: [{ translateY: sheetY }],
     opacity: sheetY.interpolate({ inputRange: [(snapHeights[2] - snapHeights[1]) / 2, snapHeights[2] - snapHeights[1]], outputRange: [0, 1], extrapolate: 'clamp' }),
-  } : { position: 'absolute' as const, bottom: panelHeight + space.md };
+  } : {
+    position: 'absolute' as const,
+    // The summary is a panel of its own, measured once; the pre-start card is
+    // dragged, and its lift reads 0 once a walk is over.
+    bottom: (status === 'finished' ? panelHeight : readyMin) + space.md,
+    transform: [{ translateY: readyLifted }],
+    opacity: sheetY.interpolate({ inputRange: [0, 1], outputRange: [1, 1] }),
+  };
 
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.featureSurface, zIndex: 320 }]}>
@@ -579,6 +690,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
             dismissOnDrag={false}
             backgroundColor={theme.featureSurface}
             borderless
+            bottomAccessory={liveFooter}
             animatedTranslateY={sheetY}
             containerStyle={{ borderTopLeftRadius: 26, borderTopRightRadius: 26, boxShadow: theme.dark ? '0px -2px 16px rgba(0,0,0,0.4)' : '0px -2px 16px rgba(0,0,0,0.08)' }}
           >
@@ -607,46 +719,23 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
               settingsOpacity={sheetY.interpolate({ inputRange: [0, snapHeights[2] - snapHeights[1]], outputRange: [1, 0], extrapolate: 'clamp' })}
             />
           </TrailSheet>
-          {/* Pinned under the sheet, AllTrails-style; the hairline shows where
-              the sheet's content runs under it. */}
-          <Animated.View
-            pointerEvents={status === 'recording' && sheetIndex === 0 ? 'none' : 'auto'}
-            style={{
-              position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', gap: space.sm, paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: insets.bottom + space.sm, backgroundColor: theme.featureSurface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.fieldBorder,
-              // Recording, the lowest detent has its own pause button, so the
-              // footer slides down out of the way as the sheet goes there.
-              transform: status === 'recording'
-                ? [{ translateY: sheetY.interpolate({ inputRange: [snapHeights[2] - snapHeights[1], snapHeights[2] - snapHeights[0]], outputRange: [0, footerBar], extrapolate: 'clamp' }) }]
-                : [],
-            }}
-          >
-            {status === 'paused' ? (
-              <>
-                <TrailControlButton theme={theme} icon="stop" label={t('trail.action.finish')} danger onPress={() => void finishTrail()} />
-                <TrailControlButton theme={theme} icon="play" label={t('trail.action.resume')} primary grow={2} onPress={() => void resumeTrail()} />
-              </>
-            ) : (
-              // One button doesn't need the whole width; centred like AllTrails'.
-              <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'center' }}>
-                <View style={{ width: 168, flexDirection: 'row' }}>
-                  <TrailControlButton theme={theme} icon="pause" label={t('trail.action.pause')} ink onPress={() => void pauseTrail()} />
-                </View>
-              </View>
-            )}
-          </Animated.View>
         </>
       ) : status !== 'finished' ? (
         // Before starting the card is docked edge to edge, the same shape as
-        // the recording sheet, so 开始 doesn't change the card's outline.
-        // Measured with the home indicator room, so the camera and controls clear it.
-        <View
-          onLayout={(event) => setPanelHeight(Math.round(event.nativeEvent.layout.height))}
+        // the recording sheet, so 开始 doesn't change the card's outline. It is
+        // as tall as the open card: the settings wait past the bottom edge and
+        // come up with the drag, and 收起 leaves the row band on screen. The
+        // spare padding below them is what an over-drag past 展开 spends.
+        <Animated.View
+          {...readyDrag.panHandlers}
+          onLayout={(event) => setReadyHeight(Math.round(event.nativeEvent.layout.height))}
           style={{
             position: 'absolute',
             left: 0,
             right: 0,
             bottom: 0,
-            paddingBottom: insets.bottom,
+            transform: [{ translateY: readySlide }],
+            paddingBottom: readyOver,
             borderTopLeftRadius: 26,
             borderTopRightRadius: 26,
             backgroundColor: theme.featureSurface,
@@ -655,6 +744,9 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
         >
           <ReadyPanel
             theme={theme}
+            expanded={readyOpen}
+            onToggle={() => restReady(!readyOpen)}
+            onHiddenHeight={setReadyHidden}
             routeName={route?.name}
             totalM={measure?.totalMeters ?? null}
             ascentM={route?.elevation ? remainingAscent(route.elevation, 0) : null}
@@ -668,7 +760,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
             overlayHint={overlayHint}
             onOverlays={() => setOverlayPicker(true)}
           />
-        </View>
+        </Animated.View>
       ) : (
         <View
           onLayout={(event) => setPanelHeight(Math.round(event.nativeEvent.layout.height))}
@@ -785,7 +877,7 @@ function PausedPill({ theme, pausedAt, top }: { theme: Theme; pausedAt: number |
   return (
     <TopPill theme={theme} label={label} top={top}>
       <Animated.View style={{ opacity: pulse }}>
-        <Icon name="pause" color={theme.text} size={14} />
+        <Icon name="play" color={theme.text} size={14} />
       </Animated.View>
     </TopPill>
   );
@@ -841,8 +933,9 @@ function Banner({ theme, icon, tone, title, body, top }: { theme: Theme; icon: I
 }
 
 // Before starting, after komoot: what is about to be recorded on the left,
-// one pill to start on the right, and the settings behind the grab handle —
-// tap or swipe it open. No zeroed time and distance: they say nothing yet.
+// one pill to start on the right, and the settings under the grab handle —
+// drag the card up (or tap the handle) to bring them on screen. No zeroed
+// time and distance: they say nothing yet.
 function ReadyPanel({
   theme,
   routeName,
@@ -857,6 +950,9 @@ function ReadyPanel({
   onVoice,
   overlayHint,
   onOverlays,
+  expanded,
+  onToggle,
+  onHiddenHeight,
 }: {
   theme: Theme;
   routeName?: string;
@@ -871,10 +967,19 @@ function ReadyPanel({
   onVoice: () => void;
   overlayHint: string;
   onOverlays: () => void;
+  expanded: boolean;
+  onToggle: () => void;
+  onHiddenHeight: (height: number) => void;
 }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
+  const insets = useSafeAreaInsets();
+  // The band the card ends on: under the row when 收起, under the settings when
+  // open. It belongs to the row so the fold lands exactly at the card's edge.
+  const band = Math.max(insets.bottom, space.md);
   const isRoute = routeName != null;
+  const { width: windowWidth } = useWindowDimensions();
+  // The live grid's column, so 里程 sits where it will once the numbers run.
+  const statColumn = (windowWidth - space.lg * 2) / 3;
   const zeroDistance = splitDistance(0);
   const facts = isRoute
     ? [
@@ -883,23 +988,16 @@ function ReadyPanel({
       toStartM != null ? `${t('trail.fact.toStart')} ${formatMeters(toStartM)}` : null,
     ].filter(Boolean).join('   ')
     : '';
-  const swipe = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
-    onPanResponderRelease: (_, gesture) => {
-      if (gesture.dy < -16) setOpen(true);
-      else if (gesture.dy > 16) setOpen(false);
-    },
-  }), []);
 
   return (
     <View>
       {/* 叠加轨迹 is always there, so the handle always is. */}
-      <View {...swipe.panHandlers} style={{ paddingHorizontal: space.lg, paddingBottom: space.md }}>
+      <View style={{ paddingHorizontal: space.lg, paddingBottom: band }}>
         <Press
-          onPress={() => setOpen((value) => !value)}
+          onPress={onToggle}
           accessibilityRole="button"
           accessibilityLabel={t('trail.settings.title')}
-          accessibilityState={{ expanded: open }}
+          accessibilityState={{ expanded }}
           hitSlop={8}
           style={{ alignSelf: 'stretch', alignItems: 'center', paddingTop: space.xs, paddingBottom: space.sm }}
         >
@@ -908,13 +1006,18 @@ function ReadyPanel({
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
           <View style={{ flex: 1, minWidth: 0 }}>
             {/* A free walk has nothing to say before it starts, so it shows the
-                live row at zero: on 开始 the same numbers begin to run in place. */}
+                live row at zero: on 开始 the same numbers begin to run in place.
+                The columns are the live grid's, so 里程 doesn't move on 开始. */}
             {isRoute ? (
               <Text numberOfLines={2} style={[type.cardTitle, { color: theme.text }]}>{routeName}</Text>
             ) : (
-              <View accessible accessibilityLabel={t('trail.freeTitle')} style={{ flexDirection: 'row', gap: space.xl }}>
-                <LiveValue theme={theme} dim label={t('trail.stat.time')} value={formatClock(0)} />
-                <LiveValue theme={theme} dim label={t('trail.stat.distance')} value={zeroDistance.value} unit={zeroDistance.unit} />
+              <View accessible accessibilityLabel={t('trail.freeTitle')} style={{ flexDirection: 'row' }}>
+                <View style={{ width: statColumn, minWidth: 0, paddingRight: space.sm }}>
+                  <LiveValue theme={theme} dim label={t('trail.stat.time')} value={formatClock(0)} />
+                </View>
+                <View style={{ width: statColumn, minWidth: 0, paddingRight: space.sm }}>
+                  <LiveValue theme={theme} dim label={t('trail.stat.distance')} value={zeroDistance.value} unit={zeroDistance.unit} />
+                </View>
               </View>
             )}
             {facts ? <Text numberOfLines={1} style={[type.small, { color: theme.text2, marginTop: space.xxs, fontVariant: ['tabular-nums'] }]}>{facts}</Text> : null}
@@ -940,25 +1043,31 @@ function ReadyPanel({
         ) : null}
         {error ? <ErrorLine theme={theme} error={error} /> : null}
       </View>
-      {open ? (
-        <View style={{ paddingHorizontal: space.lg, paddingBottom: space.sm }}>
-          <OverlayRow theme={theme} hint={overlayHint} onPress={onOverlays} />
-          <LayerRows theme={theme} />
-          {voice != null ? (
-            <SettingRow theme={theme} icon="volume" title={t('trail.settings.voice')} hint={t('trail.settings.voiceHint')}>
-              <Switch
-                accessibilityLabel={t('trail.settings.voice')}
-                value={voice}
-                onValueChange={onVoice}
-                trackColor={{ false: theme.progressTrack, true: theme.accent }}
-                thumbColor="#FFFFFF"
-                ios_backgroundColor={theme.progressTrack}
-                style={{ alignSelf: 'center' }}
-              />
-            </SettingRow>
-          ) : null}
-        </View>
-      ) : null}
+      {/* Under the screen's bottom edge until the card is dragged up, so the
+          fold lands exactly after the row band and these rows keep their own
+          room from the home indicator once the card is open. */}
+      <View
+        onLayout={(event) => onHiddenHeight(Math.round(event.nativeEvent.layout.height))}
+        accessibilityElementsHidden={!expanded}
+        importantForAccessibility={expanded ? 'auto' : 'no-hide-descendants'}
+        style={{ paddingHorizontal: space.lg, paddingBottom: band }}
+      >
+        <OverlayRow theme={theme} hint={overlayHint} onPress={onOverlays} />
+        <LayerRows theme={theme} />
+        {voice != null ? (
+          <SettingRow theme={theme} icon="volume" title={t('trail.settings.voice')} hint={t('trail.settings.voiceHint')}>
+            <Switch
+              accessibilityLabel={t('trail.settings.voice')}
+              value={voice}
+              onValueChange={onVoice}
+              trackColor={{ false: theme.progressTrack, true: theme.accent }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor={theme.progressTrack}
+              style={{ alignSelf: 'center' }}
+            />
+          </SettingRow>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -1216,7 +1325,7 @@ function Stat({ theme, label, value, unit, dim, size }: { theme: Theme; label: s
   return (
     <View accessible accessibilityLabel={`${label} ${value}${unit ? ` ${unit}` : ''}`}>
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
-        <Text numberOfLines={1} style={[type.liveValueLarge, { fontSize: size, lineHeight: Math.round(size * 1.2), flexShrink: 1, color: dim || empty ? theme.text3 : theme.text }]}>{value}</Text>
+        <Text numberOfLines={1} style={[type.liveValueLarge, { fontSize: size, lineHeight: Math.round(size * 1.2), flexShrink: 1, color: dim ? theme.text2 : empty ? theme.text3 : theme.text }]}>{value}</Text>
         {unit ? <Text style={[type.liveUnit, { color: theme.text2 }]}>{unit}</Text> : null}
       </View>
       <Text numberOfLines={1} style={[type.small, { color: theme.text2, marginTop: 2 }]}>{label}</Text>
@@ -1284,31 +1393,6 @@ function SettingRow({ theme, icon, title, hint, children }: { theme: Theme; icon
       {children}
     </View>
   );
-}
-
-type WaypointSource = { name: string; km: number; lng?: number; lat?: number; ele?: number; photo?: string; at?: string };
-
-/** A track's named spots on its line: where they were marked when that is
-    known, otherwise their distance along it. */
-function placeWaypoints(coords: Coordinate[], waypoints: WaypointSource[], color: string): { marker: ProjectedRouteWaypoint; waypoint: WaypointSource }[] {
-  const projected = projectRouteWaypoints(coords, waypoints);
-  return waypoints.flatMap((waypoint, index) => {
-    const coord: Coordinate | undefined = waypoint.lng != null && waypoint.lat != null ? [waypoint.lng, waypoint.lat] : projected[index]?.coord;
-    return coord ? [{ marker: { name: waypoint.name, km: waypoint.km, coord, color, photo: !!waypoint.photo }, waypoint }] : [];
-  });
-}
-
-/** Height at a distance along the line, from its km/ele profile. */
-function elevationAtKm(profile: { km: number; ele: number }[] | undefined, km: number): number | null {
-  if (!profile?.length) return null;
-  if (km <= profile[0].km) return profile[0].ele;
-  for (let i = 1; i < profile.length; i += 1) {
-    const b = profile[i];
-    if (km > b.km) continue;
-    const a = profile[i - 1];
-    return b.km === a.km ? b.ele : a.ele + ((b.ele - a.ele) * (km - a.km)) / (b.km - a.km);
-  }
-  return profile[profile.length - 1].ele;
 }
 
 function hashString(value: string): string {

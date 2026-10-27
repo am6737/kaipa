@@ -60,7 +60,7 @@ export function RouteCommentThread({ theme, comment, currentUserId, onReply, onM
     </View>;
   }
   return <View style={styles.thread}>
-    <Avatar size={32} uri={comment.authorAvatarUrl || undefined} />
+    <AuthorAvatar comment={comment} size={32} />
     <View style={styles.threadBody}>
       <CommentContent theme={theme} comment={comment} parentAuthorId={null} mine={Boolean(currentUserId) && comment.userId === currentUserId} onReply={onReply} onMore={onMore} />
       {renderReplies()}
@@ -71,7 +71,7 @@ export function RouteCommentThread({ theme, comment, currentUserId, onReply, onM
     if (!comment.replies.length) return null;
     return <View style={styles.replies}>
       {replies.map((reply) => <View key={reply.id} style={styles.reply}>
-        <Avatar size={22} uri={reply.authorAvatarUrl || undefined} />
+        <AuthorAvatar comment={reply} size={22} />
         <View style={styles.threadBody}>
           <CommentContent theme={theme} comment={reply} parentAuthorId={comment.userId} mine={Boolean(currentUserId) && reply.userId === currentUserId} onReply={onReply} onMore={onMore} />
         </View>
@@ -85,14 +85,24 @@ export function RouteCommentThread({ theme, comment, currentUserId, onReply, onM
   }
 }
 
+function AuthorAvatar({ comment, size }: { comment: RouteComment; size: number }) {
+  const nav = useNav();
+  return <Press accessibilityRole="button" accessibilityLabel={comment.author} onPress={() => nav.openUserProfile(comment.userId)}>
+    <Avatar size={size} uri={comment.authorAvatarUrl || undefined} />
+  </Press>;
+}
+
 function CommentContent({ theme, comment, parentAuthorId, mine, onReply, onMore }: { theme: Theme; comment: RouteComment; parentAuthorId: string | null; mine: boolean; onReply: (target: RouteComment) => void; onMore: (target: RouteComment) => void }) {
   const { resolved } = useI18n();
   const c = routeGuideCopy[resolved];
   // Only name the reply target when it is someone other than the thread author.
   const replyTo = comment.replyTo && comment.replyTo.userId !== parentAuthorId ? comment.replyTo : null;
+  const nav = useNav();
   return <>
     <View style={styles.authorRow}>
-      <Text numberOfLines={1} style={[type.note, styles.shrink, { color: theme.text2, fontWeight: '600' }]}>{comment.author}</Text>
+      <Press accessibilityRole="button" onPress={() => nav.openUserProfile(comment.userId)} style={styles.shrink}>
+        <Text numberOfLines={1} style={[type.note, { color: theme.text2, fontWeight: '600' }]}>{comment.author}</Text>
+      </Press>
       {mine ? <MeBadge theme={theme} /> : null}
       {replyTo ? <>
         <Text style={[type.note, { color: theme.text3 }]}>{c.replyTo}</Text>

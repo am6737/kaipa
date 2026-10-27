@@ -117,7 +117,7 @@ export type AgentModelMetric = {
 // App entry intents, identical to the client's union. The server validates
 // body.intent against intent-router.ts appIntentRoutes; unknown values are ignored.
 export type AgentIntent = 'plan_journey' | 'packing_full' | 'transport_supplement' | 'stay_supplement'
-  | 'gear_onboarding' | 'gear_set_onboarding' | 'journey_review';
+  | 'gear_onboarding' | 'gear_set_onboarding' | 'journey_review' | 'smart_plan';
 
 export type AgentResponse = {
   threadId: string;

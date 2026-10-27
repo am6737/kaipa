@@ -5,6 +5,8 @@ import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { clusterWaypoints as groupWaypoints } from '../maps/waypointClusters';
 import { trackWorldSpan } from '../maps/extent';
+import { DistanceMarker, DistancePill, distanceStepForLength } from '../maps/distanceMarkers';
+import { measureTrack, positionAtDistance } from '../../lib/routeSegments';
 import {
   NativeMap,
   type NativeMapHandle,
@@ -16,6 +18,8 @@ import {
 
 export type MapStyleId = 'standard' | 'terrain' | 'satellite';
 export type TrackMapWaypoint = { name: string; coord: [number, number]; km?: number };
+/** `TrackMapWaypoint` plus the index it had in the `waypoints` array. */
+export type TrackMapPressedWaypoint = TrackMapWaypoint & { index?: number };
 
 export interface TrackMapHandle {
   fitRoute: () => void;
@@ -43,11 +47,15 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   numberWaypoints?: boolean;
   clusterWaypoints?: boolean;
   showWaypointCallout?: boolean;
+  /** "N km" labels along the line, as on the route card. */
+  showDistanceMarkers?: boolean;
+  /** A parent owns selection: that mark gets the filled badge and its plain one goes. */
+  selectedWaypointIndex?: number | null;
   /** a tap on the map itself, in WGS-84 — preserves the requested location */
   onMapPress?: (coordinate: [number, number]) => void;
   onPoiPress?: (poi: NativeMapPoi) => void;
   /** Lets a parent own selection; showWaypointCallout controls the built-in label. */
-  onWaypointPress?: (waypoint: TrackMapWaypoint) => void;
+  onWaypointPress?: (waypoint: TrackMapPressedWaypoint, index: number) => void;
   mapStyle?: MapStyleId;
   showMapLabels?: boolean;
   onCameraOrientationChange?: (heading: number, pitch: number) => void;
@@ -68,6 +76,8 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   numberWaypoints = false,
   clusterWaypoints = false,
   showWaypointCallout = true,
+  showDistanceMarkers = false,
+  selectedWaypointIndex = null,
   onMapPress,
   onPoiPress,
   onWaypointPress,
@@ -186,6 +196,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
           });
           return;
         }
+        if (selectedWaypointIndex === index && numberWaypoints) return;
         values.push({
           id: `track-waypoint-${index}`,
           coordinate: waypoint.coord,
@@ -194,7 +205,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
           onPress: () => {
             markerPressAt.current = Date.now();
             if (showWaypointCallout) setSelectedWaypoint(waypoint);
-            onWaypointPress?.(waypoint);
+            onWaypointPress?.({ ...waypoint, index }, index);
           },
           content: numberWaypoints ? (
             <View style={[styles.numberedWaypoint, { borderColor: theme.hairline }]}>
@@ -203,6 +214,27 @@ export const TrackMap = forwardRef<TrackMapHandle, {
           ) : <View style={[styles.waypointMarker, { borderColor: accent }]} />,
         });
       });
+    }
+    if (showWaypoints && numberWaypoints && selectedWaypointIndex != null) {
+      const waypoint = waypoints?.[selectedWaypointIndex];
+      if (waypoint) {
+        values.push({
+          // Android snapshots marker views by id, so the number is part of it.
+          id: `track-selected-waypoint-badge-${selectedWaypointIndex}`,
+          coordinate: waypoint.coord,
+          anchor: { x: 0.5, y: 0.5 },
+          zIndex: 12,
+          onPress: () => {
+            markerPressAt.current = Date.now();
+            onWaypointPress?.({ ...waypoint, index: selectedWaypointIndex }, selectedWaypointIndex);
+          },
+          content: (
+            <View style={[styles.selectedWaypoint, { backgroundColor: accent, borderColor: theme.featureSurface }]}>
+              <Text style={{ fontFamily: MONO, fontSize: 12, fontWeight: '800', color: '#FFFFFF' }}>{selectedWaypointIndex + 1}</Text>
+            </View>
+          ),
+        });
+      }
     }
     if (selectedWaypoint) {
       values.push({
@@ -222,7 +254,35 @@ export const TrackMap = forwardRef<TrackMapHandle, {
       });
     }
     return values;
-  }, [accent, coords, numberWaypoints, onWaypointPress, scrubPt, scrubLabel, selectedWaypoint, showWaypointCallout, showWaypoints, theme, waypoints, waypointGroups, routePadding]);
+  }, [accent, coords, numberWaypoints, onWaypointPress, routePadding, scrubLabel, scrubPt, selectedWaypoint, selectedWaypointIndex, showWaypointCallout, showWaypoints, theme, waypointGroups, waypoints]);
+
+  // Kept out of `markers`, so a mark tap or a scrub doesn't rebuild every label.
+  const distanceMarkers = useMemo<NativeMapMarker[]>(() => {
+    if (!showDistanceMarkers || coords.length < 2) return [];
+    const measure = measureTrack(coords);
+    if (!measure || measure.totalMeters < 1000) return [];
+    const stepKm = distanceStepForLength(measure.totalMeters);
+    const values: NativeMapMarker[] = [];
+    for (let km = stepKm; km * 1000 < measure.totalMeters - 120; km += stepKm) {
+      values.push({
+        id: `track-distance-${km}`,
+        coordinate: positionAtDistance(measure, km * 1000).coordinate,
+        anchor: { x: 0.5, y: 1 },
+        content: <DistanceMarker theme={theme} label={`${km} km`} />,
+      });
+    }
+    // The total stands over the finish dot rather than planting its own on it.
+    const totalKm = Math.round(measure.totalMeters / 100) / 10;
+    values.push({
+      id: `track-distance-end-${totalKm}`,
+      coordinate: coords[coords.length - 1],
+      anchor: { x: 0.5, y: 1 },
+      content: <View style={{ paddingBottom: 9 }}><DistancePill theme={theme} label={`${totalKm} km`} /></View>,
+    });
+    return values;
+  }, [coords, showDistanceMarkers, theme]);
+
+  const allMarkers = useMemo(() => (distanceMarkers.length ? [...distanceMarkers, ...markers] : markers), [distanceMarkers, markers]);
 
   const polylines = useMemo<NativeMapPolyline[]>(() => coords.length >= 2 ? [
     { id: 'track-line', coordinates: coords, color: accent, width: 3.5 },
@@ -251,7 +311,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
         mapStyle={mapStyle}
         showLabels={showMapLabels}
         interactive={interactive}
-        markers={markers}
+        markers={allMarkers}
         polylines={polylines}
         onPress={interactive ? (coordinate) => {
           if (Date.now() - markerPressAt.current < 400) return;
@@ -294,6 +354,7 @@ const styles = StyleSheet.create({
   pickedLabel: { maxWidth: 180, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 11, borderWidth: StyleSheet.hairlineWidth },
   pickedMarker: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, opacity: 1 },
   numberedWaypoint: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#FFFFFF', borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  selectedWaypoint: { width: 30, height: 30, borderRadius: 15, borderWidth: 2.5, alignItems: 'center', justifyContent: 'center' },
   waypointMarker: { width: 13, height: 13, borderRadius: 7, backgroundColor: '#FFFFFF', borderWidth: 3 },
   callout: { maxWidth: 220, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   legend: { position: 'absolute', left: 12, bottom: 10, flexDirection: 'row', gap: 12 },

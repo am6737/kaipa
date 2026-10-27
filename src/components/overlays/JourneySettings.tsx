@@ -39,6 +39,11 @@ import type { RouteGuidePlan } from "../../data/routeGuides";
 import { submitRouteGuide, useMyRouteGuideStatus } from "../../hooks/useRouteGuides";
 import { RouteGuideEquipment, RouteGuideItinerary } from "../discover/RouteGuideContent";
 import { useData } from "../../data/DataContext";
+import {
+  openVisibilityPicker,
+  visibilityLabel,
+} from "../social/VisibilityPicker";
+import type { Visibility } from "../../hooks/useSocial";
 import { Avatar, AvatarStack } from "../Avatar";
 import { useTimeline } from "../../hooks/useTimeline";
 import { useJourneyPacking } from "../../hooks/useJourneyPacking";
@@ -287,7 +292,8 @@ export function JourneySettings({
   onToast: (message: string) => void;
 }) {
   const { t } = useI18n();
-  const { userId } = useData();
+  const data = useData();
+  const { userId } = data;
   const nav = useNav();
   const insets = useSafeAreaInsets();
   const companionCount = poi.companionList?.length || poi.companions || 0;
@@ -326,6 +332,21 @@ export function JourneySettings({
   const [routeShowTimeline, setRouteShowTimeline] = useState(
     poi.routeShowTimeline ?? true,
   );
+  // Applies immediately through its own endpoint, so it is not part of the save draft.
+  const [visibility, setVisibility] = useState<Visibility>(
+    poi.visibility ?? "private",
+  );
+  const changeVisibility = (next: Visibility) => {
+    const previous = visibility;
+    setVisibility(next);
+    void data
+      .setJourneyVisibility(poi.id, next)
+      .then(() => onToast(t("profile.visibilitySaved")))
+      .catch(() => {
+        setVisibility(previous);
+        onToast(t("profile.actionFailed"));
+      });
+  };
   const [saving, setSaving] = useState(false);
   const [coverViewerOpen, setCoverViewerOpen] = useState(false);
   const [locationPickerOpen, setLocationPickerOpen] = useState(false);
@@ -660,6 +681,40 @@ export function JourneySettings({
                   />
                 </>
               ) : null}
+            </MeCard>
+          </MeSection>
+        ) : null}
+
+        {poi.mine === true ? (
+          <MeSection theme={theme} title={t("profile.visibilityProfileSection")}>
+            <MeCard theme={theme}>
+              <Press
+                accessibilityRole="button"
+                onPress={() =>
+                  openVisibilityPicker(nav, t, visibility, changeVisibility)
+                }
+                scaleTo={1}
+                opacityTo={1}
+              >
+                <View
+                  style={{
+                    minHeight: layout.listRowMinHeight,
+                    paddingHorizontal: space.md,
+                    paddingVertical: space.md,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: space.md,
+                  }}
+                >
+                  <Text style={[type.cardTitle, { flex: 1, color: theme.text }]}>
+                    {t("profile.visibilityTitle")}
+                  </Text>
+                  <Text style={[type.caption, { color: theme.text2 }]}>
+                    {visibilityLabel(t, visibility)}
+                  </Text>
+                  <Icon name="chevronR" color={theme.text3} size={15} />
+                </View>
+              </Press>
             </MeCard>
           </MeSection>
         ) : null}

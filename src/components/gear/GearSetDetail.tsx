@@ -17,13 +17,16 @@ import type { IconName } from '../Icon';
 import { Glass } from '../Glass';
 import { Press } from '../Press';
 import { useNav } from '../../nav/NavContext';
+import { useData } from '../../data/DataContext';
+import { openVisibilityPicker, visibilityLabel } from '../social/VisibilityPicker';
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat, GearSet, Metric, METRICS, itemWeight, itemPrice, itemQty, packStats, WeightUnit, fmtWeight, splitWeight } from '../../data/gear';
 import { GearItemRow, yuan, yuanWithGap } from './parts';
-import { DetailPage, space } from '../../design-system';
+import { DetailPage, space, type } from '../../design-system';
 import { LabeledDonut, Row } from './LabeledDonut';
 import { buildGearSetText, GearSetExportData, GearSetPoster } from './GearSetExport';
 import { GearMenuTransition } from './GearMenuTransition';
+import { BottomControl, EmptyPlaceholderCards, SummaryStat } from './GearItemsList';
 
 const fieldBg = (t: Theme) => t.fieldSurface;
 const fieldBorder = (t: Theme) => t.fieldBorder;
@@ -220,6 +223,7 @@ function GearSetDetailView({
   onDelete,
   onEdit,
   onDuplicate,
+  onAddGear,
   applicationAction,
 }: {
   theme: Theme;
@@ -232,9 +236,13 @@ function GearSetDetailView({
   onDelete: () => void;
   onEdit: () => void;
   onDuplicate: () => void;
+  /** Opens the editor straight into gear selection; falls back to onEdit. */
+  onAddGear?: () => void;
+  /** Preview-and-apply mode for someone else's list; no caller since 清单广场 was removed. */
   applicationAction?: { label: string; onPress: () => void; disabled?: boolean; pending?: boolean };
 }) {
   const nav = useNav();
+  const data = useData();
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
@@ -420,6 +428,14 @@ function GearSetDetailView({
       message: t('gear.setDetail.deleteConfirmMessage'),
       items: [{ label: t('gear.setDetail.deleteSet'), icon: 'trash', destructive: true, onPress: onDelete }],
     });
+  const editVisibility = () => openVisibilityPicker(nav, t, set.visibility ?? 'private', async (next) => {
+    try {
+      await data.setSetVisibility(set.id, next);
+      nav.showToast(t('profile.visibilitySaved'));
+    } catch {
+      nav.showToast(t('profile.actionFailed'));
+    }
+  });
   const runFromExportMenu = (action: () => void) => {
     setExportOpen(false);
     setTimeout(action, 140);
@@ -456,7 +472,7 @@ function GearSetDetailView({
       flatChrome
       right={applicationAction ? undefined : (
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <DetailActionButton theme={theme} icon={Share2} onPress={() => setExportOpen(true)} />
+          {totN > 0 ? <DetailActionButton theme={theme} icon={Share2} onPress={() => setExportOpen(true)} /> : null}
           <DetailActionButton theme={theme} icon={MoreHorizontal} onPress={() => { setDisplayExpanded(false); displayProgress.value = 0; setMoreOpen(true); }} />
         </View>
       )}
@@ -506,6 +522,12 @@ function GearSetDetailView({
               <ExportMenuRow theme={theme} icon="trash" label={t('gear.setDetail.deleteSet')} destructive onPress={() => runFromMoreMenu(confirmDelete)} />
             </ReAnimated.View>
           </FloatingMenu> : null}
+          {!applicationAction && totN === 0 ? (
+            // The first placeholder card already adds gear, so only AI stays here.
+            <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingBottom: Math.max(insets.bottom, space.md) + space.xxs, alignItems: 'center' }}>
+              <BottomControl theme={theme} label={t('gear.setDetail.aiFill')} onPress={openAiFill} />
+            </View>
+          ) : null}
           {applicationAction ? (
             <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 22, paddingTop: 24, paddingBottom: Math.max(insets.bottom, 14) + 4, flexDirection: 'row', justifyContent: 'center' }}>
               <Press
@@ -535,20 +557,25 @@ function GearSetDetailView({
           </View>
         ) : null}
 
+        {applicationAction ? null : (
+          <Press onPress={editVisibility} accessibilityRole="button" accessibilityLabel={t('profile.visibilityTitle')} style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, paddingBottom: 18 }}>
+            <Text style={{ flex: 1, fontSize: 15.5, color: theme.text2 }}>{t('profile.visibilityTitle')}</Text>
+            <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '700', color: theme.text }}>{visibilityLabel(t, set.visibility ?? 'private')}</Text>
+            <Icon name="chevronR" color={theme.text3} size={14} strokeWidth={2} />
+          </Press>
+        )}
+
         {totN === 0 ? (
-          <View style={{ marginTop: 22, paddingVertical: 34, paddingHorizontal: 24, borderRadius: 24, backgroundColor: fieldBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: fieldBorder(theme), alignItems: 'center' }}>
-            <View style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surfaceTop }}>
-              <Icon name="bag" color={theme.text2} size={23} />
+          <>
+            <View style={{ flexDirection: 'row', gap: space.md, marginTop: space.xs }}>
+              <SummaryStat theme={theme} label={t('gear.stat.totalWeight')} value="--" empty />
+              <SummaryStat theme={theme} label={t('gear.stat.totalValue')} value="--" empty />
             </View>
-            <Text style={{ marginTop: 16, fontSize: 15, fontWeight: '700', color: theme.text }}>{t('gear.setDetail.emptyTitle')}</Text>
-            <Text style={{ fontSize: 13, lineHeight: 19, color: theme.text3, textAlign: 'center', marginTop: 6 }}>{t('gear.setDetail.emptyBody')}</Text>
-            <Press onPress={onEdit} style={{ marginTop: 20, paddingHorizontal: 18, height: 40, borderRadius: 20, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 13.5, fontWeight: '700', color: '#FFFFFF' }}>{t('gear.setDetail.addGear')}</Text>
-            </Press>
-            <Press onPress={openAiFill} style={{ marginTop: space.sm, paddingHorizontal: 18, height: 40, borderRadius: 20, backgroundColor: theme.accentSofter, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 13.5, fontWeight: '700', color: theme.accent }}>{t('gear.setDetail.aiFill')}</Text>
-            </Press>
-          </View>
+            <Text style={[type.sectionTitle, { marginTop: space.xxl, marginBottom: space.sm, color: theme.text }]}>{t('gear.setDetail.itemsSection')}</Text>
+            {applicationAction ? null : (
+              <EmptyPlaceholderCards theme={theme} title={t('gear.setDetail.addGear')} subtitle={t('gear.setDetail.emptyAddSub')} onPress={onAddGear ?? onEdit} />
+            )}
+          </>
         ) : (
           <>
             <View style={{ alignItems: 'center', marginTop: 2, zIndex: 2 }}>

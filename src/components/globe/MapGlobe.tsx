@@ -11,12 +11,8 @@ import { STAGGER_MAX_DELAY_MS, STAGGER_STEP_MS } from '../StaggerIn';
 import type { GlobePoi, GlobeProps } from './types';
 import { useI18n } from '../../i18n';
 import { measureTrack, positionAtDistance } from '../../lib/routeSegments';
+import { cappedStepKm } from '../maps/distanceMarkers';
 
-// A long route at high zoom would otherwise build one distance marker per
-// km (hundreds of custom marker bitmaps), and rebuilding them all when the
-// zoom crosses a step bucket causes a visible stutter — worst on Android
-// where each marker content is re-snapshotted into a bitmap.
-const MAX_DISTANCE_MARKERS = 60;
 // The camera the native map is created with. Needed to judge a press before the
 // map has ever reported a zoom change.
 const MAP_INITIAL_ZOOM = 3;
@@ -24,14 +20,6 @@ const MAP_INITIAL_ZOOM = 3;
 // entrance, so a switch arrives the way the catalog did the first time.
 const ENTRANCE_LAST_INDEX = Math.floor(STAGGER_MAX_DELAY_MS / STAGGER_STEP_MS);
 const ENTRANCE_REVEAL_MS = 180;
-function cappedStepKm(stepKm: number, totalMeters: number): number {
-  const slots = Math.floor((totalMeters - 120) / 1000 / stepKm);
-  if (slots <= MAX_DISTANCE_MARKERS) return stepKm;
-  // Round the minimum step up to a "nice" km value so labels stay readable.
-  const minStep = Math.ceil((totalMeters - 120) / 1000 / MAX_DISTANCE_MARKERS);
-  const niceSteps = [1, 2, 5, 10, 20, 25, 50, 100, 200];
-  return niceSteps.find((step) => step >= minStep) ?? Math.ceil(minStep / 50) * 50;
-}
 
 const MIN_TRACK_ENDPOINT_PIXELS = 100;
 // The overlay layer is empty most of the time, and a memo that returns a fresh
@@ -384,7 +372,7 @@ export default function MapGlobe({
     }
     if (cameraAction.type === 'fitCoordinates') {
       const coordinates = cameraAction.coordinates.filter(isValidMapCoordinate);
-      const duration = Platform.OS === 'android' ? 680 : 260;
+      const duration = cameraAction.animated === false ? 0 : Platform.OS === 'android' ? 680 : 260;
       const padding = cameraAction.padding ?? routePadding;
       if (coordinates.length >= 2) mapRef.current?.fitCoordinates(coordinates, padding, duration);
       else if (coordinates.length === 1) mapRef.current?.moveCamera(coordinates[0], 12, duration, { edgePadding: padding });

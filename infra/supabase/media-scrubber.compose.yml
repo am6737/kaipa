@@ -1,0 +1,21 @@
+services:
+  media-scrubber:
+    image: kaipa-media-scrubber:latest
+    container_name: kaipa-media-scrubber
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # Built and pushed by deploy-media-scrubber.sh (Dockerfile + service file).
+    environment:
+      SUPABASE_URL: http://kong:8000
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      MEDIA_SCRUB_TMP: /scratch
+      MEDIA_SCRUB_DRY_RUN: ${MEDIA_SCRUB_DRY_RUN:-0}
+    volumes:
+      # Work space for streamed downloads: room for a couple of 300 MB objects.
+      - type: tmpfs
+        target: /scratch
+        tmpfs:
+          size: 2147483648

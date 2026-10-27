@@ -14,9 +14,9 @@ import { Theme } from '../../theme/theme';
 import { Press } from '../Press';
 import { PhotoTile } from '../PhotoTile';
 
-export type FeatureDeckCard = { id: string; tag?: string; title: string; tone?: string; seed: string; imageUrl?: string; onPress: () => void };
+export type FeatureDeckCard = { id: string; title: string; tone?: string; seed: string; imageUrl?: string; onPress: () => void };
 
-const CARD_HEIGHT = 94;
+const CARD_HEIGHT = 80;
 // Each card behind the front one drops this far and shrinks by STACK_SCALE.
 const STACK_OFFSET = 8;
 const STACK_SCALE = 0.05;
@@ -97,7 +97,6 @@ function DeckCard({
         style={[styles.card, { backgroundColor: theme.controlSurface }]}
       >
         <View style={styles.copy}>
-          {card.tag ? <Text numberOfLines={1} style={[styles.tag, { color: theme.text3 }]}>{card.tag}</Text> : null}
           <Text numberOfLines={2} style={[styles.title, { color: theme.text }]}>{card.title}</Text>
           <View style={styles.action}>
             <Text style={[styles.actionText, { color: theme.accent }]}>{actionLabel}</Text>
@@ -236,7 +235,6 @@ const styles = StyleSheet.create({
   cardSlot: { position: 'absolute', top: 0, left: 0, right: 0, height: CARD_HEIGHT },
   card: { flex: 1, borderRadius: radius.feature, paddingLeft: space.lg, paddingRight: space.md, paddingVertical: space.xs, flexDirection: 'row', alignItems: 'center', gap: space.md, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(0, 0, 0, 0.06)', shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 3 } },
   copy: { flex: 1, minWidth: 0, gap: 2 },
-  tag: { fontSize: 12, fontWeight: '500' },
   title: { fontSize: 15, lineHeight: 20, fontWeight: '600', letterSpacing: 0 },
   action: { marginTop: 2, flexDirection: 'row', alignItems: 'center', gap: 2 },
   actionText: { fontSize: 13, fontWeight: '500' },

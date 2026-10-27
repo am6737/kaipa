@@ -8,6 +8,8 @@ import { Poi } from '../data/pois';
 import { TLRow } from '../data/timeline';
 import type { JourneyVersion } from '../hooks/useJourneyVersions';
 import { reverseRoute } from '../lib/routeDirection';
+import { launchRegion } from '../lib/launchRegion';
+import type { AgentIntent } from '../lib/appAgent';
 
 export type MainTab = 'discover' | 'journey' | 'gear' | 'me';
 export type GearPageRequest = 'sets' | 'items';
@@ -23,6 +25,12 @@ export interface ActionSheetItem {
   destructive?: boolean;
   icon?: string;
 }
+// 主页与粉丝列表可以互相点进去，所以是一个栈；返回只弹出最上面一页。
+export type SocialPage =
+  | { kind: 'profile'; userId: string }
+  | { kind: 'people'; userId: string; tab: 'followers' | 'following' | 'find' }
+  | { kind: 'gearSet'; setId: string };
+
 export interface ActionSheetConfig {
   title?: string;
   message?: string;
@@ -162,6 +170,13 @@ export interface NavValue {
   openJourneySettings: (p: Poi) => void;
   closeJourneySettings: () => void;
 
+  socialStack: SocialPage[];
+  openUserProfile: (userId: string) => void;
+  openPeople: (userId: string, tab: 'followers' | 'following' | 'find') => void;
+  /** 别人公开的装备清单，可以「存为我的清单」。 */
+  openGearSetPreview: (setId: string) => void;
+  closeSocialPage: () => void;
+
   journeyHistory: Poi | null;
   openJourneyHistory: (p: Poi) => void;
   closeJourneyHistory: () => void;
@@ -210,8 +225,10 @@ export interface NavValue {
   assistantDisplayPrompt?: string;
   assistantJourneyId?: string;
   assistantAutoSubmit: boolean;
+  // Sent with an auto-submitted prompt; plan_journey when not given.
+  assistantIntent?: AgentIntent;
   assistantStartNewConversation: boolean;
-  openAssistant: (prompt?: string, journeyId?: string, autoSubmit?: boolean, displayPrompt?: string, startNewConversation?: boolean) => void;
+  openAssistant: (prompt?: string, journeyId?: string, autoSubmit?: boolean, displayPrompt?: string, startNewConversation?: boolean, intent?: AgentIntent) => void;
   clearAssistantPrompt: () => void;
   closeAssistant: () => void;
 
@@ -277,6 +294,7 @@ export function NavProvider({
   const [editJourney, setEditJourney] = useState<Poi | null>(null);
   const [journeySettings, setJourneySettings] = useState<Poi | null>(null);
   const [journeyHistory, setJourneyHistory] = useState<Poi | null>(null);
+  const [socialStack, setSocialStack] = useState<SocialPage[]>([]);
   const [journeyVersionPreview, setJourneyVersionPreview] = useState<{ poi: Poi; sourcePoi: Poi; version: JourneyVersion } | null>(null);
   const [liveShare, setLiveShare] = useState<Poi | null>(null);
   const [nearbyJoinOpen, setNearbyJoinOpen] = useState(false);
@@ -285,12 +303,13 @@ export function NavProvider({
   const [extraJourneys, setExtraJourneys] = useState<Poi[]>([]);
   const [sharePanel, setSharePanel] = useState<Poi | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [discoverRegion, setDiscoverRegion] = useState('全国');
+  const [discoverRegion, setDiscoverRegion] = useState(launchRegion);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantPrompt, setAssistantPrompt] = useState<string>();
   const [assistantDisplayPrompt, setAssistantDisplayPrompt] = useState<string>();
   const [assistantJourneyId, setAssistantJourneyId] = useState<string>();
   const [assistantAutoSubmit, setAssistantAutoSubmit] = useState(false);
+  const [assistantIntent, setAssistantIntent] = useState<AgentIntent>();
   const [assistantStartNewConversation, setAssistantStartNewConversation] = useState(false);
   const [toast, setToast] = useState<{ message: string; placement: 'top' | 'bottom' } | null>(null);
   const [tabBarHiddenSources, setTabBarHiddenSources] = useState<Set<string>>(() => new Set());
@@ -323,6 +342,7 @@ export function NavProvider({
     editJourney ||
     journeySettings ||
     journeyHistory ||
+    socialStack.length > 0 ||
     liveShare ||
     nearbyJoinOpen ||
     manageCompanions ||
@@ -359,6 +379,7 @@ export function NavProvider({
     setEditJourney(null);
     setJourneySettings(null);
     setJourneyHistory(null);
+    setSocialStack([]);
     setJourneyVersionPreview(null);
     setLiveShare(null);
     setNearbyJoinOpen(false);
@@ -566,6 +587,15 @@ export function NavProvider({
         setJourneySettings(next);
       },
       closeJourneySettings: () => setJourneySettings(null),
+      socialStack,
+      // 同一个人已经在栈顶就不再叠一层（比如在 TA 的粉丝列表里点回 TA）。
+      openUserProfile: (userId) => setSocialStack((stack) => {
+        const top = stack[stack.length - 1];
+        return top?.kind === 'profile' && top.userId === userId ? stack : [...stack, { kind: 'profile', userId }];
+      }),
+      openPeople: (userId, tab) => setSocialStack((stack) => [...stack, { kind: 'people', userId, tab }]),
+      openGearSetPreview: (setId) => setSocialStack((stack) => [...stack, { kind: 'gearSet', setId }]),
+      closeSocialPage: () => setSocialStack((stack) => stack.slice(0, -1)),
       journeyHistory,
       openJourneyHistory: (p) => setJourneyHistory(merged(p)),
       closeJourneyHistory: () => setJourneyHistory(null),
@@ -624,12 +654,14 @@ export function NavProvider({
       assistantDisplayPrompt,
       assistantJourneyId,
       assistantAutoSubmit,
+      assistantIntent,
       assistantStartNewConversation,
-      openAssistant: (prompt, journeyId, autoSubmit = false, displayPrompt, startNewConversation = false) => {
+      openAssistant: (prompt, journeyId, autoSubmit = false, displayPrompt, startNewConversation = false, intent) => {
         setAssistantPrompt(prompt);
         setAssistantDisplayPrompt(displayPrompt);
         setAssistantJourneyId(journeyId);
         setAssistantAutoSubmit(autoSubmit);
+        setAssistantIntent(intent);
         setAssistantStartNewConversation(startNewConversation);
         setAssistantOpen(true);
       },
@@ -637,6 +669,7 @@ export function NavProvider({
         setAssistantPrompt(undefined);
         setAssistantDisplayPrompt(undefined);
         setAssistantAutoSubmit(false);
+        setAssistantIntent(undefined);
       },
       closeAssistant: () => {
         setAssistantOpen(false);
@@ -644,6 +677,7 @@ export function NavProvider({
         setAssistantDisplayPrompt(undefined);
         setAssistantJourneyId(undefined);
         setAssistantAutoSubmit(false);
+        setAssistantIntent(undefined);
         setAssistantStartNewConversation(false);
       },
       savedRoutes,
@@ -697,6 +731,7 @@ export function NavProvider({
       editJourney,
       journeySettings,
       journeyHistory,
+      socialStack,
       journeyVersionPreview,
       liveShare,
       nearbyJoinOpen,
@@ -709,6 +744,7 @@ export function NavProvider({
       assistantDisplayPrompt,
       assistantJourneyId,
       assistantAutoSubmit,
+      assistantIntent,
       assistantStartNewConversation,
       savedRoutes,
       extraJourneys,
@@ -733,14 +769,17 @@ export function useNav(): NavValue {
  * other nav changes stop re-rendering screens nobody can see. Every request
  * aimed at a tab also switches to it, which unfreezes it in the same render.
  */
-export function FrozenNav({ frozen, children }: { frozen: boolean; children: React.ReactNode }) {
+export function FrozenNav({ frozen, covered = false, children }: { frozen: boolean; covered?: boolean; children: React.ReactNode }) {
   const live = useContext(NavContext);
   const held = useRef(live);
   const committedFrozen = useRef(frozen);
   // The render that hides the tab still takes the live value, so the screen
   // sees itself become inactive (mainTab moved, detail closed) before it freezes.
+  // `covered` (a page or sheet opened over the tab) holds the value from that
+  // very render: the tab has nothing to learn from the overlay opening, and
+  // re-rendering it in the same commit delayed the overlay's entrance.
   // Refs move only on commit: a transition render may be thrown away and redone.
-  const value = frozen && committedFrozen.current ? held.current : live;
+  const value = covered || (frozen && committedFrozen.current) ? held.current : live;
   useLayoutEffect(() => {
     held.current = value;
     committedFrozen.current = frozen;

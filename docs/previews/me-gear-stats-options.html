@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>装备统计方案（含价值）</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"PingFang SC",system-ui,sans-serif;background:#f2f2f0;color:#1c1c1e;padding:20px;display:flex;flex-wrap:wrap;gap:24px;justify-content:center}
+  .col{width:360px}
+  .tag{font-size:13px;font-weight:700;color:#666;margin:0 0 8px 4px}
+  .tag b{color:#1c1c1e;font-size:16px;margin-right:6px}
+  .note{font-size:12px;color:#888;margin:8px 4px 0;line-height:1.6}
+  .phone{background:#fff;border-radius:28px;padding:16px 16px 22px;overflow:hidden}
+  .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .head h2{font-size:22px;font-weight:800}
+  .chev{color:#8e8e93;font-size:22px}
+  .num{font-variant-numeric:tabular-nums}
+  .row{display:flex;gap:10px;margin-right:-16px}
+  .card{flex:0 0 150px;height:124px;border-radius:16px;background:rgba(0,0,0,.045);padding:14px;display:flex;flex-direction:column;justify-content:space-between}
+  .card .t{font-size:15px;font-weight:700}
+  .card .d{font-size:12px;color:#8e8e93;margin-top:2px}
+  .icon{width:22px;height:22px;color:#8e8e93}
+  .lbl{font-size:13px;color:#8e8e93}
+  .bar{height:8px;border-radius:4px;display:flex;overflow:hidden;gap:2px}
+  .bar i{display:block;height:100%}
+  .legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:8px;font-size:12px;color:#636366}
+  .legend span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;background:var(--c)}
+  .box{border-radius:16px;background:rgba(0,0,0,.045);padding:14px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="bp" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M8 10h8"/><path d="M8 18h8"/><path d="M8 22v-6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></symbol>
+</svg>
+
+<!-- D -->
+<div class="col">
+  <div class="tag"><b>D</b>价值做大字，重量和件数跟在后面</div>
+  <div class="phone">
+    <div class="head"><h2>装备</h2><span class="chev">›</span></div>
+    <div class="lbl">装备总价值</div>
+    <div class="num" style="font-size:34px;font-weight:800;letter-spacing:-1px;margin-top:2px">¥ 23,560</div>
+    <div class="lbl" style="margin-top:4px"><b style="color:#1c1c1e">86</b> 件　总重 <b style="color:#1c1c1e">12.4 kg</b></div>
+    <div class="row" style="margin-top:16px">
+      <div class="card"><svg class="icon"><use href="#bp"/></svg><div><div class="t">轻量化三日</div><div class="d">4.2 kg　¥ 6,820</div></div></div>
+      <div class="card"><svg class="icon"><use href="#bp"/></svg><div><div class="t">雪山穿越</div><div class="d">9.8 kg　¥ 15,300</div></div></div>
+      <div class="card"><svg class="icon"><use href="#bp"/></svg><div><div class="t">周末露营</div><div class="d">7.1 kg　¥ 3,980</div></div></div>
+    </div>
+  </div>
+  <p class="note">不要底色块，直接写在页面上。价值最醒目，件数和重量做一行说明。清单卡也带上重量和价值。</p>
+</div>
+
+<!-- E -->
+<div class="col">
+  <div class="tag"><b>E</b>价值 + 按分类的价值分布条</div>
+  <div class="phone">
+    <div class="head"><h2>装备</h2><span class="chev">›</span></div>
+    <div style="display:flex;align-items:baseline;justify-content:space-between">
+      <div class="num" style="font-size:30px;font-weight:800;letter-spacing:-.8px">¥ 23,560</div>
+      <div class="lbl">86 件　12.4 kg</div>
+    </div>
+    <div class="bar" style="margin-top:10px">
+      <i style="flex:34;background:#2f6f4f"></i><i style="flex:26;background:#4f9470"></i><i style="flex:18;background:#7fb497"></i><i style="flex:12;background:#b3d3c1"></i><i style="flex:10;background:#dbe9e1"></i>
+    </div>
+    <div class="legend">
+      <span style="--c:#2f6f4f">衣物 ¥8,010</span><span style="--c:#4f9470">背负 ¥6,130</span><span style="--c:#7fb497">睡眠 ¥4,240</span><span style="--c:#b3d3c1">炊具 ¥2,830</span><span style="--c:#dbe9e1">其他</span>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <div class="card"><svg class="icon"><use href="#bp"/></svg><div><div class="t">轻量化三日</div><div class="d">4.2 kg　¥ 6,820</div></div></div>
+      <div class="card"><svg class="icon"><use href="#bp"/></svg><div><div class="t">雪山穿越</div><div class="d">9.8 kg　¥ 15,300</div></div></div>
+    </div>
+  </div>
+  <p class="note">在 D 的基础上加一条「钱花在哪」的分布，直接用装备页现有的分类和配色（aggregateByCat 按价值）。信息最足，高度多一行。</p>
+</div>
+
+<!-- F -->
+<div class="col">
+  <div class="tag"><b>F</b>价值与重量并排两个大数</div>
+  <div class="phone">
+    <div class="head"><h2>装备<span style="color:#b0b0b5;font-weight:600;margin-left:8px">86 件</span></h2><span class="chev">›</span></div>
+    <div style="display:flex;gap:40px">
+      <div><div class="lbl">总价值</div><div class="num" style="font-size:28px;font-weight:800;letter-spacing:-.6px">¥ 23,560</div></div>
+      <div><div class="lbl">总重</div><div class="num" style="font-size:28px;font-weight:800;letter-spacing:-.6px">12.4 kg</div></div>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <div class="card"><svg class="icon"><use href="#bp"/></svg><div><div class="t">轻量化三日</div><div class="d">4.2 kg　¥ 6,820</div></div></div>
+      <div class="card"><svg class="icon"><use href="#bp"/></svg><div><div class="t">雪山穿越</div><div class="d">9.8 kg　¥ 15,300</div></div></div>
+    </div>
+  </div>
+  <p class="note">版式和头部的「粉丝 / 关注」一样：小字标签在上、大数在下、左对齐，无底色。件数放到标题后面的灰字里。整页风格最统一。</p>
+</div>
+
+<!-- G -->
+<div class="col">
+  <div class="tag"><b>G</b>最贵的几件装备横排</div>
+  <div class="phone">
+    <div class="head"><h2>装备</h2><span class="chev">›</span></div>
+    <div class="lbl"><b style="color:#1c1c1e" class="num">¥ 23,560</b>　86 件　12.4 kg</div>
+    <div class="row" style="margin-top:12px">
+      <div class="card"><div class="lbl">No.1</div><div><div class="t">始祖鸟 Alpha SV</div><div class="d">¥ 6,200　480 g</div></div></div>
+      <div class="card"><div class="lbl">No.2</div><div><div class="t">Hyperlite 3400</div><div class="d">¥ 3,100　900 g</div></div></div>
+      <div class="card"><div class="lbl">No.3</div><div><div class="t">Nemo Tensor</div><div class="d">¥ 1,450　425 g</div></div></div>
+    </div>
+  </div>
+  <p class="note">把价值落到具体装备上，更有「晒装备」的感觉，适合以后公开给别人看；清单移到下一个板块。</p>
+</div>
+</body>
+</html>

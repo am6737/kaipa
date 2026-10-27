@@ -100,7 +100,9 @@ export interface AgentRunActivity {
   output?: unknown;
 }
 
-export type AgentIntent = 'plan_journey';
+// smart_plan is the 新建旅程 → 智能规划 button: the server plans the journey it
+// names from the journey itself and skips interpreting the prompt text.
+export type AgentIntent = 'plan_journey' | 'smart_plan';
 
 export interface AgentTurnResponse {
   threadId: string;

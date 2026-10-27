@@ -41,6 +41,8 @@ export interface GearSet {
   items: string[]; // item names
   // Per-set overrides keyed by item id (with item name fallback for local/demo data).
   overrides?: Record<string, GearSetOverride>;
+  /** 主页上谁能看到这份清单；没取到时按仅自己处理。 */
+  visibility?: 'private' | 'followers' | 'public';
 }
 
 export type Metric = 'price' | 'weight' | 'count';
