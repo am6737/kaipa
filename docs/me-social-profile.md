@@ -149,7 +149,7 @@
 
 **第 4 批：可见范围和装备清单**（迁移 `20261027140000_social_visibility_gear.sql` 已应用，测试 `supabase/tests/social-gear.sql`）
 
-- 出行可见范围：自己时间线上每张出行卡的可见范围标签可以点，弹出「谁可以看到」三选一，调用 `set_outing_visibility(journey_id, track_id, visibility)`（只有本人能改）。改可见范围不算旅程的一个版本：`record_journey_version` 比较字段时跳过 `visibility`。旅程设置里的入口在第 5 批加上了，轨迹详情的还没加。
+- 出行可见范围：自己时间线上每张出行卡的可见范围标签可以点，弹出「谁可以看到」三选一，调用 `set_outing_visibility(journey_id, track_id, visibility)`（只有本人能改）。改可见范围不算旅程的一个版本：`record_journey_version` 比较字段时跳过 `visibility`。旅程设置里的入口在第 5 批加上了，轨迹的在「轨迹设置」页里（只对没挂旅程的录制轨迹显示）。
 - 设置抽屉里加「私密账号」开关，走 `set_account_private`。关掉时待处理的关注请求会全部自动通过。
 - 装备清单可见范围：`gear_sets.visibility`，默认 `private`。自己的清单详情里有「谁可以看到」一行，直接更新这一列。
 - 别人主页上 `gearSets > 0` 时多一个「装备」标签，列出 `profile_gear_sets` 返回的清单卡片（件数、不含备选的总重）。点开是清单预览页（`nav.openGearSetPreview`，渲染在 `socialStack` 里），数据来自 `profile_gear_set`，不带价格、备注、照片。
@@ -168,3 +168,12 @@
 - 用户名为空的账号：搜索时只能匹配昵称，分享主页链接也没法用用户名，需要引导用户补填用户名。
 - 发现页的 `track_public` 和主页可见范围，第二版考虑合并。
 - 别人出行卡上的「离线下载」：第 5 批没做，要做得先想清楚下载的是什么（路线库已离线可用，别人的完整轨迹不对外）。
+
+## 发布轨迹（2026-10-27）
+
+轨迹详情页 ⋯ 菜单里的「轨迹设置」（`TrackSettingsPage`，版式同旅程设置）有「发布轨迹」开关，存在 `tracks.published_at`（为空就是未发布）。同一页还有名称，以及单独算一次出行的录制轨迹的主页可见范围。和主页可见范围互不影响，只管能不能被搜到。
+
+- 搜索页多一个「轨迹」标签（「全部」里也有一组），按轨迹名或上传人昵称搜，新发布的在前，显示上传人昵称、距离、爬升。
+- 点开是 `PublishedTrackPage`（`socialStack` 的 `track` 页）：自己的轨迹照常可编辑；别人的走 `TrackDetailPage` 只读模式，能跟着走、导出 GPX，能点上传者进主页，不能改名、删除、挂到旅程、改标注点。
+- 发布就是作者主动公开，返回完整坐标，不裁起终点；不返回原始文件地址。私密账号的已发布轨迹也能搜到。拉黑的双方互相搜不到、打不开。
+- RPC：`set_track_published`、`search_published_tracks`、`published_track`。迁移 `20261027180000_track_publish.sql`（已应用），测试 `supabase/tests/track-publish.sql`。

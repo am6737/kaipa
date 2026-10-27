@@ -631,7 +631,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
         <MapControlButton theme={theme} element={<Icon name="chevronDown" color={theme.text} size={28} />} onPress={trail.closeTrail} accessibilityLabel={t('trail.action.minimize')} />
       </View>
       {status === 'paused' && session ? <PausedPill theme={theme} pausedAt={session.pausedAt ?? null} top={insets.top + space.xs} /> : null}
-      {status === 'recording' ? <GpsPill theme={theme} gps={gps} top={insets.top + space.xs} /> : null}
+      {status === 'recording' || status === 'ready' ? <GpsPill theme={theme} gps={gps} top={insets.top + space.xs} /> : null}
 
       {/* The scale under the top-right of the chrome while the map zooms; a
           banner, drawn after it, takes precedence. */}
@@ -754,7 +754,6 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
             error={error}
             starting={starting}
             onStart={() => void start()}
-            gps={gps}
             voice={guide.voiceAvailable ? guide.voice : null}
             onVoice={toggleVoice}
             overlayHint={overlayHint}
@@ -818,19 +817,6 @@ function formatMeters(meters: number): string {
   return `${value} ${unit}`;
 }
 
-// Says something only when the GPS is the problem. A good signal goes
-// unsaid: the dot moving on the map already shows it, and what the recording
-// is doing shows in its buttons (and the greyed numbers while paused).
-function GpsNotice({ theme, gps }: { theme: Theme; gps: string }) {
-  const { t } = useI18n();
-  if (gps !== 'searching' && gps !== 'weak') return null;
-  return (
-    <View style={{ minHeight: 28, flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: gps === 'weak' ? theme.danger : theme.text3 }} />
-      <Text accessibilityLiveRegion="polite" numberOfLines={1} style={[type.small, { flex: 1, color: theme.text2 }]}>{t(`trail.status.${gps}`)}</Text>
-    </View>
-  );
-}
 function pausedDuration(ms: number, t: ReturnType<typeof useI18n>['t']): string | null {
   const minutes = Math.floor(ms / 60_000);
   if (minutes < 1) return null;
@@ -883,7 +869,7 @@ function PausedPill({ theme, pausedAt, top }: { theme: Theme; pausedAt: number |
   );
 }
 
-// Recording only: in the sheet it faded out at the lowest detent, the one
+// Ready and recording, never in the sheet: it faded out at the lowest detent, the one
 // most walks are spent at. No pulse — on the paused pill that means "not
 // recording". Paused, that pill takes this spot instead.
 function GpsPill({ theme, gps, top }: { theme: Theme; gps: string; top: number }) {
@@ -945,7 +931,6 @@ function ReadyPanel({
   error,
   starting,
   onStart,
-  gps,
   voice,
   onVoice,
   overlayHint,
@@ -962,7 +947,6 @@ function ReadyPanel({
   error: Parameters<typeof ErrorLine>[0]['error'] | null;
   starting: boolean;
   onStart: () => void;
-  gps: string;
   voice: boolean | null;
   onVoice: () => void;
   overlayHint: string;
@@ -1021,7 +1005,6 @@ function ReadyPanel({
               </View>
             )}
             {facts ? <Text numberOfLines={1} style={[type.small, { color: theme.text2, marginTop: space.xxs, fontVariant: ['tabular-nums'] }]}>{facts}</Text> : null}
-            <GpsNotice theme={theme} gps={gps} />
           </View>
           <Press
             onPress={onStart}

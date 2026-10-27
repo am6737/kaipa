@@ -6,7 +6,6 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  Switch,
   Pressable,
   Modal,
   BackHandler,
@@ -37,6 +36,9 @@ import { ProfileHero, ProfileTabs } from "../components/me/profile/ProfileHero";
 import { ProfileOverview, type OverviewTile } from "../components/me/profile/ProfileOverview";
 import { OutingCard } from "../components/me/profile/OutingCard";
 import { ProfilePhotos } from "../components/me/profile/ProfilePhotos";
+import { TimelineEmpty } from "../components/me/profile/TimelineEmpty";
+import { OutingImportSheet } from "../components/me/profile/OutingImportSheet";
+import { pickTrackFiles, type TrackFile } from "../lib/trackImport";
 import { useProfileOutings, useProfileSummary, setAccountPrivate, type Outing, type Visibility } from "../hooks/useSocial";
 import { useMyRouteComments } from "../hooks/useRouteComments";
 import { ContributionsPage } from "../components/me/ContributionsPage";
@@ -1801,6 +1803,21 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
   const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
   const profileSummary = useProfileSummary(data.userId, data.userId);
   const profileOutings = useProfileOutings(data.userId, data.userId);
+  const [outingImportFiles, setOutingImportFiles] = useState<TrackFile[] | null>(null);
+  const startOutingImport = async () => {
+    try {
+      const files = await pickTrackFiles();
+      if (!files) return;
+      if (!files.length) {
+        nav.showToast(t("record.track.errFormat"));
+        return;
+      }
+      setOutingImportFiles(files);
+    } catch (error) {
+      console.warn("[MeScreen] track picker failed:", error);
+      nav.showToast(t("record.track.errParse"));
+    }
+  };
   const [profileTab, setProfileTab] = useState<"overview" | "timeline" | "photos">("overview");
   // 从粉丝、关注、别人主页回来时，关注数可能变了。
   const socialOpen = nav.socialStack.length > 0;
@@ -1825,10 +1842,8 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
     if (socialWasOpen.current && !socialOpen) void refreshSummary();
     socialWasOpen.current = socialOpen;
   }, [socialOpen, refreshSummary]);
-  const [titleShown, setTitleShown] = useState(false);
   const [highlightedOuting, setHighlightedOuting] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
-  const heroHeight = useRef(0);
   const panelY = useRef(0);
   const entryY = useRef<Record<string, number>>({});
   const jumpTarget = useRef<string | null>(null);
@@ -2270,6 +2285,8 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
             onEdit={(f) => push({ type: "edit", field: f })}
             onDeleteAccount={() => push({ type: "deleteAccountReasons" })}
             onOpenLoginMethod={(kind) => push({ type: "loginMethod", kind })}
+            isPrivateAccount={isPrivateAccount}
+            onTogglePrivateAccount={(next) => { void togglePrivateAccount(next); }}
             showToast={showToast}
           />
         );
@@ -2517,12 +2534,7 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
           >
             <ScanLine color={theme.text} size={25} strokeWidth={2.2} />
           </Press>
-          <Text
-            numberOfLines={1}
-            style={[type.navTitle, { flex: 1, textAlign: "center", color: theme.text, opacity: titleShown ? 1 : 0, marginHorizontal: space.xs }]}
-          >
-            {profile.nick || t("me.unnamed")}
-          </Text>
+          <View style={{ flex: 1 }} />
           <View style={{ width: layout.iconButton, height: layout.iconButton }}>
             <Press
               onPress={() => push({ type: "inbox" })}
@@ -2576,11 +2588,6 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
         showsVerticalScrollIndicator={false}
         scrollEnabled={!settingsDrawerOpen}
         stickyHeaderIndices={[1]}
-        scrollEventThrottle={16}
-        onScroll={(event) => {
-          const shown = event.nativeEvent.contentOffset.y > heroHeight.current - 40;
-          if (shown !== titleShown) setTitleShown(shown);
-        }}
         contentContainerStyle={{
           paddingBottom: insets.bottom + 120,
           width: "100%",
@@ -2588,7 +2595,7 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
           alignSelf: "center",
         }}
       >
-        <View onLayout={(event) => { heroHeight.current = event.nativeEvent.layout.height; }}>
+        <View>
           <ProfileHero
             theme={theme}
             avatarUri={data.profile.avatarUrl}
@@ -2665,16 +2672,42 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
                   >
                     <Text style={[type.chip, { color: theme.text }]}>{t("profile.loadMore")}</Text>
                   </Press>
-                ) : null}
+                ) : (
+                  // 翻到最早的一条，正是想起「更早的在别的 App 里」的时候。
+                  <View style={{ alignItems: "center", marginTop: space.xl, paddingBottom: space.xs }}>
+                    <Text style={[type.meta, { color: theme.text3 }]}>{t("profile.importPastHint")}</Text>
+                    <Press
+                      onPress={() => { void startOutingImport(); }}
+                      accessibilityRole="button"
+                      style={{ marginTop: space.xs, paddingVertical: space.xs, paddingHorizontal: space.lg, borderRadius: radius.pill, backgroundColor: theme.accentSofter }}
+                    >
+                      <Text style={[type.chip, { color: theme.accent }]}>{t("profile.importPast")}</Text>
+                    </Press>
+                  </View>
+                )}
               </>
             ) : (
-              <KPState theme={theme} icon="journey" title={t("profile.timelineEmptyTitle")} body={t("profile.timelineEmptyBody")} />
+              <TimelineEmpty
+                theme={theme}
+                title={t("profile.timelineEmptyTitle")}
+                body={t("profile.timelineEmptyBody")}
+                action={{ label: t("profile.importPast"), onPress: () => { void startOutingImport(); } }}
+                secondaryAction={{ label: t("profile.timelineEmptyAction"), onPress: () => nav.setMainTab("discover") }}
+              />
             )
           ) : (
             <ProfilePhotos theme={theme} outings={profileOutings.outings} onJump={jumpToOuting} />
           )}
         </View>
       </ScrollView>
+      {outingImportFiles ? (
+        <OutingImportSheet
+          theme={theme}
+          files={outingImportFiles}
+          onClose={() => setOutingImportFiles(null)}
+          onImported={() => { void profileOutings.refresh(); }}
+        />
+      ) : null}
 
       <View
         pointerEvents={settingsDrawerOpen ? "auto" : "none"}
@@ -2715,41 +2748,6 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
                   paddingBottom: insets.bottom + space.xl,
                 }}
               >
-                <View
-                  style={{
-                    minHeight: layout.listRowMinHeight,
-                    paddingVertical: space.lg,
-                    paddingHorizontal: space.lg,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: space.md,
-                  }}
-                >
-                  <View
-                    style={{
-                      width: 44,
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Icon name="eyeOff" color={theme.text} size={24} strokeWidth={1.7} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[type.navTitle, { color: theme.text }]}>
-                      {t("profile.privateAccount")}
-                    </Text>
-                    <Text style={[type.caption, { marginTop: space.xxs, lineHeight: 17, color: theme.text3 }]}>
-                      {t("profile.privateAccountHint")}
-                    </Text>
-                  </View>
-                  <Switch
-                    value={isPrivateAccount}
-                    onValueChange={(next) => { void togglePrivateAccount(next); }}
-                    trackColor={{ false: theme.progressTrack, true: theme.accent }}
-                    thumbColor="#FFFFFF"
-                    ios_backgroundColor={theme.progressTrack}
-                  />
-                </View>
                 {drawerItems.map((item, index) => (
                   <Press
                     key={item.key}

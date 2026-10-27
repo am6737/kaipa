@@ -4,14 +4,14 @@
 // scrubs any point: the readout above follows it and the page puts a marker on
 // the map there. The numbered badges above the plot are the marked spots — a
 // tap there selects one instead of scrubbing, and scrubbing clears the
-// selection. Badges that would collide become dots, so a track with many marks
-// stays readable. Steep stretches shade the band under the line, with a legend
-// naming the grades. The chart follows the finger every frame; the page hears
-// about it at a lower rate, because moving a native map marker costs far more
-// than redrawing an SVG.
+// selection. Badges that would collide are left out, so a track with many marks
+// stays readable; every mark is still on the map. Steep stretches shade the
+// band under the line, with a legend naming the grades. The chart follows the
+// finger every frame; the page hears about it at a lower rate, because moving a
+// native map marker costs far more than redrawing an SVG.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PanResponder, Text, View } from 'react-native';
-import Svg, { Circle, ClipPath, Defs, G, Line, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
+import Svg, { Circle, ClipPath, Defs, G, Line, Path, Rect } from 'react-native-svg';
 import type { ElevSeries } from '../../data/elevation';
 import { radius, space, type } from '../../design-system';
 import { useI18n } from '../../i18n';
@@ -22,7 +22,6 @@ import { Press } from '../Press';
 
 const PLOT_H = 168;
 const BOTTOM = 6;
-const BADGE_DOT_R = 2.6;
 const BADGE_FONT = 9.5;
 const BADGE_MIN_R = 8.5;
 const BADGE_GAP = 4;
@@ -76,6 +75,8 @@ export function TrackProfile({
   const hasMarks = !!marks?.length;
   // The badge row only takes plot height when there are marks to show.
   const TOP = hasMarks ? 26 : 12;
+  // Badges sit centred in that row, clear of the curve below it.
+  const ROW_Y = TOP / 2;
   const xOf = useCallback((km: number) => (km / (totalKm || 1)) * W, [totalKm, W]);
   const yOf = useCallback((ele: number) => TOP + (1 - (ele - lo) / (hi - lo)) * (PLOT_H - TOP - BOTTOM), [TOP, lo, hi]);
 
@@ -99,35 +100,48 @@ export function TrackProfile({
   const line = useMemo(() => pts.map((p, i) => `${i ? 'L' : 'M'}${xOf(p.km).toFixed(1)},${yOf(p.ele).toFixed(1)}`).join(' '), [pts, W, lo, hi, totalKm]);
   const area = `${line} L${W},${PLOT_H} L0,${PLOT_H} Z`;
 
-  // Every steep enough segment gets its own band, down from the curve to the
-  // baseline; anything under 8% keeps just the gradient fill.
+  // Each run of steep enough segments is one band, down from the curve to the
+  // baseline; anything under 8% keeps the neutral fill. A run is a single
+  // shape, so neighbouring samples leave no hairline seams between them.
   const bands = useMemo(() => {
     const out: { d: string; color: string }[] = [];
+    let run: { color: string; from: number; to: number } | null = null;
+    const close = () => {
+      if (!run) return;
+      let d = `M${xOf(pts[run.from].km).toFixed(1)},${PLOT_H}`;
+      for (let j = run.from; j <= run.to; j++) d += ` L${xOf(pts[j].km).toFixed(1)},${yOf(pts[j].ele).toFixed(1)}`;
+      d += ` L${xOf(pts[run.to].km).toFixed(1)},${PLOT_H}Z`;
+      out.push({ d, color: run.color });
+      run = null;
+    };
     for (let i = 1; i < N; i++) {
       const grade = Math.abs(pts[i].grade);
       const color = grade >= STEEP_GRADE ? theme.gradeSteep : grade >= MODERATE_GRADE ? theme.gradeModerate : null;
-      if (!color) continue;
-      const x0 = xOf(pts[i - 1].km);
-      const x1 = xOf(pts[i].km);
-      out.push({ d: `M${x0.toFixed(1)},${yOf(pts[i - 1].ele).toFixed(1)} L${x1.toFixed(1)},${yOf(pts[i].ele).toFixed(1)} L${x1.toFixed(1)},${PLOT_H} L${x0.toFixed(1)},${PLOT_H}Z`, color });
+      if (run && run.color === color) { run.to = i; continue; }
+      close();
+      if (color) run = { color, from: i - 1, to: i };
     }
+    close();
     return out;
   }, [pts, N, theme.gradeModerate, theme.gradeSteep, W, lo, hi, totalKm]);
 
   // Badge geometry feeds both the drawing and the tap test. A number keeps its
-  // own width, so two-digit marks get a wider circle.
+  // own width, so two-digit marks get a wider circle. `cx` is the mark's place
+  // on the curve; `bx` is where its badge is drawn, pulled in at the chart's
+  // ends so a mark at the start or finish isn't cut in half.
   const badges = useMemo(() => {
-    if (!marks?.length) return [] as { cx: number; cy: number; r: number; free: boolean; label: string; selected: boolean; index: number }[];
-    const placed: { cx: number; r: number }[] = [];
+    if (!marks?.length) return [] as { cx: number; bx: number; cy: number; r: number; free: boolean; label: string; selected: boolean; index: number }[];
+    const placed: { bx: number; r: number }[] = [];
     return marks.map((mark) => {
       const cx = xOf(Math.max(0, Math.min(totalKm, mark.km)));
       const label = String(mark.index + 1);
       const r = Math.max(BADGE_MIN_R, (label.length * BADGE_FONT * 0.6) / 2 + 3);
-      const free = placed.every(({ cx: px, r: pr }) => cx - px >= pr + r + BADGE_GAP);
-      if (free) placed.push({ cx, r });
-      return { cx, cy: yOf(mark.ele), r, free, label, selected: mark.index === selectedMarkIndex, index: mark.index };
+      const bx = Math.max(r + 1, Math.min(W - r - 1, cx));
+      const free = placed.every(({ bx: px, r: pr }) => Math.abs(bx - px) >= pr + r + BADGE_GAP);
+      if (free) placed.push({ bx, r });
+      return { cx, bx, cy: yOf(mark.ele), r, free, label, selected: mark.index === selectedMarkIndex, index: mark.index };
     });
-  }, [marks, xOf, yOf, totalKm, selectedMarkIndex]);
+  }, [marks, xOf, yOf, totalKm, W, selectedMarkIndex]);
 
   // Latest values for the long-lived responder.
   const live = useRef({ W, N, totalKm, TOP, onSelect, onSelectMark, pts, badges });
@@ -159,8 +173,8 @@ export function TrackProfile({
       badgeTap.current = false;
       if (y <= live.current.TOP && live.current.onSelectMark) {
         const hit = live.current.badges
-          .filter((badge) => Math.abs(badge.cx - x) <= BADGE_TAP_R)
-          .sort((a, b) => Math.abs(a.cx - x) - Math.abs(b.cx - x))[0];
+          .filter((badge) => badge.free && Math.abs(badge.bx - x) <= BADGE_TAP_R)
+          .sort((a, b) => Math.abs(a.bx - x) - Math.abs(b.bx - x))[0];
         if (hit) {
           // A tap in the badge row picks the nearest mark rather than scrubbing.
           badgeTap.current = true;
@@ -244,33 +258,28 @@ export function TrackProfile({
       >
         <Svg width={W} height={PLOT_H}>
           <Defs>
-            <LinearGradient id="trackProfileFill" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor={theme.accent} stopOpacity={0.22} />
-              <Stop offset="1" stopColor={theme.accent} stopOpacity={0} />
-            </LinearGradient>
             <ClipPath id="trackProfileDone">
               <Rect x={0} y={0} width={cur ? scrubX : W} height={PLOT_H} />
             </ClipPath>
           </Defs>
           <Line x1={0} x2={W} y1={yOf(maxEle)} y2={yOf(maxEle)} stroke={theme.hairline} strokeWidth={1} strokeDasharray="2 4" />
           <Line x1={0} x2={W} y1={yOf(minEle)} y2={yOf(minEle)} stroke={theme.hairline} strokeWidth={1} strokeDasharray="2 4" />
-          <Path d={area} fill="url(#trackProfileFill)" opacity={bands.length ? 0.4 : cur ? 0.45 : 1} />
-          {cur ? <Path d={area} fill="url(#trackProfileFill)" clipPath="url(#trackProfileDone)" /> : null}
-          {bands.map((band, i) => <Path key={i} d={band.d} fill={band.color} opacity={0.85} />)}
+          {/* Under 8% is flat ground: a neutral fill, so no colour reads as a grade. */}
+          <Path d={area} fill={theme.text} fillOpacity={cur ? 0.035 : 0.06} />
+          {cur ? <Path d={area} fill={theme.text} fillOpacity={0.06} clipPath="url(#trackProfileDone)" /> : null}
+          {bands.map((band, i) => <Path key={i} d={band.d} fill={band.color} />)}
           <Path d={line} fill="none" stroke={bands.length ? theme.text : theme.accent} strokeWidth={2.2} strokeLinejoin="round" strokeLinecap="round" />
-          {badges.map((badge) => badge.selected ? null : badge.free ? (
+          {badges.map((badge) => badge.selected || !badge.free ? null : (
             <G key={badge.index}>
-              <Line x1={badge.cx} x2={badge.cx} y1={TOP + badge.r * 2} y2={badge.cy} stroke={theme.accent} strokeOpacity={0.32} strokeWidth={1} strokeDasharray="2 3" />
-              <Circle cx={badge.cx} cy={TOP + badge.r} r={badge.r} fill={theme.featureSurface} stroke={theme.accent} strokeWidth={1.6} />
+              <Line x1={badge.cx} x2={badge.cx} y1={ROW_Y + badge.r} y2={badge.cy} stroke={theme.accent} strokeOpacity={0.32} strokeWidth={1} strokeDasharray="2 3" />
+              <Circle cx={badge.bx} cy={ROW_Y} r={badge.r} fill={theme.featureSurface} stroke={theme.accent} strokeWidth={1.6} />
             </G>
-          ) : (
-            <Circle key={badge.index} cx={badge.cx} cy={TOP + BADGE_DOT_R} r={BADGE_DOT_R} fill={theme.accent} opacity={0.55} />
           ))}
           {selectedBadge ? (
             <G>
-              <Line x1={selectedBadge.cx} x2={selectedBadge.cx} y1={TOP} y2={PLOT_H} stroke={theme.accent} strokeWidth={1.2} />
+              <Line x1={selectedBadge.cx} x2={selectedBadge.cx} y1={ROW_Y} y2={PLOT_H} stroke={theme.accent} strokeWidth={1.2} />
               <Circle cx={selectedBadge.cx} cy={selectedBadge.cy} r={5.5} fill={theme.accent} stroke={theme.featureSurface} strokeWidth={2.5} />
-              <Circle cx={selectedBadge.cx} cy={TOP + selectedBadge.r} r={selectedBadge.r + 1.5} fill={theme.accent} />
+              <Circle cx={selectedBadge.bx} cy={ROW_Y} r={selectedBadge.r + 1.5} fill={theme.accent} />
             </G>
           ) : null}
           {cur ? (
@@ -287,9 +296,9 @@ export function TrackProfile({
             pointerEvents="none"
             style={{
               position: 'absolute',
-              left: badge.cx - 20,
+              left: badge.bx - 20,
               width: 40,
-              top: TOP + badge.r - BADGE_FONT,
+              top: ROW_Y - BADGE_FONT,
               textAlign: 'center',
               fontFamily: MONO,
               fontSize: BADGE_FONT,

@@ -40,6 +40,10 @@ export interface Track {
   startedAt?: string;
   /** Profile visibility; only used while the track is not on a journey. */
   visibility?: 'private' | 'followers' | 'public';
+  /** An imported file the owner says they walked, so it counts as a timeline outing. */
+  ownOuting?: boolean;
+  /** Set while the track is published: anyone signed in can find it in search. */
+  publishedAt?: string;
   createdAt?: string;
   updatedAt?: string;
 }

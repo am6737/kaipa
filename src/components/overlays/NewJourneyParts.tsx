@@ -204,12 +204,12 @@ export function NJWheelPicker({ theme, value, onChange }: { theme: Theme; value:
   );
 }
 
-export function NJDateWheelPicker({ theme, year, month, day, onChange }: { theme: Theme; year: number; month: number; day: number; onChange: (y: number, m: number, d: number) => void }) {
+export function NJDateWheelPicker({ theme, year, month, day, onChange, minYear = 2020, maxYear = 2035 }: { theme: Theme; year: number; month: number; day: number; onChange: (y: number, m: number, d: number) => void; minYear?: number; maxYear?: number }) {
   const years = useMemo(() => {
     const out: { value: number; label: string }[] = [];
-    for (let y = 2020; y <= 2035; y++) out.push({ value: y, label: `${y}年` });
+    for (let y = minYear; y <= maxYear; y++) out.push({ value: y, label: `${y}年` });
     return out;
-  }, []);
+  }, [minYear, maxYear]);
   const months = useMemo(() => {
     const out: { value: number; label: string }[] = [];
     for (let m = 1; m <= 12; m++) out.push({ value: m, label: `${m}月` });

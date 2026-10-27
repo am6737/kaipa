@@ -94,6 +94,8 @@ export type Outing = {
   /** [lng, lat]，别人看时已裁掉起终点各 200 m。 */
   coords: [number, number][] | null;
   endsHidden: boolean;
+  /** 来自轨迹文件，不是在 App 里录的。 */
+  imported?: boolean;
   companions: number;
   photoCount: number;
   photos: OutingPhoto[];
@@ -255,3 +257,31 @@ export const fetchProfileGearSets = async (userId: string) =>
 export const fetchGearSetPreview = (setId: string) => call<GearSetPreview | null>('profile_gear_set', { p_set: setId });
 /** 存为我的清单，返回新清单 id。之后要 refetchGear 才能在装备页看到。 */
 export const copyGearSet = (setId: string) => call<string>('copy_gear_set', { p_set: setId });
+
+/** 发布轨迹的上传人，只带昵称和头像。 */
+export type PublishedTrackOwner = {
+  id: string;
+  nick: string;
+  avatarUrl: string | null;
+  avatarIni: string | null;
+  avatarColor: string | null;
+};
+
+/** 搜索结果里的一条已发布轨迹；坐标已抽稀，只够画缩略图。 */
+export type PublishedTrackCard = {
+  id: string;
+  name: string;
+  distM: number | null;
+  ascM: number | null;
+  durationMs: number | null;
+  publishedAt: string;
+  coords: [number, number][];
+  owner: PublishedTrackOwner;
+};
+
+/** 按轨迹名或上传人昵称搜索已发布的轨迹。 */
+export const searchPublishedTracks = async (query: string, limit = 20) =>
+  (await call<PublishedTrackCard[] | null>('search_published_tracks', { p_query: query, p_limit: limit })) ?? [];
+/** 完整的已发布轨迹（未发布、被拉黑时为 null），owner 之外的字段和 tracks 行同名，交给 toTrack。 */
+export const fetchPublishedTrack = (trackId: string) =>
+  call<(Record<string, unknown> & { owner: PublishedTrackOwner }) | null>('published_track', { p_track: trackId });

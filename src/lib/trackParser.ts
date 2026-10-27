@@ -245,7 +245,10 @@ export function snapWaypoints(waypoints: Waypoint[], stats: TrackStats) {
       if (d < bestDist) { bestDist = d; bestIdx = i; }
     }
     const preceding = pts.slice(0, bestIdx + 1);
-    return { name: wp.name, km: cum[bestIdx] / 1000,
+    // The file's own position is kept, so a spot set off the line (a camp, a
+    // spring) shows where it is rather than where it was snapped to.
+    return { name: wp.name, km: cum[bestIdx] / 1000, lng: wp.lon, lat: wp.lat,
+      ...(Number.isFinite(wp.ele) ? { ele: wp.ele } : {}),
       distanceFromTrackMeters: bestDist,
       elevationMeters: Number.isFinite(pts[bestIdx].ele) ? pts[bestIdx].ele : null,
       cumulativeAscentMeters: stats.hasEle ? computeStats(preceding)?.ascent ?? 0 : null,

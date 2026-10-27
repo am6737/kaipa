@@ -43,6 +43,7 @@ import { JourneyVersionHistoryPage } from './components/journey/JourneyVersionHi
 import { UserProfilePage } from './components/social/UserProfilePage';
 import { PeoplePage } from './components/social/PeoplePage';
 import { GearSetPreviewPage } from './components/social/GearSetPreviewPage';
+import { PublishedTrackPage } from './components/social/PublishedTrackPage';
 import { SharePoster } from './components/overlays/SharePoster';
 import { SearchScreen } from './screens/SearchScreen';
 import { Toast } from './components/Toast';
@@ -446,6 +447,8 @@ function AppShell() {
         <PeoplePage key={`${index}:${page.userId}:${page.tab}`} theme={theme} userId={page.userId} tab={page.tab} onBack={nav.closeSocialPage} />
       ) : page.kind === 'gearSet' ? (
         <GearSetPreviewPage key={`${index}:${page.setId}`} theme={theme} setId={page.setId} onBack={nav.closeSocialPage} />
+      ) : page.kind === 'track' ? (
+        <PublishedTrackPage key={`${index}:${page.trackId}`} theme={theme} trackId={page.trackId} onBack={nav.closeSocialPage} />
       ) : null)}
       {nav.searchOpen && <SearchScreen theme={theme} onOpaqueChange={setSearchOpaque} />}
       <AppAssistant

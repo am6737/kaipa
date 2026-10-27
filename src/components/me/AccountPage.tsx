@@ -4,7 +4,7 @@
 import React, { useEffect, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
-import { ActivityIndicator, AppState, InteractionManager, Platform, View, Text, StyleSheet, TextInput } from 'react-native';
+import { ActivityIndicator, AppState, InteractionManager, Platform, View, Text, StyleSheet, TextInput, Switch } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { Icon } from '../Icon';
 import { Avatar } from '../Avatar';
@@ -58,6 +58,8 @@ export function AccountPage({
   onEdit,
   onDeleteAccount,
   onOpenLoginMethod,
+  isPrivateAccount,
+  onTogglePrivateAccount,
   showToast,
 }: {
   theme: Theme;
@@ -67,6 +69,8 @@ export function AccountPage({
   onEdit: (field: MeEditField) => void;
   onDeleteAccount?: () => void;
   onOpenLoginMethod?: (kind: 'email' | 'phone') => void;
+  isPrivateAccount?: boolean;
+  onTogglePrivateAccount?: (next: boolean) => void;
   showToast: (m: string) => void;
 }) {
   const nav = useNav();
@@ -329,6 +333,29 @@ export function AccountPage({
             last
           />
         </MeCard>
+      </MeSection> : null}
+
+      {section === 'security' && onTogglePrivateAccount ? <MeSection theme={theme} title={t('account.security.privacySection')} horizontalPadding={layout.pagePadding}>
+        <MeCard theme={theme}>
+          <MeRow
+            theme={theme}
+            label={t('profile.privateAccount')}
+            showChevron={false}
+            trailing={
+              <Switch
+                value={!!isPrivateAccount}
+                onValueChange={onTogglePrivateAccount}
+                trackColor={{ false: theme.progressTrack, true: theme.accent }}
+                thumbColor="#FFFFFF"
+                ios_backgroundColor={theme.progressTrack}
+              />
+            }
+            last
+          />
+        </MeCard>
+        <Text style={[type.caption, { color: theme.text3, paddingHorizontal: space.xs, paddingTop: space.sm, lineHeight: 18 }]}>
+          {t('profile.privateAccountHint')}
+        </Text>
       </MeSection> : null}
 
       {section === 'security' ? <View style={{ paddingHorizontal: layout.pagePadding, marginTop: space.xxl, gap: space.md }}>

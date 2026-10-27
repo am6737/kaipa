@@ -10,7 +10,11 @@
 // the sheet that steps through them in distance order.
 //
 // Following the track and applying it to a journey are the page's actions, in
-// the footer; rename, export and delete sit in the ⋯ menu.
+// the footer; settings (name, publishing), export and delete sit in the ⋯ menu.
+//
+// Someone else's published track opens here too, read-only: given an `owner`,
+// the page drops everything that edits the track or ties it to a journey and
+// names the uploader instead. Following it and exporting it stay.
 //
 // Nothing here is synthesized: a file without elevation shows no curve and
 // says so, rather than a plausible invented one.
@@ -24,11 +28,11 @@ import { useData } from '../../data/DataContext';
 import { buildElevation } from '../../data/elevation';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
-import { MONO } from '../../theme/fonts';
 import { Theme } from '../../theme/theme';
-import { Track, formatFileSize } from '../../data/tracks';
+import { Track } from '../../data/tracks';
 import { formatTrackAscent, formatTrackDistance } from '../../lib/trackParser';
 import { formatClock, splitDistance } from '../../lib/trailGeo';
+import { measureTrack, positionAtDistance } from '../../lib/routeSegments';
 import { exportTrack } from '../../lib/trackExport';
 import { removeMedia } from '../../lib/storage';
 import { MAP_CONTROL_SIZE, MapControlButton, MapControlGroup } from '../MapControls';
@@ -40,17 +44,15 @@ import { useMapPresentation } from '../maps/MapPresentationContext';
 import { OfflineMapRow } from '../maps/OfflineMapRow';
 import { trackToPoi } from './trackToPoi';
 import { PickDialog } from './PickDialog';
-import { RenameTrackDialog } from './RenameTrackDialog';
 import { TrailControlButton } from '../trail/TrailControlButton';
-import { TrackMarkCard } from './TrackMarkCard';
 import { TrackProfile, type TrackProfileMark } from './TrackProfile';
+import { TrackSettingsPage } from './TrackSettingsPage';
+import { FloatingMenu, MenuRow } from '../gear/GearItemsList';
+import { Avatar } from '../Avatar';
+import type { PublishedTrackOwner } from '../../hooks/useSocial';
 import { trailRouteFromTrack, useOpenTrail } from '../../trail/trailRoutes';
 
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
-
-// The mark card is a 56 pt tile inside space.xs padding, with its 26 pt close
-// button overhanging the top by half of that.
-const MARK_CARD_H = 56 + space.xs * 2 + 13;
 
 // Distance along the line at every vertex, so a distance picked on the curve
 // lands on the right spot of the map even where the points are unevenly spaced.
@@ -93,13 +95,6 @@ function formatDay(iso: string | undefined, resolved: 'zh' | 'en') {
   return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-function formatDayTime(iso: string | undefined, resolved: 'zh' | 'en') {
-  const day = formatDay(iso, resolved);
-  if (!day || !iso) return day;
-  const date = new Date(iso);
-  return `${day} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-}
-
 type Measure = { key: string; label: string; value: string; unit?: string };
 
 function MeasureCell({ theme, measure }: { theme: Theme; measure: Measure }) {
@@ -119,15 +114,6 @@ function SectionTitle({ theme, text, count }: { theme: Theme; text: string; coun
     <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: space.xs, marginTop: layout.sectionGap, marginBottom: space.md }}>
       <Text style={[type.sectionTitle, { color: theme.text }]}>{text}</Text>
       {count != null ? <Text style={[type.metric, { fontSize: 13, color: theme.text3 }]}>{count}</Text> : null}
-    </View>
-  );
-}
-
-function FileRow({ theme, label, value, mono }: { theme: Theme; label: string; value: string; mono?: boolean }) {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.md, paddingVertical: space.xs }}>
-      <Text style={[type.body, { color: theme.text2, width: 72 }]}>{label}</Text>
-      <Text selectable style={[type.body, { flex: 1, color: theme.text, textAlign: 'right' }, mono ? { fontFamily: MONO, fontSize: 13 } : null]}>{value}</Text>
     </View>
   );
 }
@@ -177,11 +163,14 @@ export function TrackDetailPage({
   track,
   onBack,
   entryVariant = 'push',
+  owner,
 }: {
   theme: Theme;
   track: Track;
   onBack: () => void;
   entryVariant?: 'push' | 'continuationX' | 'continuationY';
+  /** Someone else's published track: shown read-only, with its uploader. */
+  owner?: PublishedTrackOwner;
 }) {
   const { t, resolved } = useI18n();
   const nav = useNav();
@@ -191,11 +180,12 @@ export function TrackDetailPage({
   const { mapStyle, setMapStyle } = useMapPresentation();
   ensureNativeMapReady();
 
-  const [renameOpen, setRenameOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [applyOpen, setApplyOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [openMark, setOpenMark] = useState<number | null>(null);
+  const readOnly = owner != null;
   // The route card's display switches: kilometre labels and the marks.
   const [layersOpen, setLayersOpen] = useState(false);
   const [distanceMarkersVisible, setDistanceMarkersVisible] = useState(true);
@@ -250,18 +240,26 @@ export function TrackDetailPage({
   // meets them. MarkDetail opens on any of them; the ones marked while walking
   // also carry their photo and time. The map numbers, the badges above the
   // curve and the card all count in this order, so number 7 is one place.
+  // An imported file's waypoints carry only their distance along the line, so
+  // they sit on the line at that distance, as they do when following it.
+  const lineMeasure = useMemo(() => measureTrack(coords), [coords]);
   const marks = useMemo<MarkDetailItem[]>(() => (track.waypoints ?? [])
-    .flatMap((waypoint, index) => (waypoint.lng != null && waypoint.lat != null ? [{
-      key: String(index),
-      name: waypoint.name,
-      photo: waypoint.photo,
-      at: waypoint.at,
-      alongM: waypoint.km * 1000,
-      lng: waypoint.lng,
-      lat: waypoint.lat,
-      ele: waypoint.ele ?? (hasProfile ? series.pts[Math.round((waypoint.km / (series.totalKm || 1)) * (series.pts.length - 1))]?.ele ?? null : null),
-    }] : []))
-    .sort((a, b) => (a.alongM ?? 0) - (b.alongM ?? 0)), [track.waypoints, hasProfile, series]);
+    .flatMap((waypoint, index) => {
+      const coord = waypoint.lng != null && waypoint.lat != null
+        ? [waypoint.lng, waypoint.lat]
+        : lineMeasure ? positionAtDistance(lineMeasure, waypoint.km * 1000).coordinate : null;
+      return coord ? [{
+        key: String(index),
+        name: waypoint.name,
+        photo: waypoint.photo,
+        at: waypoint.at,
+        alongM: waypoint.km * 1000,
+        lng: coord[0],
+        lat: coord[1],
+        ele: waypoint.ele ?? (hasProfile ? series.pts[Math.round((waypoint.km / (series.totalKm || 1)) * (series.pts.length - 1))]?.ele ?? null : null),
+      }] : [];
+    })
+    .sort((a, b) => (a.alongM ?? 0) - (b.alongM ?? 0)), [track.waypoints, lineMeasure, hasProfile, series]);
   // The map numbers badges by its own array order, so it gets the same list.
   const waypoints = useMemo(() => marks.flatMap((mark) => (mark.lng != null && mark.lat != null ? [{
     name: mark.name,
@@ -331,7 +329,6 @@ export function TrackDetailPage({
 
   const midVisible = sheetIndex >= 1;
   const fullOpen = sheetIndex >= 2;
-  const cardVisible = selectedPos != null && !fullOpen && hasMap;
   const midOpacity = sheetY.interpolate({
     inputRange: [snapHeights[2] - snapHeights[1], snapHeights[2] - snapHeights[0]],
     outputRange: [1, 0],
@@ -349,33 +346,30 @@ export function TrackDetailPage({
     outputRange: [0, 1],
     extrapolate: 'clamp',
   });
-  const cardOpacity = sheetY.interpolate({
-    inputRange: [0, snapHeights[2] - snapHeights[1]],
-    outputRange: [0, 1],
-    extrapolate: 'clamp',
-  });
 
   // ─── selection ────────────────────────────────────────────────────────────
-  const selectMark = useCallback((pos: number | null) => {
+  // Picking a mark, on the map or the curve, opens it in MarkDetail as the
+  // route page and the walk do; the map and the curve keep it highlighted, and
+  // follow as the sheet is swiped to the next one.
+  const [openMark, setOpenMark] = useState<number | null>(null);
+  const highlightMark = useCallback((pos: number | null) => {
     setSelectedPos(pos);
     setScrubKm(null);
     const mark = pos != null ? marks[pos] : undefined;
     setSelectedPt(mark?.lng != null && mark.lat != null ? [mark.lng, mark.lat] : null);
+  }, [marks]);
+  const selectMark = useCallback((pos: number | null) => {
+    highlightMark(pos);
+    setOpenMark(pos);
     // A mark is looked at on the map, not buried under a fully open sheet.
     if (pos != null && sheetIndex >= 2) sheetRef.current?.snapTo(1);
-  }, [marks, sheetIndex]);
+  }, [highlightMark, sheetIndex]);
 
   const scrub = useCallback((km: number | null) => {
     setSelectedPos(null);
     setScrubKm(km);
     setSelectedPt(km == null ? null : coordAtKm(coords, cum, km, profileKm) ?? null);
   }, [coords, cum, profileKm]);
-
-  const stepMark = (delta: -1 | 1) => {
-    if (selectedPos == null) return;
-    const next = Math.max(0, Math.min(marks.length - 1, selectedPos + delta));
-    if (next !== selectedPos) selectMark(next);
-  };
 
   const renameMark = (item: MarkDetailItem, name: string) => {
     const trimmed = name.trim();
@@ -421,13 +415,12 @@ export function TrackDetailPage({
     nav.showToast(t('tracks.apply.done', { name: journeyName }));
   };
 
-  const openMore = () => nav.openActionSheet({
-    items: [
-      { label: t('tracks.action.rename'), icon: 'edit', onPress: () => setRenameOpen(true) },
-      ...(track.coords?.length || track.fileUrl ? [{ label: t('tracks.action.export'), icon: 'download' as const, onPress: exportGpx }] : []),
-      { label: t('tracks.action.delete'), icon: 'trash', destructive: true, onPress: () => setDeleteOpen(true) },
-    ],
-  });
+  const canExport = Boolean(track.coords?.length || track.fileUrl);
+  // The card closes first so its exit does not overlap whatever opens next.
+  const closeMoreThen = (action: () => void) => {
+    setMoreOpen(false);
+    setTimeout(action, 140);
+  };
 
   const confirmDelete = async () => {
     setBusy(true);
@@ -474,7 +467,7 @@ export function TrackDetailPage({
           showWaypoints={marksVisible}
           showDistanceMarkers={distanceMarkersVisible}
           numberWaypoints
-          clusterWaypoints
+          routeStyleWaypoints
           showWaypointCallout={false}
           selectedWaypointIndex={selectedPos}
           onWaypointPress={(_waypoint, index) => selectMark(index)}
@@ -488,18 +481,18 @@ export function TrackDetailPage({
       <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + space.xs, left: space.sm, right: space.sm }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
           <HaloIconButton theme={theme} icon="chevronL" onPress={onBack} accessibilityLabel={t('common.back')} />
-          <HaloIconButton theme={theme} icon="more" onPress={openMore} accessibilityLabel={t('journey.section.more')} />
+          {readOnly && !canExport ? null : <HaloIconButton theme={theme} icon="more" onPress={() => setMoreOpen(true)} accessibilityLabel={t('journey.section.more')} />}
         </View>
       </View>
 
-      {/* Map controls, floating just above the sheet — and above the mark card
-          when it is out — fading out as the sheet nears the top detent. */}
+      {/* Map controls, floating just above the sheet, fading out as the sheet
+          nears the top detent. */}
       <Animated.View
         pointerEvents={fullOpen ? 'none' : 'box-none'}
         style={{
           position: 'absolute',
           right: space.md,
-          bottom: snapHeights[2] + space.md + (cardVisible ? MARK_CARD_H + space.sm : 0),
+          bottom: snapHeights[2] + space.md,
           transform: [{ translateY: sheetY }],
           opacity: hasMap ? rideOpacity : 0,
         }}
@@ -519,36 +512,6 @@ export function TrackDetailPage({
             accessibilityLabel={t('tracks.detail.fitRoute')}
           />
         </MapControlGroup>
-      </Animated.View>
-
-      {/* The mark card, parked on the map just above the sheet. */}
-      <Animated.View
-        pointerEvents={cardVisible ? 'box-none' : 'none'}
-        style={{
-          position: 'absolute',
-          left: space.md,
-          right: space.md,
-          bottom: snapHeights[2] + space.md,
-          opacity: cardOpacity,
-          transform: [{ translateY: sheetY }],
-        }}
-      >
-        {selectedMark && selectedPos != null ? (
-          <TrackMarkCard
-            theme={theme}
-            item={{
-              name: selectedMark.name || t('trail.mark.defaultName', { n: selectedPos + 1 }),
-              km: (selectedMark.alongM ?? 0) / 1000,
-              ele: selectedMark.ele ?? null,
-              photo: selectedMark.photo,
-            }}
-            position={selectedPos + 1}
-            total={marks.length}
-            onStep={stepMark}
-            onClose={() => selectMark(null)}
-            onOpenDetail={() => setOpenMark(selectedPos)}
-          />
-        ) : null}
       </Animated.View>
 
       <TrailSheet
@@ -585,7 +548,7 @@ export function TrackDetailPage({
               }],
             }}
           >
-            <TrailControlButton theme={theme} icon="journey" label={t('tracks.action.apply')} onPress={() => setApplyOpen(true)} />
+            {readOnly ? null : <TrailControlButton theme={theme} icon="journey" label={t('tracks.action.apply')} onPress={() => setApplyOpen(true)} />}
             {followRoute ? <TrailControlButton theme={theme} icon="play" label={t('trail.entry.followTrack')} primary grow={1.45} onPress={() => openTrail(followRoute)} /> : null}
           </Animated.View>
         )}
@@ -636,8 +599,24 @@ export function TrackDetailPage({
               {measures.map((measure) => <MeasureCell key={measure.key} theme={theme} measure={measure} />)}
             </View>
 
-            <SectionTitle theme={theme} text={t('tracks.detail.journeys')} count={linkedJourneys.length || undefined} />
-            {linkedJourneys.length ? linkedJourneys.map((journey) => (
+            {owner ? (
+              <>
+                <SectionTitle theme={theme} text={t('tracks.detail.uploader')} />
+                <Press
+                  accessibilityRole="button"
+                  accessibilityLabel={owner.nick}
+                  onPress={() => nav.openUserProfile(owner.id)}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: layout.listRowMinHeight }}
+                >
+                  <Avatar uri={owner.avatarUrl ?? undefined} size={40} />
+                  <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text, flex: 1, minWidth: 0 }]}>{owner.nick || t('tracks.detail.uploaderUnnamed')}</Text>
+                  <Icon name="chevronR" size={16} color={theme.text3} strokeWidth={2.2} />
+                </Press>
+              </>
+            ) : null}
+
+            {readOnly ? null : <SectionTitle theme={theme} text={t('tracks.detail.journeys')} count={linkedJourneys.length || undefined} />}
+            {readOnly ? null : linkedJourneys.length ? linkedJourneys.map((journey) => (
               <Press
                 key={journey.id}
                 accessibilityRole="button"
@@ -648,9 +627,6 @@ export function TrackDetailPage({
                 }}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: layout.listRowMinHeight }}
               >
-                <View style={{ width: 40, height: 40, borderRadius: radius.control, backgroundColor: theme.accentSofter, alignItems: 'center', justifyContent: 'center' }}>
-                  <Icon name="journey" size={19} color={theme.accent} strokeWidth={2} />
-                </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{journey.name}</Text>
                   {journey.region || journey.date ? (
@@ -671,13 +647,6 @@ export function TrackDetailPage({
               </View>
             )}
 
-            <SectionTitle theme={theme} text={t('tracks.detail.file')} />
-            <FileRow theme={theme} label={t('tracks.detail.source')} value={sourceLabel} />
-            {track.fileName ? <FileRow theme={theme} label={t('tracks.detail.fileName')} value={track.fileName} mono /> : null}
-            {formatFileSize(track.fileSize) ? <FileRow theme={theme} label={t('tracks.detail.fileSize')} value={formatFileSize(track.fileSize)!} mono /> : null}
-            {track.pointCount ? <FileRow theme={theme} label={t('tracks.detail.points')} value={fmt(track.pointCount)} mono /> : null}
-            {track.startedAt ? <FileRow theme={theme} label={t('tracks.detail.startedAt')} value={formatDayTime(track.startedAt, resolved)} /> : null}
-            {track.createdAt ? <FileRow theme={theme} label={t('tracks.detail.addedAt')} value={formatDayTime(track.createdAt, resolved)} /> : null}
             {/* Android only, and OfflineMapRow returns null by itself elsewhere. */}
             {Platform.OS === 'android' ? <OfflineMapRow theme={theme} /> : null}
             {/* TrailSheet already pads the scroll bottom clear of the home
@@ -691,26 +660,12 @@ export function TrackDetailPage({
         theme={theme}
         items={marks}
         index={openMark}
-        onClose={() => setOpenMark(null)}
-        onRename={renameMark}
-        onDelete={deleteMark}
+        onClose={() => selectMark(null)}
+        onPageChange={highlightMark}
+        onRename={readOnly ? undefined : renameMark}
+        onDelete={readOnly ? undefined : deleteMark}
       />
 
-      <RenameTrackDialog
-        theme={theme}
-        visible={renameOpen}
-        title={t('tracks.rename.title')}
-        placeholder={t('tracks.rename.placeholder')}
-        initialValue={track.name}
-        confirmLabel={t('tracks.rename.confirm')}
-        cancelLabel={t('common.cancel')}
-        onCancel={() => setRenameOpen(false)}
-        onConfirm={(name) => {
-          setRenameOpen(false);
-          void data.updateTrack(track.id, { name });
-          nav.showToast(t('tracks.toast.renamed'));
-        }}
-      />
 
       <PickDialog
         theme={theme}
@@ -774,7 +729,7 @@ export function TrackDetailPage({
                 label: t('journey.map.trackWaypointMarkers'),
                 value: marksVisible,
                 onChange: (visible: boolean) => {
-                  // The card and the badges go with the marks they point at.
+                  // The highlight and the badges go with the marks they point at.
                   if (!visible) selectMark(null);
                   setMarksVisible(visible);
                 },
@@ -786,6 +741,12 @@ export function TrackDetailPage({
           onClose={() => setLayersOpen(false)}
         />
       ) : null}
+      <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + space.xs + MAP_CONTROL_SIZE + space.xs} width={Math.min(232, window.width - space.sm * 2)} onClose={() => setMoreOpen(false)}>
+        {readOnly ? null : <MenuRow theme={theme} icon="gearSettings" label={t('tracks.settings.title')} onPress={() => closeMoreThen(() => setSettingsOpen(true))} />}
+        {canExport ? <MenuRow theme={theme} icon="download" label={t('tracks.action.export')} onPress={() => closeMoreThen(exportGpx)} /> : null}
+        {readOnly ? null : <MenuRow theme={theme} icon="trash" label={t('tracks.action.delete')} destructive onPress={() => closeMoreThen(() => setDeleteOpen(true))} />}
+      </FloatingMenu>
+      {settingsOpen && !readOnly ? <TrackSettingsPage theme={theme} track={track} onBack={() => setSettingsOpen(false)} /> : null}
     </Animated.View>
   );
 }

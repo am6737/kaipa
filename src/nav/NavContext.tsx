@@ -29,7 +29,8 @@ export interface ActionSheetItem {
 export type SocialPage =
   | { kind: 'profile'; userId: string }
   | { kind: 'people'; userId: string; tab: 'followers' | 'following' | 'find' }
-  | { kind: 'gearSet'; setId: string };
+  | { kind: 'gearSet'; setId: string }
+  | { kind: 'track'; trackId: string };
 
 export interface ActionSheetConfig {
   title?: string;
@@ -175,6 +176,8 @@ export interface NavValue {
   openPeople: (userId: string, tab: 'followers' | 'following' | 'find') => void;
   /** 别人公开的装备清单，可以「存为我的清单」。 */
   openGearSetPreview: (setId: string) => void;
+  /** 已发布的轨迹，从搜索打开。 */
+  openPublishedTrack: (trackId: string) => void;
   closeSocialPage: () => void;
 
   journeyHistory: Poi | null;
@@ -595,6 +598,7 @@ export function NavProvider({
       }),
       openPeople: (userId, tab) => setSocialStack((stack) => [...stack, { kind: 'people', userId, tab }]),
       openGearSetPreview: (setId) => setSocialStack((stack) => [...stack, { kind: 'gearSet', setId }]),
+      openPublishedTrack: (trackId) => setSocialStack((stack) => [...stack, { kind: 'track', trackId }]),
       closeSocialPage: () => setSocialStack((stack) => stack.slice(0, -1)),
       journeyHistory,
       openJourneyHistory: (p) => setJourneyHistory(merged(p)),

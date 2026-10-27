@@ -4,6 +4,7 @@ import { useI18n } from '../../i18n';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { clusterWaypoints as groupWaypoints } from '../maps/waypointClusters';
+import { buildRouteWaypointMarkers } from '../discover/routeWaypointMarkers';
 import { trackWorldSpan } from '../maps/extent';
 import { DistanceMarker, DistancePill, distanceStepForLength } from '../maps/distanceMarkers';
 import { measureTrack, positionAtDistance } from '../../lib/routeSegments';
@@ -46,6 +47,9 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   showWaypoints?: boolean;
   numberWaypoints?: boolean;
   clusterWaypoints?: boolean;
+  /** Draw the marks as the route page does: numbered accent circles, close ones
+   *  merged into a `3–5` range that zooms in when tapped. Implies clustering. */
+  routeStyleWaypoints?: boolean;
   showWaypointCallout?: boolean;
   /** "N km" labels along the line, as on the route card. */
   showDistanceMarkers?: boolean;
@@ -75,6 +79,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   showWaypoints = false,
   numberWaypoints = false,
   clusterWaypoints = false,
+  routeStyleWaypoints = false,
   showWaypointCallout = true,
   showDistanceMarkers = false,
   selectedWaypointIndex = null,
@@ -98,7 +103,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   const [clusterZoom, setClusterZoom] = useState(initialClusterZoom);
   const updateZoom = (zoom: number) => {
     cameraRef.current.zoom = zoom;
-    if (clusterWaypoints) {
+    if (clusterWaypoints || routeStyleWaypoints) {
       // Rebuild annotation groups at half-zoom steps, not on every pinch frame.
       const bucket = Math.floor(zoom * 2) / 2;
       setClusterZoom((current) => current === bucket ? current : bucket);
@@ -169,7 +174,23 @@ export const TrackMap = forwardRef<TrackMapHandle, {
         ),
       });
     }
-    if (showWaypoints) {
+    if (showWaypoints && routeStyleWaypoints && waypoints?.length) {
+      values.push(...buildRouteWaypointMarkers({
+        theme,
+        waypoints,
+        zoom: clusterZoom,
+        idPrefix: 'track-wp',
+        variant: 'numbered',
+        onWaypointPress: (index) => {
+          markerPressAt.current = Date.now();
+          onWaypointPress?.({ ...waypoints[index], index }, index);
+        },
+        onClusterPress: (coordinates) => {
+          markerPressAt.current = Date.now();
+          mapRef.current?.fitCoordinates(coordinates, routePadding, 600);
+        },
+      }));
+    } else if (showWaypoints) {
       waypointGroups.forEach((group) => {
         const index = group.indices[0];
         const waypoint = waypoints![index];
@@ -229,8 +250,8 @@ export const TrackMap = forwardRef<TrackMapHandle, {
             onWaypointPress?.({ ...waypoint, index: selectedWaypointIndex }, selectedWaypointIndex);
           },
           content: (
-            <View style={[styles.selectedWaypoint, { backgroundColor: accent, borderColor: theme.featureSurface }]}>
-              <Text style={{ fontFamily: MONO, fontSize: 12, fontWeight: '800', color: '#FFFFFF' }}>{selectedWaypointIndex + 1}</Text>
+            <View style={[routeStyleWaypoints ? styles.selectedRouteWaypoint : styles.selectedWaypoint, { backgroundColor: accent, borderColor: theme.featureSurface }]}>
+              <Text style={{ fontFamily: MONO, fontSize: routeStyleWaypoints ? 11 : 12, fontWeight: '800', color: '#FFFFFF' }}>{selectedWaypointIndex + 1}</Text>
             </View>
           ),
         });
@@ -254,7 +275,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
       });
     }
     return values;
-  }, [accent, coords, numberWaypoints, onWaypointPress, routePadding, scrubLabel, scrubPt, selectedWaypoint, selectedWaypointIndex, showWaypointCallout, showWaypoints, theme, waypointGroups, waypoints]);
+  }, [accent, clusterZoom, coords, numberWaypoints, onWaypointPress, routePadding, routeStyleWaypoints, scrubLabel, scrubPt, selectedWaypoint, selectedWaypointIndex, showWaypointCallout, showWaypoints, theme, waypointGroups, waypoints]);
 
   // Kept out of `markers`, so a mark tap or a scrub doesn't rebuild every label.
   const distanceMarkers = useMemo<NativeMapMarker[]>(() => {
@@ -354,6 +375,8 @@ const styles = StyleSheet.create({
   pickedLabel: { maxWidth: 180, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 11, borderWidth: StyleSheet.hairlineWidth },
   pickedMarker: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, opacity: 1 },
   numberedWaypoint: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#FFFFFF', borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  // One step up from the route page's 17 pt circle, so the picked one stands out.
+  selectedRouteWaypoint: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   selectedWaypoint: { width: 30, height: 30, borderRadius: 15, borderWidth: 2.5, alignItems: 'center', justifyContent: 'center' },
   waypointMarker: { width: 13, height: 13, borderRadius: 7, backgroundColor: '#FFFFFF', borderWidth: 3 },
   callout: { maxWidth: 220, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },

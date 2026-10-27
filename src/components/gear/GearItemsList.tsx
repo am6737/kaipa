@@ -1113,11 +1113,12 @@ export function MenuCaption({ theme, text, spaced = false }: { theme: Theme; tex
   return <Text style={[type.eyebrow, { paddingHorizontal: space.xl, paddingTop: spaced ? space.lg : space.xxs, paddingBottom: space.xs, color: theme.text2 }]}>{text}</Text>;
 }
 
-export function MenuRow({ theme, icon, label, onPress, selected = false, trailing }: { theme: Theme; icon: IconName; label: string; onPress: () => void; selected?: boolean; trailing?: React.ReactNode }) {
+export function MenuRow({ theme, icon, label, onPress, selected = false, trailing, destructive = false }: { theme: Theme; icon: IconName; label: string; onPress: () => void; selected?: boolean; trailing?: React.ReactNode; destructive?: boolean }) {
+  const color = destructive ? theme.danger : theme.text;
   return (
     <Press onPress={onPress} scaleTo={0.985} style={{ minHeight: MENU_ROW_HEIGHT, paddingHorizontal: space.xl, flexDirection: 'row', alignItems: 'center' }}>
-      <View style={{ width: space.xl, alignItems: 'center' }}><Icon name={icon} color={theme.text} size={21} strokeWidth={1.9} /></View>
-      <Text numberOfLines={1} style={[type.body, { flex: 1, marginLeft: space.md, color: theme.text }]}>{label}</Text>
+      <View style={{ width: space.xl, alignItems: 'center' }}><Icon name={icon} color={color} size={21} strokeWidth={1.9} /></View>
+      <Text numberOfLines={1} style={[type.body, { flex: 1, marginLeft: space.md, color }]}>{label}</Text>
       {trailing || (selected ? <Icon name="check" color={theme.accent} size={17} strokeWidth={2.2} /> : null)}
     </Press>
   );

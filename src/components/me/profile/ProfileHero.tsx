@@ -1,5 +1,5 @@
 // ProfileHero.tsx — 主页头部：头像、昵称、简介，以及粉丝和关注数。
-// 左对齐，参照 Komoot 的个人主页：数字行右侧放关注按钮或找人；不放统计卡。
+// 头像和昵称横排，简介在下；数字行右侧放关注按钮或找人；不放统计卡。
 import React, { useState, type ReactNode } from 'react';
 import { Text, View } from 'react-native';
 import { UserPlus } from 'lucide-react-native';
@@ -35,28 +35,28 @@ export function ProfileHero({
   const [bioClipped, setBioClipped] = useState(false);
   return (
     <View style={{ paddingHorizontal: layout.pagePadding, paddingTop: space.md }}>
+      {/* 头像和昵称横排，昵称、@username 填在头像右侧。 */}
       <Press
         accessibilityRole={onPressIdentity ? 'button' : undefined}
         accessibilityLabel={identityLabel}
         disabled={!onPressIdentity}
         onPress={onPressIdentity}
         scaleTo={0.99}
-        style={{ alignItems: 'flex-start' }}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}
       >
-        <Avatar uri={avatarUri ?? undefined} size={96} style={{ backgroundColor: theme.fieldSurface }} />
-        <Text numberOfLines={2} style={{ fontSize: 28, fontWeight: '800', letterSpacing: -0.5, color: theme.text, marginTop: space.lg }}>{nick}</Text>
+        <Avatar uri={avatarUri ?? undefined} size={72} style={{ backgroundColor: theme.fieldSurface }} />
+        <View style={{ flex: 1, minWidth: 0, alignItems: 'flex-start' }}>
+          <Text numberOfLines={2} style={{ fontSize: 24, fontWeight: '800', letterSpacing: -0.5, color: theme.text }}>{nick}</Text>
+          {username ? (
+            <View style={{ marginTop: space.xs, paddingVertical: 5, paddingHorizontal: space.sm, borderRadius: radius.control, borderWidth: 1, borderColor: theme.border }}>
+              <Text numberOfLines={1} style={[type.small, { color: theme.text }]}>@{username}</Text>
+            </View>
+          ) : null}
+        </View>
       </Press>
 
-      {username ? (
-        <View style={{ flexDirection: 'row', marginTop: space.sm }}>
-          <View style={{ paddingVertical: 5, paddingHorizontal: space.sm, borderRadius: radius.control, borderWidth: 1, borderColor: theme.border }}>
-            <Text numberOfLines={1} style={[type.small, { color: theme.text }]}>@{username}</Text>
-          </View>
-        </View>
-      ) : null}
-
       {bio ? (
-        <View style={{ marginTop: space.sm }}>
+        <View style={{ marginTop: space.md }}>
           {/* 先不限行数量一次，知道会不会被截断，再决定要不要「展开」。 */}
           {!bioClipped && !bioOpen ? (
             <Text
@@ -76,7 +76,7 @@ export function ProfileHero({
         </View>
       ) : null}
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxxl, marginTop: space.lg }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxxl + space.xl, marginTop: space.lg }}>
         <Count theme={theme} value={followers} label={t('profile.followers')} onPress={onPressFollowers} />
         <Count theme={theme} value={following} label={t('profile.following')} onPress={onPressFollowing} />
         <View style={{ flex: 1 }} />

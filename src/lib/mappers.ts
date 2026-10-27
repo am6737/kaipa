@@ -137,6 +137,8 @@ export function toTrack(r: any): Track {
     pointCount: r.point_count ?? undefined,
     startedAt: r.started_at ?? undefined,
     visibility: r.visibility ?? 'private',
+    ownOuting: r.own_outing ?? false,
+    publishedAt: r.published_at ?? undefined,
     createdAt: r.created_at ?? undefined,
     updatedAt: r.updated_at ?? undefined,
   };

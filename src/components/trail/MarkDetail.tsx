@@ -48,6 +48,7 @@ export function MarkDetail({
   onClose,
   onRename,
   onDelete,
+  onPageChange,
 }: {
   theme: Theme;
   items: MarkDetailItem[];
@@ -57,6 +58,8 @@ export function MarkDetail({
   /** Absent where the marks can't be changed. */
   onRename?: (item: MarkDetailItem, name: string) => void;
   onDelete?: (item: MarkDetailItem) => void;
+  /** A swipe settled on another mark, so a map or chart behind can follow. */
+  onPageChange?: (page: number) => void;
 }) {
   const { t } = useI18n();
   const { width, height } = useWindowDimensions();
@@ -206,6 +209,7 @@ export function MarkDetail({
         onMomentumScrollEnd={(event) => {
           const next = Math.min(items.length - 1, Math.max(0, Math.round(event.nativeEvent.contentOffset.x / width)));
           setPage((current) => (current === next ? current : next));
+          onPageChange?.(next);
         }}
       >
         {items.map((item, i) => (

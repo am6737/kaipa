@@ -20,6 +20,7 @@ import { Press } from '../Press';
 import { ProfileHero, ProfileTabs } from '../me/profile/ProfileHero';
 import { OutingCard } from '../me/profile/OutingCard';
 import { ProfilePhotos } from '../me/profile/ProfilePhotos';
+import { TimelineEmpty } from '../me/profile/TimelineEmpty';
 import { FollowButton } from './FollowButton';
 
 // ActionSheet 先执行条目再关闭自己，接着开的确认面板要等它关掉。
@@ -252,7 +253,7 @@ export function UserProfilePage({ theme, userId, onBack }: { theme: Theme; userI
                   <Pill theme={theme} label={t('profile.loadMore')} center onPress={() => { void outings.loadMore(); }} />
                 ) : null}
                 {!outings.outings.length && !outings.loading ? (
-                  <KPState theme={theme} icon="journey" title={t('profile.timelineEmptyTitle')} body={t('profile.otherTimelineEmptyBody')} />
+                  <TimelineEmpty theme={theme} title={t('profile.timelineEmptyTitle')} body={t('profile.otherTimelineEmptyBody')} />
                 ) : null}
                 {hidden > 0 ? (
                   <Text style={[type.small, { color: theme.text2, textAlign: 'center', marginTop: space.xl }]}>{t('profile.hiddenOutings')}</Text>

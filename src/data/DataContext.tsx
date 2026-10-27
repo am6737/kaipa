@@ -64,6 +64,8 @@ export interface DataValue {
   deleteTrack: (id: string) => Promise<void>;
   /** For tracks not on a journey; throws when the server refuses. */
   setTrackVisibility: (id: string, visibility: NonNullable<Track['visibility']>) => Promise<void>;
+  /** Published tracks show up in search for everyone; throws when the server refuses. */
+  setTrackPublished: (id: string, published: boolean) => Promise<void>;
   deleteTracks: (ids: string[]) => Promise<void>;
   refetchTracks: () => Promise<Track[]>;
   cats: GearCat[];
@@ -108,7 +110,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
   const { routes, loading: routesLoading, updateRoute, toggleFavorite: toggleRouteFavorite, refetch: refetchRoutes } = useRoutes(userId);
   const {
     tracks, loading: tracksLoading,
-    createTrack, updateTrack, deleteTrack, deleteTracks, setTrackVisibility,
+    createTrack, updateTrack, deleteTrack, deleteTracks, setTrackVisibility, setTrackPublished,
     refetch: refetchTracks,
   } = useTracks(userId);
   const {
@@ -160,6 +162,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     updateTrack: useStable(updateTrack),
     deleteTrack: useStable(deleteTrack),
     setTrackVisibility: useStable(setTrackVisibility),
+    setTrackPublished: useStable(setTrackPublished),
     deleteTracks: useStable(removeTracks),
     refetchTracks: useStable(refetchTracks),
     createJourney: useStable(createJourney),

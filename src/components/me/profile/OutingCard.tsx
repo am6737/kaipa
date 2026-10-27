@@ -11,6 +11,7 @@ import { radius, space } from '../../../design-system';
 import { Icon } from '../../Icon';
 import { Press } from '../../Press';
 import { useI18n, type TKey } from '../../../i18n';
+import { useNav } from '../../../nav/NavContext';
 import type { Outing, OutingPhoto, Visibility } from '../../../hooks/useSocial';
 
 const MAP_HEIGHT = 190;
@@ -64,9 +65,12 @@ export function OutingCard({ theme, outing, subject, showVisibility, highlighted
           <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '600', color: theme.text }}>
             {t(headlineKey, { who: subject })}
           </Text>
-          <Text numberOfLines={1} style={{ fontSize: 13, color: theme.text3, marginTop: 1 }}>
-            {outing.dateLabel || fmtDate(outing.occurredAt, t)}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 }}>
+            <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 13, color: theme.text3 }}>
+              {outing.dateLabel || fmtDate(outing.occurredAt, t)}
+            </Text>
+            {outing.imported ? <ImportedTag theme={theme} /> : null}
+          </View>
         </View>
         {showVisibility ? <VisibilityChip theme={theme} visibility={outing.visibility} onChange={onChangeVisibility} /> : null}
       </View>
@@ -117,6 +121,19 @@ export function OutingCard({ theme, outing, subject, showVisibility, highlighted
         </Press>
       </View> : null}
     </View>
+  );
+}
+
+// 导入的轨迹不是在 App 里录的，别人看时也照样标出来；点一下说明来源。
+function ImportedTag({ theme }: { theme: Theme }) {
+  const { t } = useI18n();
+  const nav = useNav();
+  return (
+    <Press onPress={() => nav.showToast(t('profile.importedTagExplain'))} accessibilityRole="button" accessibilityHint={t('profile.importedTagExplain')} hitSlop={8}>
+      <View style={{ paddingVertical: 1, paddingHorizontal: 6, borderRadius: 6, backgroundColor: theme.fieldSurface }}>
+        <Text style={{ fontSize: 11, color: theme.text2 }}>{t('profile.importedTag')}</Text>
+      </View>
+    </Press>
   );
 }
 

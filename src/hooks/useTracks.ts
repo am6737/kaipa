@@ -28,6 +28,8 @@ function draftToRow(draft: Partial<TrackDraft>) {
   set('ascM', 'asc_m');
   set('pointCount', 'point_count');
   set('startedAt', 'started_at');
+  set('visibility', 'visibility');
+  set('ownOuting', 'own_outing');
   return row;
 }
 
@@ -116,5 +118,13 @@ export function useTracks(userId: string | undefined) {
     setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, visibility } : t)));
   }, []);
 
-  return { tracks, loading: loading && !cached, createTrack, updateTrack, deleteTrack, deleteTracks, setTrackVisibility, refetch };
+  // Publishing goes through an RPC so only the owner can flip it; the server
+  // keeps the first publish time when it is switched on again.
+  const setTrackPublished = useCallback(async (id: string, published: boolean) => {
+    const { data, error } = await supabase.rpc('set_track_published', { p_track: id, p_published: published });
+    if (error) throw new Error(error.message);
+    setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, publishedAt: (data as string | null) ?? undefined } : t)));
+  }, []);
+
+  return { tracks, loading: loading && !cached, createTrack, updateTrack, deleteTrack, deleteTracks, setTrackVisibility, setTrackPublished, refetch };
 }

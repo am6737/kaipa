@@ -9,6 +9,9 @@ import { Icon } from '../components/Icon';
 import { Press } from '../components/Press';
 import type { Poi } from '../data/pois';
 import { radius, space } from '../design-system';
+import { TrackThumbnail } from '../components/tracks/TrackThumbnail';
+import { searchPublishedTracks, type PublishedTrackCard } from '../hooks/useSocial';
+import { formatTrackAscent, formatTrackDistance } from '../lib/trackParser';
 
 const CHINA_REGIONS = [
   '全国', '北京', '上海', '天津', '重庆', '河北', '山西', '辽宁', '吉林', '黑龙江',
@@ -18,11 +21,12 @@ const CHINA_REGIONS = [
 ];
 const INTERNATIONAL_REGIONS = ['尼泊尔'];
 const SEARCH_FIELD_HEIGHT = 52;
-type SearchTab = 'all' | 'route' | 'journey' | 'guide';
+type SearchTab = 'all' | 'route' | 'track' | 'journey' | 'guide';
 
 const TAB_LABELS: Array<{ id: SearchTab; label: string }> = [
   { id: 'all', label: '全部' },
   { id: 'route', label: '路线' },
+  { id: 'track', label: '轨迹' },
   { id: 'journey', label: '旅程' },
   { id: 'guide', label: '攻略' },
 ];
@@ -112,6 +116,27 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
     [matchingRoutes],
   );
 
+  // Published tracks live on the server, not in local data, so they are asked
+  // for once typing pauses. A reply for an older query is dropped.
+  const [publishedTracks, setPublishedTracks] = useState<PublishedTrackCard[]>([]);
+  const trackQuery = query.trim();
+  useEffect(() => {
+    if (!trackQuery) {
+      setPublishedTracks([]);
+      return undefined;
+    }
+    let alive = true;
+    const timer = setTimeout(() => {
+      searchPublishedTracks(trackQuery, 30)
+        .then((result) => { if (alive) setPublishedTracks(result); })
+        .catch(() => { if (alive) setPublishedTracks([]); });
+    }, 250);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [trackQuery]);
+
   const choosePlace = (region: string) => {
     nav.setDiscoverRegion(region);
     close();
@@ -119,6 +144,11 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
 
   const openPoi = (poi: Poi) => {
     nav.openPoint(poi);
+    close();
+  };
+
+  const openTrack = (track: PublishedTrackCard) => {
+    nav.openPublishedTrack(track.id);
     close();
   };
 
@@ -133,9 +163,10 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
 
   const resultCount = (tab: SearchTab) => {
     if (tab === 'route') return matchingRoutes.length;
+    if (tab === 'track') return publishedTracks.length;
     if (tab === 'journey') return matchingJourneys.length;
     if (tab === 'guide') return matchingGuides.length;
-    return matchingRoutes.length + matchingJourneys.length + matchingGuides.length;
+    return matchingRoutes.length + publishedTracks.length + matchingJourneys.length + matchingGuides.length;
   };
 
   const renderThumb = (poi: Poi) => (poi.photoUris?.[0] ? <Image source={{ uri: poi.photoUris[0] }} style={styles.thumb} /> : null);
@@ -152,6 +183,27 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
       </View>
     </Press>
   );
+
+  const renderTrack = (track: PublishedTrackCard) => {
+    const stats = [
+      track.distM != null ? formatTrackDistance(track.distM) : null,
+      track.ascM != null ? formatTrackAscent(track.ascM) : null,
+    ].filter(Boolean).join('  ');
+    return (
+      <Press key={`track-${track.id}`} onPress={() => openTrack(track)} style={styles.resultRow}>
+        <View style={[styles.thumb, { backgroundColor: theme.fieldSurface }]}>
+          <TrackThumbnail theme={theme} coords={track.coords} size={60} />
+        </View>
+        <View style={styles.resultCopy}>
+          <Highlight text={track.name || '未命名轨迹'} query={normalizedQuery} theme={theme} style={[styles.resultTitle, { color: theme.text }]} />
+          <View style={styles.resultSubRow}>
+            <Text style={[styles.resultSubKind, { color: theme.text3 }]}>轨迹</Text>
+            <Highlight text={[track.owner.nick, stats].filter(Boolean).join('  ')} query={normalizedQuery} theme={theme} style={[styles.resultSub, { color: theme.text3 }]} />
+          </View>
+        </View>
+      </Press>
+    );
+  };
 
   const renderGuide = (route: Poi) => (
     <Press key={`guide-${route.id}`} onPress={() => openGuide(route)} style={styles.resultRow}>
@@ -187,6 +239,7 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
 
   const listForTab = () => {
     if (activeTab === 'route') return matchingRoutes.map((route) => renderPoi(route, 'route'));
+    if (activeTab === 'track') return publishedTracks.map(renderTrack);
     if (activeTab === 'journey') return matchingJourneys.map((journey) => renderPoi(journey, 'journey'));
     if (activeTab === 'guide') return matchingGuides.map(renderGuide);
     return null;
@@ -230,7 +283,7 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
           <TextInput
             value={query}
             onChangeText={(value) => { setQuery(value); if (!value.trim()) setActiveTab('all'); }}
-            placeholder="搜索地点、路线、旅程或攻略"
+            placeholder="搜索地点、路线、轨迹、旅程或攻略"
             placeholderTextColor={theme.text3}
             returnKeyType="search"
             autoCorrect={false}
@@ -273,6 +326,7 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
           ) : activeTab === 'all' ? (
             <>
               {renderSection('路线', 'route', matchingRoutes.slice(0, 3).map((route) => renderPoi(route, 'route')), () => setActiveTab('route'))}
+              {renderSection('轨迹', 'track', publishedTracks.slice(0, 3).map(renderTrack), () => setActiveTab('track'))}
               {renderSection('旅程', 'journey', matchingJourneys.slice(0, 3).map((journey) => renderPoi(journey, 'journey')), () => setActiveTab('journey'))}
               {renderSection('攻略', 'guide', matchingGuides.slice(0, 3).map(renderGuide), () => setActiveTab('guide'))}
               {resultCount('all') === 0 ? renderEmpty() : null}
