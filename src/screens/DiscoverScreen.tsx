@@ -683,7 +683,7 @@ function DiscoverScreenView({
   const [routeEndpointActionOpen, setRouteEndpointActionOpen] = useState(false);
   const [waypointClusterZoom, setWaypointClusterZoom] = useState<number | null>(null);
   const waypointZoomTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [currentLocation, setCurrentLocation] = useState<{ lng: number; lat: number; heading?: number } | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<{ lng: number; lat: number; heading?: number; accuracy?: number } | null>(null);
   const [routeNavigation, setRouteNavigation] = useState<PlannedLeg | null>(null);
   // Keep the selected route active while its navigation request is being
   // resolved, so the navigation button gives immediate feedback and can cancel.
@@ -1442,7 +1442,7 @@ function DiscoverScreenView({
         if (!permission.granted || cancelled) return;
         const position = await getCurrentPosition();
         if (cancelled) return;
-        setCurrentLocation((current) => current ?? { lng: position.lng, lat: position.lat, heading: position.heading });
+        setCurrentLocation((current) => current ?? { lng: position.lng, lat: position.lat, heading: position.heading, accuracy: position.accuracy ?? undefined });
         let geocoded = position.place?.region;
         if (!geocoded) {
           let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1998,7 +1998,7 @@ function DiscoverScreenView({
         || permission.android?.accuracy === 'coarse';
       const position = await getCurrentPosition();
       const coordinate: [number, number] = [position.lng, position.lat];
-      setCurrentLocation({ lng: position.lng, lat: position.lat, heading: position.heading });
+      setCurrentLocation({ lng: position.lng, lat: position.lat, heading: position.heading, accuracy: position.accuracy ?? undefined });
       setMapCameraAction((current) => ({
         type: 'locate',
         coordinate,
@@ -2442,8 +2442,8 @@ function DiscoverScreenView({
       const stop = itineraryStops.find((item) => item.rowId === rowId);
       if (stop) selectJourneyDayFromMap(stop.day ?? '');
     },
-    onUserLocationChange: ([lng, lat]) => {
-      setCurrentLocation((current) => ({ lng, lat, heading: current?.heading }));
+    onUserLocationChange: ([lng, lat], accuracy) => {
+      setCurrentLocation((current) => ({ lng, lat, heading: current?.heading, accuracy: accuracy ?? current?.accuracy }));
     },
     onPoiPress: (id) => {
       // Marker presses can also bubble to NativeMap.onPress on iOS and
@@ -2515,7 +2515,7 @@ function DiscoverScreenView({
     onCameraZoomChange: (zoom) => mapHandlersRef.current.onCameraZoomChange(zoom),
     onJourneyDayLabelPress: (day) => mapHandlersRef.current.onJourneyDayLabelPress(day),
     onJourneyStopPress: (rowId) => mapHandlersRef.current.onJourneyStopPress(rowId),
-    onUserLocationChange: (coordinate) => mapHandlersRef.current.onUserLocationChange(coordinate),
+    onUserLocationChange: (coordinate, accuracy) => mapHandlersRef.current.onUserLocationChange(coordinate, accuracy),
     onPoiPress: (id) => mapHandlersRef.current.onPoiPress(id),
     onBackgroundPress: () => mapHandlersRef.current.onBackgroundPress(),
   }), []);
@@ -3049,7 +3049,10 @@ function DiscoverScreenView({
           <Press
             accessibilityRole="button"
             accessibilityLabel={t('discover.showMap')}
-            onPress={() => sheetRef.current?.snapTo(LIST_SHEET_INITIAL)}
+            onPress={() => {
+              setListSheetIndex(LIST_SHEET_PEEK);
+              sheetRef.current?.snapTo(LIST_SHEET_PEEK);
+            }}
             style={{
               height: 48,
               paddingHorizontal: space.lg,

@@ -142,11 +142,11 @@ export interface GlobeProps {
    *  dependency whitelist. */
   extraMarkers?: NativeMapMarker[];
   /** show the current-location pin at this coordinate */
-  pin?: { lng: number; lat: number; heading?: number } | null;
+  pin?: { lng: number; lat: number; heading?: number; accuracy?: number } | null;
   /** keep the native map camera centered as the current location updates */
   followUserLocation?: boolean;
   /** reports the native map SDK's current user coordinate */
-  onUserLocationChange?: (coordinate: [number, number]) => void;
+  onUserLocationChange?: (coordinate: [number, number], accuracy?: number) => void;
   /** base-map presentation used by the platform-native renderer */
   mapStyle?: GlobeMapStyle;
   /** hide ordinary place/road/POI labels while keeping the journey route */

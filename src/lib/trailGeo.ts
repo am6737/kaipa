@@ -67,7 +67,16 @@ export interface TrailSmoother {
   /** Variance of the estimate, square metres. */
   variance: number;
   t: number;
+  /** Fixes taken in since the last reset. */
+  count: number;
 }
+
+/**
+ * Fixes a segment's first point waits for. The first answers after the GPS
+ * comes on are often a cached or Wi-Fi position tens of metres off, and a
+ * track anchored there draws a line from it to wherever the GPS settles.
+ */
+export const SETTLE_FIXES = 3;
 
 // How fast the walker may have moved since the last fix, for the filter. Brisk
 // hiking pace; a fix that reports a higher speed raises it for that step.
@@ -78,7 +87,7 @@ const SMOOTHING_RESET_MS = 30_000;
 export function smoothFix(state: TrailSmoother | null, fix: TrailFix): { state: TrailSmoother; fix: TrailFix } {
   const acc = Math.max(fix.acc ?? 10, 3);
   if (!state || fix.t - state.t > SMOOTHING_RESET_MS || fix.t < state.t) {
-    return { state: { lng: fix.lng, lat: fix.lat, variance: acc * acc, t: fix.t }, fix };
+    return { state: { lng: fix.lng, lat: fix.lat, variance: acc * acc, t: fix.t, count: 1 }, fix };
   }
   const speed = Math.max(SMOOTHING_SPEED_MPS, fix.speed ?? 0);
   const variance = state.variance + ((fix.t - state.t) / 1000) * speed * speed;
@@ -88,6 +97,7 @@ export function smoothFix(state: TrailSmoother | null, fix: TrailFix): { state: 
     lat: state.lat + gain * (fix.lat - state.lat),
     variance: (1 - gain) * variance,
     t: fix.t,
+    count: state.count + 1,
   };
   // Keeps the raw accuracy: judgeFix's step gate is about the receiver's error.
   return { state: next, fix: { ...fix, lng: next.lng, lat: next.lat } };

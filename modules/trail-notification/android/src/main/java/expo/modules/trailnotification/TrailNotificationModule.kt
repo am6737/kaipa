@@ -39,5 +39,10 @@ class TrailNotificationModule : Module() {
       TrailRecordingService.content = null
       TrailRecordingService.stop(context)
     }
+
+    // Accelerometer stillness for the recorder; see StillnessDetector.
+    Function("startStillness") { StillnessDetector.start(context) }
+    Function("stopStillness") { StillnessDetector.stop() }
+    Function("stillnessSpread") { StillnessDetector.spread() }
   }
 }

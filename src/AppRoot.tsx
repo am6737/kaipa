@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, View, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { File as FSFile } from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -117,25 +117,22 @@ function AppShell() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      {/* Own stacking context: TabPage raises the incoming page with zIndex,
+      {/* Own stacking context: TabPage raises the shown page with zIndex,
           which must not lift it over the overlays rendered after this. */}
       <View style={StyleSheet.absoluteFill}>
-        {/* iOS must never take Discover out of the hierarchy: a MapView that
+        {/* Never take Discover out of the hierarchy. On iOS a MapView that
             leaves and re-enters the window comes back with empty reused
-            annotation views (every route pin gone), and unmounting it reloads
-            the tiles, which reads as a flash. DiscoverScreen slides the map
-            off-screen instead, via keepMapWarm. Android keeps the old teardown. */}
-        <TabPage
-          selected={nav.mainTab === 'discover'}
-          forced={detailOpen}
-          whenHidden={Platform.OS === 'android' && nav.mainTab !== 'journey' ? 'none' : 'keep'}
-        >
+            annotation views (every route pin gone); on Android display:none
+            and the unmount tore AMap down, so every visit reloaded tiles and
+            rebuilt every marker, which lagged the tab. DiscoverScreen slides
+            the map off-screen instead, via keepMapWarm. */}
+        <TabPage selected={nav.mainTab === 'discover'} forced={detailOpen} whenHidden="keep">
           {(shown) => (
             <FrozenNav frozen={nav.mainTab !== 'discover' && !detailOpen}>
               <DiscoverScreen
                 theme={theme}
                 active={shown}
-                keepMapWarm={Platform.OS === 'ios'}
+                keepMapWarm
                 covered={nav.searchOpen && searchOpaque}
                 externalOverlayOpen={Boolean(sharePosterPoi || passphrasePoi)}
                 onBlockingOverlayChange={setDiscoverOverlayOpen}

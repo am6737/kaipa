@@ -192,12 +192,18 @@ export interface NativeMapProps {
    * draws "you are here" as its own marker.
    */
   trackUserLocation?: boolean;
+  /**
+   * Android only: the pale halo around "you are here" whose radius is the
+   * fix's accuracy, as MapKit draws it. `radius` is in metres.
+   */
+  accuracyCircle?: { coordinate: MapCoordinate; radius: number; fillColor: string; strokeColor: string };
   followUserLocation?: boolean;
   markers?: NativeMapMarker[];
   polylines?: NativeMapPolyline[];
   onPress?: (coordinate: MapCoordinate) => void;
   onPoiPress?: (poi: NativeMapPoi) => void;
-  onUserLocationChange?: (coordinate: MapCoordinate) => void;
+  /** `accuracy` is the fix's radius in metres, when the platform reports it. */
+  onUserLocationChange?: (coordinate: MapCoordinate, accuracy?: number) => void;
   onCameraChange?: (heading: number, pitch: number) => void;
   onCameraPositionChange?: (camera: NativeMapCamera) => void;
   onZoomChange?: (zoom: number) => void;

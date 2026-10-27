@@ -41,12 +41,19 @@ shows the running one and toasts `trail.busy`.
   - drop steps from the last kept point that stay inside the fix's error circle
     (5–25 m), or within twice that while Doppler speed is under 0.4 m/s;
   - drop jumps faster than 12 m/s.
+- **First point** of each segment waits for 3 smoothed fixes; the pre-start
+  dot only seeds it when its accuracy is 15 m or better. The first answers are
+  often a cached or Wi-Fi position, and anchoring there drew a 100 m line
+  once the GPS settled (the jump rule's speed limit decays as time passes).
 - **Lying still** (`src/lib/deviceStillness.ts`): while the accelerometer has
-  read still for 4 s (spread of |a| under 2% of its mean) and the fix reports
+  read still for 4 s (spread of |a| under 4% of its mean) and the fix reports
   under 1.5 m/s, fixes add nothing to the track and the recorder's dot holds
-  its position (a fix 40% sharper may still replace it). No sensor, or no
-  samples (an older binary; Android in the background), falls back to the GPS
-  filters above.
+  its position (a fix 40% sharper may still replace it). Android measures it in
+  the trail-notification module (`StillnessDetector.kt`), because expo-sensors
+  stops listening once the screen locks; iOS uses expo-sensors. No sensor or no
+  samples (an older binary) falls back to the GPS filters above, which can't
+  tell drift from slow walking: simulated indoor drift still adds ~250 m in
+  20 min without the sensor.
 - **"You are here"** on the trail map is the recorder's fix on both platforms,
   so it holds still with the track. Android draws it as an AMap marker image
   (`assets/trail/location-*.png`, `-dot` without a heading), not AMap's own

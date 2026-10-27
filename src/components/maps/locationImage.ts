@@ -31,3 +31,14 @@ export function platformLocationImage(accent: string, withHeading = true): { uri
   // an OTA update hands a file:// path; AMap's image loader takes all three.
   return source?.uri ? { uri: source.uri, size: 52 } : undefined;
 }
+
+// MapKit's own user-location dot, drawn for AMap, so the Android map matches
+// what iOS shows with showsUserLocation. System blue, whatever the accent.
+const SYSTEM_IMAGE = require('../../../assets/trail/location-system.png');
+const SYSTEM_DOT_IMAGE = require('../../../assets/trail/location-system-dot.png');
+
+export function systemLocationImage(withHeading = true): { uri: string; size: number } | undefined {
+  if (Platform.OS !== 'android') return undefined;
+  const source = Image.resolveAssetSource(withHeading ? SYSTEM_IMAGE : SYSTEM_DOT_IMAGE);
+  return source?.uri ? { uri: source.uri, size: 96 } : undefined;
+}

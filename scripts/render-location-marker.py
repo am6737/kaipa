@@ -8,8 +8,14 @@ map's own Android marker uses both. Run again whenever that component or
 ACCENT_PRESETS changes:
 
     python3 scripts/render-location-marker.py
+
+`location-system*.png` are a different marker: MapKit's own user-location dot
+(system blue, 22pt white disc, a wide beam fading out from the dot), so the
+Android discover map shows what iOS shows there.
 """
 from pathlib import Path
+
+import math
 
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -75,9 +81,55 @@ def render(color, cone=True):
     return img.resize((BOX * SCALE, BOX * SCALE), Image.LANCZOS)
 
 
+SYSTEM_BLUE = '#007AFF'
+SYSTEM_BOX = 96      # pt: room for the beam around the dot
+BEAM_RADIUS = 42     # pt from the dot's centre
+BEAM_HALF_ANGLE = 36 # degrees either side of the heading
+BEAM_ALPHA = 0.55    # at the dot, fading to nothing at BEAM_RADIUS
+
+
+def render_system(beam=True):
+    k = SCALE * SS
+    size = SYSTEM_BOX * k
+    c = SYSTEM_BOX / 2 * k
+    r, g, b = rgb(SYSTEM_BLUE)
+    img = Image.new('RGBA', (size, size), (r, g, b, 0))
+
+    if beam:
+        # Radial fade inside a sector pointing up (north before rotation).
+        mask = Image.new('L', (size, size), 0)
+        pts = [(c, c)]
+        for i in range(65):
+            a = math.radians(-BEAM_HALF_ANGLE + 2 * BEAM_HALF_ANGLE * i / 64)
+            pts.append((c + math.sin(a) * BEAM_RADIUS * k, c - math.cos(a) * BEAM_RADIUS * k))
+        ImageDraw.Draw(mask).polygon(pts, fill=255)
+        mask = mask.filter(ImageFilter.GaussianBlur(1.5 * k))
+        fade = Image.new('L', (size, size), 0)
+        fd = ImageDraw.Draw(fade)
+        steps = 96
+        for i in range(steps, 0, -1):
+            rr = BEAM_RADIUS * k * i / steps
+            t = i / steps
+            fd.ellipse([c - rr, c - rr, c + rr, c + rr], fill=round(255 * BEAM_ALPHA * (1 - t) ** 1.4))
+        img.putalpha(Image.composite(fade, Image.new('L', (size, size), 0), mask))
+
+    shadow = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).ellipse([c - 11 * k, c - 10 * k, c + 11 * k, c + 12 * k], fill=(0, 0, 0, round(255 * 0.28)))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(2.5 * k))
+    img = Image.alpha_composite(img, shadow)
+
+    d = ImageDraw.Draw(img)
+    d.ellipse([c - 11 * k, c - 11 * k, c + 11 * k, c + 11 * k], fill=(255, 255, 255, 255))
+    d.ellipse([c - 8 * k, c - 8 * k, c + 8 * k, c + 8 * k], fill=(r, g, b, 255))
+    return img.resize((SYSTEM_BOX * SCALE, SYSTEM_BOX * SCALE), Image.LANCZOS)
+
+
 if __name__ == '__main__':
     OUT.mkdir(parents=True, exist_ok=True)
     for name, color in ACCENTS.items():
         render(color).save(OUT / f'location-{name}.png', optimize=True)
         render(color, cone=False).save(OUT / f'location-{name}-dot.png', optimize=True)
         print(OUT / f'location-{name}.png')
+    render_system().save(OUT / 'location-system.png', optimize=True)
+    render_system(beam=False).save(OUT / 'location-system-dot.png', optimize=True)
+    print(OUT / 'location-system.png')

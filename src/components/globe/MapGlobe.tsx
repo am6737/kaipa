@@ -4,7 +4,7 @@ import { NativeMap, type NativeMapHandle, type NativeMapMarker, type NativeMapPo
 import { isValidMapCoordinate, keepValidCoordinates, type MapCoordinate } from '../maps/types';
 import { simplifyTrack, trackSpanOnScreen, trackWorldSpan, zoomToFitSpan } from '../maps/extent';
 import { PhotoPin, PHOTO_PIN_ANCHOR_Y, PHOTO_PIN_HEIGHT, PHOTO_PIN_WIDTH, PHOTO_SIZE, photoPinScaleForZoom } from './PhotoPin';
-import { platformLocationImage } from '../maps/locationImage';
+import { systemLocationImage } from '../maps/locationImage';
 import { pickPinUnderPress } from '../../lib/pinOverlap';
 import { useCompassHeading } from '../../lib/compassHeading';
 import { STAGGER_MAX_DELAY_MS, STAGGER_STEP_MS } from '../StaggerIn';
@@ -690,7 +690,8 @@ export default function MapGlobe({
   const showsLocationMarker = Platform.OS === 'android' && pinLng != null && pinLat != null && isValidMapCoordinate([pinLng, pinLat]);
   const compassHeading = useCompassHeading(showsLocationMarker);
   const hasHeading = compassHeading != null;
-  const locationImage = useMemo(() => platformLocationImage(theme.accent, hasHeading), [theme.accent, hasHeading]);
+  // The same dot iOS draws (MapKit's), not the app's accent marker.
+  const locationImage = useMemo(() => systemLocationImage(hasHeading), [hasHeading]);
   const locationMarker = useMemo<NativeMapMarker | null>(() => (
     showsLocationMarker && locationImage
       ? {
@@ -705,6 +706,13 @@ export default function MapGlobe({
       }
       : null
   ), [showsLocationMarker, locationImage, pinLng, pinLat, compassHeading]);
+  // MapKit's accuracy halo: system blue, faint, the fix's radius in metres.
+  const pinAccuracy = pin?.accuracy;
+  const accuracyCircle = useMemo(() => (
+    showsLocationMarker && pinAccuracy != null && pinAccuracy > 0
+      ? { coordinate: [pinLng!, pinLat!] as [number, number], radius: pinAccuracy, fillColor: 'rgba(0,122,255,0.12)', strokeColor: 'rgba(0,122,255,0.28)' }
+      : undefined
+  ), [showsLocationMarker, pinLng, pinLat, pinAccuracy]);
   const markers = useMemo(
     () => (overlayMarkers.length || locationMarker
       ? [...poiMarkers, ...overlayMarkers, ...(locationMarker ? [locationMarker] : [])]
@@ -729,6 +737,7 @@ export default function MapGlobe({
         // AMap's location layer keeps feeding onUserLocationChange and the
         // follow mode; the dot itself is locationMarker above.
         trackUserLocation={Platform.OS === 'android' && !!pin}
+        accuracyCircle={accuracyCircle}
         followUserLocation={followUserLocation}
         markers={markers}
         polylines={polylines}

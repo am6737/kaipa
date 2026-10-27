@@ -195,7 +195,6 @@ export const DiscoverRouteCard = memo(function DiscoverRouteCard({ theme, poi, o
         ? t('record.dur.hoursMinutes', { h: Math.floor(minutes / 60), m: minutes % 60 })
         : t('record.dur.hours', { h: minutes / 60 });
   const ascent = poi.asc.replace('+', '');
-  const region = poi.region.replace(/\s*·\s*/g, ' ');
   return (
     <View>
       <Press onPress={() => onOpen(poi)} style={{ borderRadius: radius.feature }}>
@@ -233,11 +232,12 @@ export const DiscoverRouteCard = memo(function DiscoverRouteCard({ theme, poi, o
                 <Text style={[type.small, { fontWeight: '600', color: theme.text2, fontVariant: ['tabular-nums'] }]}>{fmtCount(poi.reviews)}</Text>
               </View>
             ) : null}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs, flex: 1, minWidth: 0 }}>
-              <Icon name="pin" color={theme.text3} size={13} />
-              <Text numberOfLines={1} style={[type.small, { color: theme.text2, flexShrink: 1 }]}>{region}</Text>
-            </View>
-            {poi.mine ? <Icon name="user" color={theme.accent} size={14} /> : null}
+            {poi.mine ? (
+              <>
+                <View style={{ flex: 1 }} />
+                <Icon name="user" color={theme.accent} size={14} />
+              </>
+            ) : null}
           </View>
           <Text numberOfLines={2} style={[type.threadCardTitle, { fontSize: 18, lineHeight: 24, fontWeight: '800', color: theme.text, marginTop: space.xs }]}>{poi.name}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: space.md, rowGap: space.xxs, marginTop: space.xs }}>

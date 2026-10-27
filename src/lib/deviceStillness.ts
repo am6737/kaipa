@@ -4,10 +4,14 @@
 // The accelerometer can, so while it says still the recorder holds the
 // position and draws nothing.
 //
+// Android measures it natively in the trail-notification module: expo-sensors
+// there stops listening as soon as the screen locks, which is when a walk
+// records. iOS keeps expo-sensors' feed while the app runs in the background.
+//
 // Fails open: no sensor (an older binary, a device without one) or no recent
-// samples (Android stops the sensor while the app is in the background) means
-// "don't know", and the recorder falls back to filtering GPS alone.
+// samples means "don't know", and the recorder falls back to filtering GPS alone.
 import { Platform } from 'react-native';
+import { nativeStillness } from '../../modules/trail-notification';
 
 type AccelerometerModule = typeof import('expo-sensors').Accelerometer;
 
@@ -25,8 +29,9 @@ const SAMPLE_MS = 100;
 // Still means this long without the phone being moved.
 const WINDOW_MS = 4_000;
 // Spread of |a| relative to its mean. A phone on a table reads under 0.005, one
-// held in a still hand about 0.01, one in a hand or pocket while walking 0.1+.
-const STILL_SPREAD = 0.02;
+// held in a hand while standing up to about 0.03, one in a hand, pocket or
+// pack while walking 0.1 and more.
+const STILL_SPREAD = 0.04;
 // Samples older than this are stale: the sensor stopped.
 const STALE_MS = 1_500;
 
@@ -43,6 +48,21 @@ function onSample({ x, y, z }: { x: number; y: number; z: number }) {
 /** Ref-counted; the returned function stops this user's interest. */
 export function watchDeviceStillness(): () => void {
   users += 1;
+  if (nativeStillness) {
+    let native = false;
+    try {
+      native = nativeStillness.start();
+    } catch {
+      native = false;
+    }
+    let stopped = false;
+    return () => {
+      if (stopped) return;
+      stopped = true;
+      users = Math.max(0, users - 1);
+      if (native) nativeStillness?.stop();
+    };
+  }
   if (users === 1 && Accelerometer) {
     try {
       Accelerometer.setUpdateInterval(SAMPLE_MS);
@@ -66,6 +86,14 @@ export function watchDeviceStillness(): () => void {
 
 /** True when the phone has not moved for the whole window, null when unknown. */
 export function isDeviceStill(now = Date.now()): boolean | null {
+  if (nativeStillness) {
+    try {
+      const spread = nativeStillness.spread();
+      return spread == null ? null : spread < STILL_SPREAD;
+    } catch {
+      return null;
+    }
+  }
   if (!samples.length || now - samples[samples.length - 1].t > STALE_MS) return null;
   // Needs most of a full window, or a phone just put down would count as still.
   if (samples[0].t > now - WINDOW_MS * 0.9 || samples.length < (WINDOW_MS / SAMPLE_MS) * 0.6) return null;

@@ -33,6 +33,9 @@ export interface TrailLiveContent {
 type NativeTrailNotification = {
   start?: (content: TrailNotificationContent) => Promise<void>;
   stop?: () => Promise<void>;
+  startStillness?: () => boolean;
+  stopStillness?: () => void;
+  stillnessSpread?: () => number | null;
 };
 
 const native = Platform.OS === 'android'
@@ -60,3 +63,17 @@ export async function stopTrailNotification(): Promise<void> {
   if (native?.stop) await native.stop();
   if (nativeLive?.stop) await nativeLive.stop();
 }
+
+/**
+ * Android: accelerometer stillness measured natively, so it keeps going with
+ * the screen locked (expo-sensors stops then). Null off Android and on
+ * binaries built before it existed.
+ */
+export const nativeStillness = native?.startStillness && native.stopStillness && native.stillnessSpread
+  ? {
+    start: () => native.startStillness!(),
+    stop: () => native.stopStillness!(),
+    /** Spread of |a| over the last 4 s relative to its mean; null when there is no recent full window. */
+    spread: () => native.stillnessSpread!() ?? null,
+  }
+  : null;

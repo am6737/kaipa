@@ -44,6 +44,7 @@ import {
   EMPTY_TOTALS,
   formatClock,
   judgeFix,
+  SETTLE_FIXES,
   smoothFix,
   splitDistance,
   toTrailPoint,
@@ -317,6 +318,7 @@ let smoother: TrailSmoother | null = null;
 // A fix reporting this speed is moving, whatever the accelerometer says: a
 // phone on the seat of a smooth train can read as still.
 const STILL_MAX_SPEED_MPS = 1.5;
+const SEED_MAX_ACCURACY_METERS = 15;
 
 /** The phone lies still, so this fix's movement is GPS wander. */
 function heldStill(next: TrailFix): boolean {
@@ -350,6 +352,7 @@ function ingest(fixes: TrailFix[]) {
     if (judgeFix(next, null) !== 'accept') continue;
     const smoothed = smoothFix(smoother, next);
     smoother = smoothed.state;
+    if (!last && smoother.count < SETTLE_FIXES) continue;
     if (judgeFix(smoothed.fix, last) !== 'accept') continue;
     const point = toTrailPoint(smoothed.fix);
     const { totals, climbRef } = addPoint(session.totals, session.climbRef, last, point);
@@ -669,8 +672,9 @@ export async function startTrail(route: TrailRouteRef | null): Promise<boolean> 
   };
   persistedChunks = new Set();
   smoother = null;
-  // The fix that showed "you are here" before the start becomes the first point.
-  if (fix && now - fix.t < 15_000 && judgeFix(fix, null) === 'accept') {
+  // The fix that showed "you are here" before the start becomes the first
+  // point, when it is a GPS-grade one: the dot may come from a cache or Wi-Fi.
+  if (fix && now - fix.t < 15_000 && fix.acc != null && fix.acc <= SEED_MAX_ACCURACY_METERS) {
     const point = toTrailPoint({ ...fix, t: now });
     session.segments[0].push(point);
     session.totals = addPoint(EMPTY_TOTALS, null, null, point).totals;

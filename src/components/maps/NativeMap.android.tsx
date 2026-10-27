@@ -49,6 +49,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   platformLocationIndicator = false,
   platformLocationImage,
   trackUserLocation = false,
+  accuracyCircle,
   followUserLocation = false,
   markers = [],
   polylines = [],
@@ -172,7 +173,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   }), []);
 
   if (!module || !ensureAmapReady(module)) return <View style={style} />;
-  const { MapView, Marker, Polyline, MapType } = module;
+  const { MapView, Marker, Polyline, Circle, MapType } = module;
 
   const nativeMapType = mapStyle === 'satellite'
     ? MapType.Satellite
@@ -256,8 +257,8 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
         else onPress?.(poi.coordinate);
       }}
       onLocation={(event) => {
-        const { longitude, latitude } = event.nativeEvent;
-        onUserLocationChange?.(gcj02ToWgs84([longitude, latitude]));
+        const { longitude, latitude, accuracy } = event.nativeEvent;
+        onUserLocationChange?.(gcj02ToWgs84([longitude, latitude]), Number.isFinite(accuracy) && accuracy > 0 ? accuracy : undefined);
       }}
       onCameraMove={(event) => {
         const camera = event.nativeEvent.cameraPosition;
@@ -282,6 +283,16 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
         onCameraChange?.(camera.bearing || 0, camera.tilt || 0);
       }}
     >
+      {accuracyCircle ? (
+        <Circle
+          center={point(accuracyCircle.coordinate)}
+          radius={accuracyCircle.radius}
+          fillColor={accuracyCircle.fillColor}
+          strokeColor={accuracyCircle.strokeColor}
+          strokeWidth={1}
+          zIndex={0}
+        />
+      ) : null}
       {polylines.map((line) => (
         <Polyline
           key={line.id}
