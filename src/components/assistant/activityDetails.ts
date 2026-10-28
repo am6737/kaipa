@@ -25,3 +25,8 @@ export function activityDetails(activity: AgentRunActivity): string[] {
 export function hasResearchActivity(activities: AgentRunActivity[]) {
   return activities.some(({ toolName }) => /^(search_routes|search_travel_web|read_travel_guide|read_travel_guide_images|get_route_facts|get_journey_details|search_transport|search_ground_transport)$/.test(toolName));
 }
+
+/** Gear library and gear set writes produce no arrangement that needs fact-checking. */
+export function isGearOnlyActivity(activities: AgentRunActivity[]) {
+  return activities.length > 0 && activities.every(({ toolName }) => /^(add_gear|add_gear_set_items)$/.test(toolName));
+}

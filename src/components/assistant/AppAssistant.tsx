@@ -21,7 +21,7 @@ import { useAgentRunRealtime } from '../../hooks/useAgentRunRealtime';
 import { uploadAgentAttachment, uploadBatch } from '../../lib/storage';
 import type { Theme } from '../../theme/theme';
 import { AssistantMark } from './AssistantMark';
-import { activityDetails, hasResearchActivity } from './activityDetails';
+import { activityDetails, hasResearchActivity, isGearOnlyActivity } from './activityDetails';
 import { startAgentRecovery } from '../../lib/agentRecovery';
 import { confirmedDeparture, getAgentLocation, requestsCurrentLocation, statesDeparture, transportLocationIntent, type AgentLocation, type AgentLocationIntent } from '../../lib/agentLocation';
 import { DepartureCard, departureFailureKey } from './DepartureCard';
@@ -172,6 +172,7 @@ type ResearchStep = {
 function formatElapsed(ms?: number) {
   if (ms == null || !Number.isFinite(ms)) return '';
   const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds === 0 && ms > 0) return '<1s';
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
@@ -639,6 +640,11 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
   const modelElapsed = modelMetrics.reduce((sum, metric) => sum + metric.durationMs, 0);
   const toolElapsed = activities.reduce((sum, activity) => sum + (activityElapsed(activity, now) || 0), 0);
   const aggregatedModelMetrics = aggregateModelMetrics(modelMetrics, stages);
+  // A run without model calls (the gear fast path) has no model total to report.
+  const elapsedTotals = [
+    modelMetrics.length && modelElapsed ? `模型合计 ${formatElapsed(modelElapsed)}` : '',
+    toolElapsed ? `工具合计 ${formatElapsed(toolElapsed)}` : '',
+  ].filter(Boolean).join('，');
   const timedSteps = visibleSteps.map((step) => {
     const activityIndex = activities.findIndex((activity, index) => step.key === `${activity.toolName}_${index}` || step.key.startsWith(`${activity.toolName}_${index}_`));
     const activity = activityIndex >= 0 ? activities[activityIndex] : undefined;
@@ -712,7 +718,7 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
           <ChevronDown size={17} color={theme.text3} />
         </Animated.View>
       </Press>
-      {expanded && !running && !hasResearchActivity(activities) ? (
+      {expanded && !running && modelMetrics.length > 0 && !hasResearchActivity(activities) && !isGearOnlyActivity(activities) ? (
         <Text style={[styles.researchLineText, { color: theme.text2 }]}>{t('agent.research.noResearchRecord')}</Text>
       ) : null}
       {expanded ? orderedTimedSteps.filter((step) => step.status !== 'running').map((step) => isTransportStep(step)
@@ -728,8 +734,8 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
         </View>
       )) : null}
       {expanded && !firstCompletedTransport ? transportGroup : null}
-      {showTiming && expanded && (modelElapsed || toolElapsed) ? (
-        <Text style={[styles.researchLineText, { color: theme.text3 }]}>模型合计 {formatElapsed(modelElapsed)}，工具合计 {formatElapsed(toolElapsed)}</Text>
+      {showTiming && expanded && elapsedTotals ? (
+        <Text style={[styles.researchLineText, { color: theme.text3 }]}>{elapsedTotals}</Text>
       ) : null}
       {showTiming && expanded ? aggregatedModelMetrics.map((metric) => (
         <View key={`model_${metric.stage}`} style={styles.researchLine}>
@@ -1105,8 +1111,8 @@ function ActionResultCards({ theme, results, onOpenJourney, onOpenGear, onOpenRo
             return <ActionResultCard
               key="gear"
               theme={theme}
-              title={result.names.join(listSeparator)}
-              detail={result.names.length === 1 ? t('agent.gearAddedToLibrary') : t('agent.gearsAddedToLibrary', { count: result.names.length })}
+              title={result.names.length === 1 ? result.names[0] : t('agent.gearsAddedToLibrary', { count: result.names.length })}
+              detail={result.names.length === 1 ? t('agent.gearAddedToLibrary') : result.names.join(listSeparator)}
               openLabel={t('agent.viewGear')}
               onOpen={() => onOpenGear({ page: 'items', itemId: result.itemId })}
             />;
