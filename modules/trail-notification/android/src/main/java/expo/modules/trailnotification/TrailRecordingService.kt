@@ -12,8 +12,12 @@ import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
+import android.view.View
+import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 
 /** What the shade shows for the recording. Strings arrive already translated from JS. */
 data class TrailNotificationContent(
@@ -23,6 +27,25 @@ data class TrailNotificationContent(
   val chronometerBase: Long?,
   val subText: String?,
   val channelName: String,
+  /** The same walk split into fields, for the custom card; null from JS that predates it. */
+  val live: TrailLiveFields?,
+)
+
+/** The card's fields, as JS sends them for the iOS Live Activity. */
+data class TrailLiveFields(
+  val name: String,
+  val status: String,
+  val paused: Boolean,
+  /** Formatted moving time, shown while paused; empty while recording, when the chronometer counts. */
+  val time: String,
+  val distance: String,
+  val ascent: String,
+  val descent: String,
+  val distanceLabel: String,
+  val ascentLabel: String,
+  val descentLabel: String,
+  /** GPS warning, or empty. */
+  val warning: String,
 )
 
 /**
@@ -40,7 +63,9 @@ data class TrailNotificationContent(
 class TrailRecordingService : Service() {
   companion object {
     private const val TAG = "TrailRecordingService"
-    private const val CHANNEL_ID = "kaipa_trail_recording"
+    // A channel's importance is fixed once created, so raising it needs a new id; the old one is deleted.
+    const val CHANNEL_ID = "kaipa_trail_recording_v2"
+    private const val LEGACY_CHANNEL_ID = "kaipa_trail_recording"
     const val NOTIFICATION_ID = 7301
     private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
 
@@ -87,11 +112,19 @@ class TrailRecordingService : Service() {
 
     private fun ensureChannel(context: Context, manager: NotificationManager, name: String) {
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+      if (manager.getNotificationChannel(LEGACY_CHANNEL_ID) != null) runCatching { manager.deleteNotificationChannel(LEGACY_CHANNEL_ID) }
       val existing = manager.getNotificationChannel(CHANNEL_ID)
       if (existing != null && existing.name == name) return
-      // Low importance: in the shade and the status bar, never a sound or a heads-up.
-      val channel = NotificationChannel(CHANNEL_ID, name, NotificationManager.IMPORTANCE_LOW).apply {
+      // Default importance with the sound and vibration stripped. A low-importance channel counts as a
+      // "silent" notification, and Android 11+ hides those from the lock screen by default ("Hide silent
+      // notifications"), as many OEM skins do; default importance shows the card there like iOS's Live
+      // Activity. Default never peeks as a heads-up, and setSilent/setOnlyAlertOnce keep updates quiet.
+      val channel = NotificationChannel(CHANNEL_ID, name, NotificationManager.IMPORTANCE_DEFAULT).apply {
         setShowBadge(false)
+        setSound(null, null)
+        enableVibration(false)
+        enableLights(false)
+        lockscreenVisibility = Notification.VISIBILITY_PUBLIC
       }
       manager.createNotificationChannel(channel)
     }
@@ -112,27 +145,86 @@ class TrailRecordingService : Service() {
         .setSmallIcon(R.drawable.kaipa_trail_notification)
         .setContentTitle(value.title)
         .setContentText(value.text)
-        .setSubText(value.subText)
         .setContentIntent(tap)
         .setOngoing(true)
         .setOnlyAlertOnce(true)
         .setSilent(true)
         .setCategory(NotificationCompat.CATEGORY_WORKOUT)
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-        .setPriority(NotificationCompat.PRIORITY_LOW)
+        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
         .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-      // Android 16 Live Update: a chip in the status bar (the clock while recording) and the card pinned
-      // high on the lock screen and in the shade. Older versions and OEM skins without it ignore the
-      // extra. Set as the raw extra (Notification.EXTRA_REQUEST_PROMOTED_ONGOING) so it builds on any
-      // androidx.core; needs POST_PROMOTED_NOTIFICATIONS in the manifest, and the user can turn it off.
-      builder.extras.putBoolean(EXTRA_REQUEST_PROMOTED_ONGOING, true)
       val base = value.chronometerBase
+      val live = value.live
+      if (live != null && !promotable(context)) {
+        // Our own layout, close to the iOS Live Activity: the time large, the three numbers in columns.
+        // The system still draws the header (icon and app name) around it, and the title and text above
+        // stay for accessibility and for lock screens that redact custom views.
+        builder
+          .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+          .setCustomContentView(card(context, R.layout.kaipa_trail_notification_small, live, base))
+          .setCustomBigContentView(card(context, R.layout.kaipa_trail_notification_big, live, base))
+          .setShowWhen(false)
+          .setUsesChronometer(false)
+        return builder.build()
+      }
+      // Android 16 Live Update: a chip in the status bar (the clock while recording) and the card pinned
+      // high on the lock screen and in the shade. A custom view would disqualify it, so this path keeps
+      // the standard layout. Set as the raw extra (Notification.EXTRA_REQUEST_PROMOTED_ONGOING) so it
+      // builds on any androidx.core; needs POST_PROMOTED_NOTIFICATIONS in the manifest.
+      builder.setSubText(value.subText)
+      builder.extras.putBoolean(EXTRA_REQUEST_PROMOTED_ONGOING, true)
       if (base != null) {
         builder.setWhen(base).setShowWhen(true).setUsesChronometer(true)
       } else {
         builder.setShowWhen(false).setUsesChronometer(false)
       }
       return builder.build()
+    }
+
+    /**
+     * Whether the system will show the card as an Android 16 Live Update: the OS supports it and the user
+     * has not turned it off for the app. Looked up by reflection so the module builds against older SDKs.
+     */
+    private fun promotable(context: Context): Boolean {
+      if (Build.VERSION.SDK_INT < 36) return false
+      val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      return runCatching {
+        NotificationManager::class.java.getMethod("canPostPromotedNotifications").invoke(manager) as Boolean
+      }.getOrDefault(false)
+    }
+
+    private fun card(context: Context, layout: Int, live: TrailLiveFields, base: Long?): RemoteViews {
+      val views = RemoteViews(context.packageName, layout)
+      if (base != null && !live.paused) {
+        // Chronometer counts from an elapsedRealtime base; ours is wall-clock.
+        val elapsedBase = SystemClock.elapsedRealtime() - (System.currentTimeMillis() - base)
+        views.setChronometer(R.id.trail_clock, elapsedBase, null, true)
+        views.setViewVisibility(R.id.trail_clock, View.VISIBLE)
+        views.setViewVisibility(R.id.trail_time, View.GONE)
+      } else {
+        views.setChronometer(R.id.trail_clock, SystemClock.elapsedRealtime(), null, false)
+        views.setViewVisibility(R.id.trail_clock, View.GONE)
+        views.setViewVisibility(R.id.trail_time, View.VISIBLE)
+        views.setTextViewText(R.id.trail_time, live.time)
+      }
+      views.setTextViewText(R.id.trail_status, live.warning.ifEmpty { live.status })
+      if (live.warning.isNotEmpty()) {
+        views.setTextColor(R.id.trail_status, ContextCompat.getColor(context, R.color.kaipa_trail_warning))
+      }
+      if (layout == R.layout.kaipa_trail_notification_small) {
+        views.setTextViewText(R.id.trail_stats, "${live.distance}   ↑ ${live.ascent}   ↓ ${live.descent}")
+      } else {
+        views.setTextViewText(R.id.trail_name, live.name)
+        views.setImageViewResource(R.id.trail_badge, if (live.paused) R.drawable.kaipa_trail_pause else R.drawable.kaipa_trail_notification)
+        views.setInt(R.id.trail_badge, "setBackgroundResource", if (live.paused) R.drawable.kaipa_trail_badge_paused else R.drawable.kaipa_trail_badge)
+        views.setTextViewText(R.id.trail_distance, live.distance)
+        views.setTextViewText(R.id.trail_ascent, live.ascent)
+        views.setTextViewText(R.id.trail_descent, live.descent)
+        views.setTextViewText(R.id.trail_distance_label, live.distanceLabel)
+        views.setTextViewText(R.id.trail_ascent_label, live.ascentLabel)
+        views.setTextViewText(R.id.trail_descent_label, live.descentLabel)
+      }
+      return views
     }
   }
 

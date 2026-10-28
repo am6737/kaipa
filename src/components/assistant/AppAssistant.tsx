@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { File as FSFile } from 'expo-file-system';
 import * as Clipboard from 'expo-clipboard';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, AppState, Easing, Linking, Modal, Pressable as Press, ScrollView, StyleSheet, Text, TextInput, View, type GestureResponderEvent } from 'react-native';
+import { ActivityIndicator, Alert, Animated, AppState, Easing, Keyboard, Linking, Modal, Platform, Pressable as Press, ScrollView, StyleSheet, Text, TextInput, View, type GestureResponderEvent } from 'react-native';
 import { Image } from 'expo-image';
 import { ArrowUp, ArrowUpRight, BriefcaseBusiness, CalendarDays, CarFront, Check, CheckCircle2, ChevronDown, ChevronRight, CircleQuestionMark, Clock3, Copy, CornerDownLeft, FileText, Globe2, Link2, MapPin, Menu, Mic, Mountain, Plus, RotateCcw, Square, SquarePen, TentTree, Trash2, X } from 'lucide-react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -32,6 +32,7 @@ import { journeyDayDisplayLabel } from '../../lib/journeyDays';
 import { TwoStageSwipeable } from '../TwoStageSwipeable';
 import { useSpeechRecognitionInput, type SpeechRecognitionInputError } from './useSpeechRecognitionInput';
 import { RouteGuidePage } from '../discover/RouteGuidePage';
+import { regionLabel } from '../../lib/regionLabel';
 
 type PendingAgentRequest = {
   args: Parameters<typeof sendAgentTurn>[0] & { clientRunId: string };
@@ -1133,7 +1134,7 @@ function ActionResultCards({ theme, results, onOpenJourney, onOpenGear, onOpenRo
               theme={theme}
               title={route?.name || result.name}
               detail={[
-                route?.region,
+                regionLabel(route?.region),
                 route?.dist ? t('agent.routeDistance', { value: route.dist }) : '',
                 route?.asc ? t('agent.routeAscent', { value: route.asc }) : '',
               ].filter(Boolean).join(' ')}
@@ -1148,7 +1149,7 @@ function ActionResultCards({ theme, results, onOpenJourney, onOpenGear, onOpenRo
               key={`journeyRef_${result.journeyId}`}
               theme={theme}
               title={journey?.name || result.name}
-              detail={journey?.region || ''}
+              detail={regionLabel(journey?.region)}
               openLabel={t('agent.viewJourney')}
               icon={TentTree}
               onOpen={() => onOpenJourney(result.journeyId)}
@@ -1278,7 +1279,7 @@ function ThreadSwipeActions({
   );
 }
 
-export function AppAssistant({ theme, visible, initialPrompt, initialDisplayPrompt, autoSubmitInitialPrompt = false, autoSubmitIntent = 'plan_journey', startNewConversation = false, currentJourneyId, onClose, onClearPrompt, onOpenJourney, onOpenRoute, onOpenGear }: {
+export function AppAssistant({ theme, visible, initialPrompt, initialDisplayPrompt, autoSubmitInitialPrompt = false, autoSubmitIntent, startNewConversation = false, currentJourneyId, onClose, onClearPrompt, onOpenJourney, onOpenRoute, onOpenGear }: {
   theme: Theme;
   visible: boolean;
   initialPrompt?: string;
@@ -1602,6 +1603,14 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     const timer = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
     return () => clearTimeout(timer);
   }, [loading, runActivities]);
+
+  // Android hides the keyboard (back key, swipe) without blurring the input, so `inputFocused` would stay
+  // true and the hold-to-talk overlay never comes back; long-presses then land on the TextInput instead.
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const subscription = Keyboard.addListener('keyboardDidHide', () => inputRef.current?.blur());
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     if (!visible) {

@@ -102,7 +102,9 @@ export interface AgentRunActivity {
 
 // smart_plan is the 新建旅程 → 智能规划 button: the server plans the journey it
 // names from the journey itself and skips interpreting the prompt text.
-export type AgentIntent = 'plan_journey' | 'smart_plan';
+// gear_set_onboarding fills an empty gear set; gear_set_review is 清单判官,
+// which only reviews the set and never writes.
+export type AgentIntent = 'plan_journey' | 'smart_plan' | 'gear_set_onboarding' | 'gear_set_review';
 
 export interface AgentTurnResponse {
   threadId: string;

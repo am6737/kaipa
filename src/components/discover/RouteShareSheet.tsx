@@ -8,6 +8,7 @@ import { exportRouteTrack, routeAsTrack } from '../../lib/trackExport';
 import { Theme } from '../../theme/theme';
 import { Icon, IconName } from '../Icon';
 import { Press } from '../Press';
+import { regionLabel } from '../../lib/regionLabel';
 
 type Action = 'text' | 'gpx' | 'original';
 
@@ -69,7 +70,7 @@ export function RouteShareSheet({ theme, route, onClose, onToast }: { theme: The
     setBusy(action);
     try {
       if (action === 'text') {
-        const message = `${route.name}\n${[route.region.replace(/\s*·\s*/g, ' '), route.dist, route.asc].filter(Boolean).join(' ')}`;
+        const message = `${route.name}\n${[regionLabel(route.region), route.dist, route.asc].filter(Boolean).join(' ')}`;
         await Share.share({ title: route.name, message });
       } else {
         await exportRouteTrack(route, action);

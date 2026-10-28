@@ -126,6 +126,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   onCameraPositionChange,
   onZoomChange,
   onGestureStart,
+  onReady,
 }, ref) {
   const mapRef = useRef<MapView>(null);
   const fitted = useRef(false);
@@ -236,6 +237,44 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
         });
       });
     },
+    // MKMapSnapshotter renders the region on its own, then draws the polylines
+    // and markers on top, so it doesn't wait for visible tiles. The region has
+    // to be passed: left out, the JS side sends `{}`, which native takes as a
+    // region at 0,0 and returns a picture of open sea.
+    takeSnapshot: async (marks) => {
+      const map = mapRef.current;
+      if (!map) throw new Error('map not mounted');
+      const { northEast, southWest } = await map.getMapBoundaries();
+      const { width, height } = layoutSize.current;
+      const path = await map.takeSnapshot({
+        format: 'png',
+        result: 'file',
+        region: {
+          latitude: (northEast.latitude + southWest.latitude) / 2,
+          longitude: (northEast.longitude + southWest.longitude) / 2,
+          latitudeDelta: Math.abs(northEast.latitude - southWest.latitude),
+          longitudeDelta: Math.abs(northEast.longitude - southWest.longitude),
+        },
+      });
+      if (!path) throw new Error('map not mounted');
+      // The snapshot draws a marker by rendering its view into an opaque
+      // context, so a round RN marker comes out on a black square; callers
+      // place their own. The points come from the same region the image was
+      // rendered from, not from the live view, so the two can't drift apart.
+      // The map is north-up and that region has the view's aspect, so it is a
+      // plain Web Mercator mapping onto the view size.
+      const mercator = (latitude: number) => Math.log(Math.tan(Math.PI / 4 + (latitude * Math.PI) / 360));
+      const top = mercator(northEast.latitude);
+      const bottom = mercator(southWest.latitude);
+      const points = marks?.map((coordinate): [number, number] => {
+        const { longitude, latitude } = point(coordinate);
+        return [
+          ((longitude - southWest.longitude) / (northEast.longitude - southWest.longitude)) * width,
+          ((top - mercator(latitude)) / (top - bottom)) * height,
+        ];
+      });
+      return { uri: path.startsWith('file:') ? path : `file://${path}`, points };
+    },
   }), []);
 
   const mapType: MapType = mapStyle === 'satellite' ? 'hybrid' : mapStyle === 'terrain' ? 'mutedStandard' : 'standard';
@@ -269,7 +308,10 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           markProgrammaticMove(0);
           pendingCameraAction.current = () => {
             mapRef.current?.fitToCoordinates(projectTrack(fitBoundsCorners(initialFitCoordinates)), { edgePadding: padding(initialPadding), animated: false });
+            if (onReady) setTimeout(onReady, 250);
           };
+        } else if (onReady) {
+          setTimeout(onReady, 250);
         }
         flushCameraAction();
       }}

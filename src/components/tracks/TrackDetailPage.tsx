@@ -48,9 +48,11 @@ import { TrailControlButton } from '../trail/TrailControlButton';
 import { TrackProfile, type TrackProfileMark } from './TrackProfile';
 import { TrackSettingsPage } from './TrackSettingsPage';
 import { FloatingMenu, MenuRow } from '../gear/GearItemsList';
+import { usePendingMenuAction } from '../gear/GearMenuTransition';
 import { Avatar } from '../Avatar';
 import type { PublishedTrackOwner } from '../../hooks/useSocial';
 import { trailRouteFromTrack, useOpenTrail } from '../../trail/trailRoutes';
+import { regionLabel } from '../../lib/regionLabel';
 
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
 
@@ -416,10 +418,12 @@ export function TrackDetailPage({
   };
 
   const canExport = Boolean(track.coords?.length || track.fileUrl);
-  // The card closes first so its exit does not overlap whatever opens next.
+  // The card finishes closing before the action runs: the export share sheet
+  // never appears on iOS if it is presented while the menu is still dismissing.
+  const menuAction = usePendingMenuAction();
   const closeMoreThen = (action: () => void) => {
+    menuAction.run(action);
     setMoreOpen(false);
-    setTimeout(action, 140);
   };
 
   const confirmDelete = async () => {
@@ -631,7 +635,7 @@ export function TrackDetailPage({
                   <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{journey.name}</Text>
                   {journey.region || journey.date ? (
                     <View style={{ flexDirection: 'row', gap: space.sm, marginTop: 3 }}>
-                      {journey.region ? <Text numberOfLines={1} style={[type.caption, { color: theme.text2, flexShrink: 1 }]}>{journey.region}</Text> : null}
+                      {journey.region ? <Text numberOfLines={1} style={[type.caption, { color: theme.text2, flexShrink: 1 }]}>{regionLabel(journey.region)}</Text> : null}
                       {journey.date ? <Text numberOfLines={1} style={[type.caption, { color: theme.text3 }]}>{journey.date}</Text> : null}
                     </View>
                   ) : null}
@@ -676,7 +680,7 @@ export function TrackDetailPage({
         options={data.journeys.map((journey) => ({
           item: journey,
           title: journey.name,
-          subtitle: [journey.region, journey.date].filter(Boolean) as string[],
+          subtitle: [regionLabel(journey.region), journey.date].filter(Boolean) as string[],
           selected: journey.trackId === track.id,
         }))}
         onCancel={() => setApplyOpen(false)}
@@ -741,7 +745,7 @@ export function TrackDetailPage({
           onClose={() => setLayersOpen(false)}
         />
       ) : null}
-      <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + space.xs + MAP_CONTROL_SIZE + space.xs} width={Math.min(232, window.width - space.sm * 2)} onClose={() => setMoreOpen(false)}>
+      <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + space.xs + MAP_CONTROL_SIZE + space.xs} width={Math.min(232, window.width - space.sm * 2)} onClose={() => { menuAction.cancel(); setMoreOpen(false); }} onClosed={menuAction.onClosed}>
         {readOnly ? null : <MenuRow theme={theme} icon="gearSettings" label={t('tracks.settings.title')} onPress={() => closeMoreThen(() => setSettingsOpen(true))} />}
         {canExport ? <MenuRow theme={theme} icon="download" label={t('tracks.action.export')} onPress={() => closeMoreThen(exportGpx)} /> : null}
         {readOnly ? null : <MenuRow theme={theme} icon="trash" label={t('tracks.action.delete')} destructive onPress={() => closeMoreThen(() => setDeleteOpen(true))} />}

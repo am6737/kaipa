@@ -146,6 +146,7 @@ Deno.test('app entry intents map without calling the router', async () => {
     stay_supplement: { intent: 'itinerary_edit', ops: 'add_itinerary_items' },
     gear_onboarding: { intent: 'gear_add', ops: 'add_gear' },
     gear_set_onboarding: { intent: 'gear_set', ops: 'add_gear_set_items' },
+    gear_set_review: { intent: 'discuss', ops: '' },
     journey_review: { intent: 'discuss', ops: '' },
   };
   for (const [appIntent, want] of Object.entries(expected)) {

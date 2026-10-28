@@ -8,6 +8,7 @@ import { buildElevation } from '../../data/elevation';
 import { CircleBtn } from '../CircleBtn';
 import { TrackDetailContent } from './TrackDetailContent';
 import { useI18n } from '../../i18n';
+import { regionLabel } from '../../lib/regionLabel';
 
 export function ElevationFull({ theme, info, isMine, onClose }: { theme: Theme; info: Poi; isMine?: boolean; onClose: () => void }) {
   const insets = useSafeAreaInsets();
@@ -83,7 +84,7 @@ export function ElevationFull({ theme, info, isMine, onClose }: { theme: Theme; 
               <View pointerEvents="none" style={{ alignItems: 'center', paddingHorizontal: 72 }}>
                 <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }} numberOfLines={1}>{t('journey.elevation.trackTitle')}</Text>
                 <Text numberOfLines={1} style={{ fontSize: 12, color: theme.text2, marginTop: 1 }}>
-                  {info.name} · {totalKm.toFixed(1)} km{info.region ? ` · ${info.region}` : ''}
+                  {info.name}  {totalKm.toFixed(1)} km{info.region ? `  ${regionLabel(info.region)}` : ''}
                 </Text>
               </View>
             </View>

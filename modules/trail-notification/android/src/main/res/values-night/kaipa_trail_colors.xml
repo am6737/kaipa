@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <color name="kaipa_trail_accent">#FF7A55</color>
+  <color name="kaipa_trail_paused">#8E8E93</color>
+  <color name="kaipa_trail_warning">#FF9F0A</color>
+</resources>

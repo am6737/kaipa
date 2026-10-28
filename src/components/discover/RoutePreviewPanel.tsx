@@ -19,6 +19,7 @@ import { routeGuideCopy } from './routeGuideCopy';
 import { RouteCommentPreviewRow } from './RouteCommentItem';
 import { useRouteComments } from '../../hooks/useRouteComments';
 import { directedClimb } from '../../data/elevation';
+import { regionLabel } from '../../lib/regionLabel';
 
 const fmtClimb = (meters: number) => `${Math.round(meters).toLocaleString('en-US')} m`;
 
@@ -57,7 +58,7 @@ export function RoutePreviewPanel({ theme, poi, onClose, onShare, showActions = 
         <InfoPill theme={theme} icon="distance" text={route.dist} mono />
         {climb.ascent != null ? <InfoPill theme={theme} icon="arrowUp" text={fmtClimb(climb.ascent)} mono /> : null}
         {climb.descent != null ? <InfoPill theme={theme} icon="arrowDown" text={fmtClimb(climb.descent)} mono /> : null}
-        <InfoPill theme={theme} icon="pin" text={route.region.replace(/\s*·\s*/g, ' ')} />
+        <InfoPill theme={theme} icon="pin" text={regionLabel(route.region)} />
       </View>
 
       {route.bestMonths?.length ? <SeasonStrip theme={theme} months={route.bestMonths} note={route.seasonNote} /> : null}

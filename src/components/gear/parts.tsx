@@ -97,7 +97,7 @@ export function GearToBuyBadge({ theme }: { theme: Theme }) {
 export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg', flush = false, showImage = true, showWeight = true, showValue = true, imageSize = 38, card = false, borderlessImage = false }: GearItemRowProps) {
   const qty = item.qty || 1;
   const toBuy = item.owned === false;
-  const meta = [showWeight ? fmtKg(itemWeight(item), weightUnit) : null, showValue ? yuan(itemPrice(item)) : null, qty > 1 ? `×${qty}` : null].filter(Boolean).join(' · ');
+  const meta = [showWeight ? fmtKg(itemWeight(item), weightUnit) : null, showValue ? yuan(itemPrice(item)) : null, qty > 1 ? `×${qty}` : null].filter(Boolean).join('  ');
   const rowGap = 12;
   const rowPaddingX = flush ? 0 : 13;
   if (card) {

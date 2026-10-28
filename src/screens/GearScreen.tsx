@@ -147,7 +147,7 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
       }
       return;
     }
-    setPageStack([{ type: 'setsList' }, { type: 'set', set }]);
+    setPageStack([{ type: 'set', set }]);
     nav.clearGearSetRequest();
   }, [sets, data.gearLoading, nav.gearSetRequestId]);
 

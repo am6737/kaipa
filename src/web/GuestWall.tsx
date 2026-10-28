@@ -15,6 +15,7 @@ import { GuestUploadSheet } from './GuestUploadSheet';
 import { GuestSaveSheet, type SavablePhoto } from './GuestSaveSheet';
 import type { GuestMoment, JourneyData, CompanionData, HostData, InspoMedia } from './useGuestData';
 import type { GuestIdentity } from './IdentitySheet';
+import { regionLabel } from '../lib/regionLabel';
 
 interface Props {
   theme: Theme;
@@ -283,7 +284,7 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
                   </View>
                   <View style={s.heroStat}>
                     <Text style={s.heroStatV}>{journey.date || '\u2014'}</Text>
-                    {!!journey.region && <Text style={s.heroStatL}>{journey.region}</Text>}
+                    {!!journey.region && <Text style={s.heroStatL}>{regionLabel(journey.region)}</Text>}
                   </View>
                   <View style={s.heroStat}>
                     <Text style={s.heroStatV}>{String(roster.length)}</Text>

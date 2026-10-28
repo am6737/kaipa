@@ -51,7 +51,8 @@ export function DetailPage({
   flatChrome?: boolean;
   onContentTouchStart?: () => void;
   onEnterComplete?: () => void;
-  entryVariant?: 'push' | 'continuationX' | 'continuationY';
+  /** `none` mounts the page already in place, for one opened under another page. */
+  entryVariant?: 'push' | 'continuationX' | 'continuationY' | 'none';
   scrollable?: boolean;
   children: React.ReactNode;
 }) {
@@ -67,6 +68,10 @@ export function DetailPage({
   }, [onEnterComplete]);
 
   useEffect(() => {
+    if (entryVariant === 'none') {
+      onEnterCompleteRef.current?.();
+      return;
+    }
     const animation = entryVariant === 'push'
       ? Animated.spring(translateX, {
           toValue: 0,

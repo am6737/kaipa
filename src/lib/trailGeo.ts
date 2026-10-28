@@ -36,6 +36,12 @@ const MAX_SPEED_MPS = 12;
 // Altitude changes smaller than this are noise; GPS altitude wanders ±5 m.
 const CLIMB_THRESHOLD_METERS = 5;
 
+// A jump is one stray fix. This many in a row, all judged against the same last
+// point, mean that point is the stale one: the walker moved on faster than
+// MAX_SPEED_MPS (a bike, a car) or it was itself a stray. Without this every
+// later fix is dropped until the pace falls, and the track draws a straight line.
+export const JUMP_STREAK_LIMIT = 3;
+
 export type FixVerdict = 'accept' | 'inaccurate' | 'stationary' | 'jump';
 
 /** Whether a fix extends the track drawn so far, judged against its last point. */
@@ -51,7 +57,10 @@ export function judgeFix(fix: TrailFix, last: TrailPoint | null): FixVerdict {
   // not moving. Network fixes report 0 here too, and they are the worst wanderers.
   if (fix.speed != null && fix.speed < STILL_SPEED_MPS && step < gate * 2) return 'stationary';
   const seconds = (fix.t - last[3]) / 1000;
-  if (seconds > 0 && step / seconds > MAX_SPEED_MPS && step > 60) return 'jump';
+  // A receiver measuring that speed itself (Doppler) is on a bike or in a car,
+  // not jumping: the step only has to fit its own reading.
+  const ceiling = Math.max(MAX_SPEED_MPS, (fix.speed ?? 0) * 1.5 + 5);
+  if (seconds > 0 && step / seconds > ceiling && step > 60) return 'jump';
   return 'accept';
 }
 

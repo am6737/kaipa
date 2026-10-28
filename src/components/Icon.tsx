@@ -73,7 +73,9 @@ export type IconName =
   | 'volumeOff'
   | 'record'
   | 'journey'
-  | 'hiker';
+  | 'hiker'
+  | 'scale'
+  | 'wandSparkles';
 
 interface Props {
   name: IconName;
@@ -416,6 +418,23 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
           <Circle cx={12} cy={12} r={9} {...common} />
           <Circle cx={12} cy={10} r={2.8} {...common} />
           <Path d="M6.6 17.9c1-1.9 3-3.1 5.4-3.1s4.4 1.2 5.4 3.1" {...common} />
+        </Svg>
+      );
+    case 'scale':
+      // Balance scale — 清单判官 weighing whether a gear set is reasonable.
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" {...common} />
+          <Path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" {...common} />
+          <Path d="M7 21h10M12 3v18M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" {...common} />
+        </Svg>
+      );
+    case 'wandSparkles':
+      // Magic wand with sparks — AI 配装 filling a gear set.
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72" {...common} />
+          <Path d="m14 7 3 3M5 6v4M19 14v4M10 2v2M7 8H3M21 16h-4M11 3H9" {...common} />
         </Svg>
       );
     case 'hiker':

@@ -21,7 +21,7 @@ import { AppHeaderSearch, DetailPage, layout, radius, space, type } from '../../
 import { usePersistedSort } from './usePersistedSort';
 import { GearMenuTransition } from './GearMenuTransition';
 import { GearEmptyState } from './GearEmptyState';
-import { formatItemValue } from './GearItemsList';
+import { BottomControl, EmptyPlaceholderCards, formatItemValue } from './GearItemsList';
 
 const SORT_STORAGE_KEY = '@kaipa/gear/sets-sort-v1';
 const INITIAL_RENDER_COUNT = 8;
@@ -187,6 +187,7 @@ export function GearSetsList({
     });
   };
   const finishPicker = () => picker?.onDone(new Set(pickerSelectedIds));
+  const libraryEmpty = !picker && sets.length === 0;
   const closeSearch = () => {
     setQuery('');
     setSearchOpen(false);
@@ -275,6 +276,13 @@ export function GearSetsList({
                     <Text numberOfLines={1} style={{ fontSize: 15.5, fontWeight: '800', color: '#FFFFFF' }}>{t('gear.setEditor.pickerDone', { count: pickerSelectedIds.size })}</Text>
                   </Press>
                 </View>
+              ) : libraryEmpty ? (
+                // The first placeholder card already creates a set, so only AI stays here.
+                onOpenAssistant ? (
+                  <View style={{ flex: 1, alignItems: 'center' }}>
+                    <BottomControl theme={theme} icon="wandSparkles" label={t('gear.empty.askAiSet')} onPress={onOpenAssistant} />
+                  </View>
+                ) : null
               ) : (
                 <>
                   <Press onPress={onAdd} style={{ height: 52, minWidth: 126, paddingHorizontal: 24, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: theme.accent }}>
@@ -343,15 +351,12 @@ export function GearSetsList({
             actionIcon="close"
             onAction={closeSearch}
           />
+        ) : picker ? (
+          <GearEmptyState theme={theme} icon="layers" title={t('gear.empty.noSetsYet')} />
         ) : (
-          <GearEmptyState
-            theme={theme}
-            icon="layers"
-            title={t('gear.empty.noSetsYet')}
-            actionLabel={!picker && onOpenAssistant ? t('gear.empty.askAiSet') : undefined}
-            actionIcon="send"
-            onAction={!picker ? onOpenAssistant : undefined}
-          />
+          <View style={{ paddingTop: space.sm }}>
+            <EmptyPlaceholderCards theme={theme} title={t('gear.empty.addFirstSet')} subtitle={t('gear.empty.firstSetSub')} onPress={() => onAdd()} />
+          </View>
         )}
       </View>
     </DetailPage>
@@ -361,8 +366,8 @@ export function GearSetsList({
 function SetsCompactMenuRow({ theme, icon, label, onPress, selected = false }: { theme: Theme; icon: IconName; label: string; onPress: () => void; selected?: boolean }) {
   return (
     <Press onPress={onPress} scaleTo={0.985} style={{ height: 48, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' }}>
-      <View style={{ width: 25, alignItems: 'center' }}><Icon name={icon} color={theme.text} size={19} strokeWidth={1.8} /></View>
-      <Text style={{ marginLeft: 13, fontSize: 14.5, color: theme.text }}>{label}</Text>
+      <View style={{ width: 24, alignItems: 'center' }}><Icon name={icon} color={theme.text} size={19} strokeWidth={1.8} /></View>
+      <Text style={{ marginLeft: 12, fontSize: 14.5, color: theme.text }}>{label}</Text>
       {selected ? <View style={{ marginLeft: 'auto' }}><Icon name="check" color={theme.accent} size={16} strokeWidth={2.2} /></View> : null}
     </Press>
   );
@@ -381,7 +386,7 @@ function SetsSortMenu({ theme, visible, title, onClose, children }: { theme: The
     >
       <Glass solidOnAndroid theme={theme} radius={24} intensity={78}>
         <View style={{ paddingTop: 12, paddingBottom: 10, backgroundColor: theme.dark ? 'rgba(32,32,35,0.64)' : 'rgba(255,255,255,0.72)' }}>
-          <Text style={{ paddingHorizontal: 24, paddingTop: 2, paddingBottom: 5, fontSize: 11.5, fontWeight: '600', color: theme.text2 }}>{title}</Text>
+          <Text style={{ paddingHorizontal: 20, paddingTop: 2, paddingBottom: 5, fontSize: 11.5, fontWeight: '600', color: theme.text2 }}>{title}</Text>
           {children}
         </View>
       </Glass>

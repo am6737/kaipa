@@ -35,6 +35,7 @@ export function ProfileOverview({ theme, tiles, gear, yearDistance }: {
     sets: { id: string; name: string; detail: string }[];
     onOpenItems: () => void;
     onOpenSets: () => void;
+    onOpenSet: (setId: string) => void;
   };
   /** 当年每月里程（米），12 个月。 */
   yearDistance: { year: number; months: number[] };
@@ -90,33 +91,33 @@ export function ProfileOverview({ theme, tiles, gear, yearDistance }: {
         <GearStat theme={theme} value={gear.weightLabel} label={t('profile.gearWeight')} onPress={gear.onOpenItems} />
         <GearStat theme={theme} value={gear.valueLabel} label={t('profile.gearValue')} onPress={gear.onOpenItems} />
       </View>
+      <SectionHead theme={theme} title={t('profile.gearSetsTitle')} count={String(gear.sets.length)} onPress={gear.onOpenSets} />
       {gear.sets.length ? (
-        <>
-          <SectionHead theme={theme} title={t('profile.gearSetsTitle')} count={String(gear.sets.length)} onPress={gear.onOpenSets} />
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={{ marginHorizontal: -layout.pagePadding }}
-            contentContainerStyle={{ gap: 10, paddingHorizontal: layout.pagePadding }}
-          >
-            {gear.sets.map((set) => (
-              <Press
-                key={set.id}
-                onPress={gear.onOpenSets}
-                accessibilityRole="button"
-                scaleTo={0.98}
-                style={{ width: 168, height: 132, padding: 14, borderRadius: radius.card, backgroundColor: theme.fieldSurface, justifyContent: 'space-between' }}
-              >
-                <Backpack color={theme.text2} size={22} strokeWidth={1.8} />
-                <View>
-                  <Text numberOfLines={2} style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{set.name}</Text>
-                  <Text numberOfLines={1} style={{ fontSize: 12, color: theme.text2, marginTop: 2 }}>{set.detail}</Text>
-                </View>
-              </Press>
-            ))}
-          </ScrollView>
-        </>
-      ) : null}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ marginHorizontal: -layout.pagePadding }}
+          contentContainerStyle={{ gap: 10, paddingHorizontal: layout.pagePadding }}
+        >
+          {gear.sets.map((set) => (
+            <Press
+              key={set.id}
+              onPress={() => gear.onOpenSet(set.id)}
+              accessibilityRole="button"
+              scaleTo={0.98}
+              style={{ width: 168, height: 132, padding: 14, borderRadius: radius.card, backgroundColor: theme.fieldSurface, justifyContent: 'space-between' }}
+            >
+              <Backpack color={theme.text2} size={22} strokeWidth={1.8} />
+              <View>
+                <Text numberOfLines={2} style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{set.name}</Text>
+                <Text numberOfLines={1} style={{ fontSize: 12, color: theme.text2, marginTop: 2 }}>{set.detail}</Text>
+              </View>
+            </Press>
+          ))}
+        </ScrollView>
+      ) : (
+        <Text style={{ paddingVertical: space.xl, textAlign: 'center', fontSize: 14, color: theme.text3 }}>{t('profile.gearSetsEmptySelf')}</Text>
+      )}
 
       <YearChart theme={theme} {...yearDistance} />
     </View>

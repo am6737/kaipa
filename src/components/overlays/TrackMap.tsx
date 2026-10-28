@@ -5,6 +5,8 @@ import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { clusterWaypoints as groupWaypoints } from '../maps/waypointClusters';
 import { buildRouteWaypointMarkers } from '../discover/routeWaypointMarkers';
+import { EndpointBadge } from '../discover/routeEndpointMarkers';
+import { isLoopTrack } from '../../lib/routeDirection';
 import { trackWorldSpan } from '../maps/extent';
 import { DistanceMarker, DistancePill, distanceStepForLength } from '../maps/distanceMarkers';
 import { measureTrack, positionAtDistance } from '../../lib/routeSegments';
@@ -16,6 +18,7 @@ import {
   type NativeMapCamera,
   type NativeMapPoi,
 } from '../maps/NativeMap';
+import type { MapSnapshot } from '../maps/types';
 
 export type MapStyleId = 'standard' | 'terrain' | 'satellite';
 export type TrackMapWaypoint = { name: string; coord: [number, number]; km?: number };
@@ -26,6 +29,7 @@ export interface TrackMapHandle {
   fitRoute: () => void;
   resetNorth: () => void;
   focusPoint: (coordinate: [number, number]) => void;
+  takeSnapshot: (marks?: [number, number][]) => Promise<MapSnapshot>;
 }
 
 export function ensureNativeMapReady() {
@@ -64,6 +68,11 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   showMapLabels?: boolean;
   onCameraOrientationChange?: (heading: number, pitch: number) => void;
   routePadding?: [number, number, number, number];
+  /** Off when the ends were trimmed for privacy, so no dots mark a false start. */
+  showEndpoints?: boolean;
+  /** Mark the ends with the route page's 起/终 badges instead of plain dots. */
+  endpointBadges?: boolean;
+  onReady?: () => void;
 }>(function TrackMap({
   coords,
   theme,
@@ -90,6 +99,9 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   showMapLabels = true,
   onCameraOrientationChange,
   routePadding = [28, 28, 28, 28],
+  showEndpoints = true,
+  endpointBadges = false,
+  onReady,
 }, ref) {
   const { t } = useI18n();
   const window = useWindowDimensions();
@@ -121,6 +133,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
     fitRoute: () => mapRef.current?.fitCoordinates(coords, routePadding, 600),
     resetNorth: () => mapRef.current?.resetNorth(),
     focusPoint: (coordinate) => mapRef.current?.moveCamera(coordinate, Math.max(cameraRef.current.zoom, 13), 360, { edgePadding: routePadding }),
+    takeSnapshot: (marks) => mapRef.current?.takeSnapshot(marks) ?? Promise.reject(new Error('map not mounted')),
 
   }), [coords, routePadding]);
 
@@ -131,20 +144,28 @@ export const TrackMap = forwardRef<TrackMapHandle, {
 
   const markers = useMemo<NativeMapMarker[]>(() => {
     if (!coords.length) return [];
-    const values: NativeMapMarker[] = [
+    const values: NativeMapMarker[] = showEndpoints ? [
       {
-        id: 'track-start',
+        // Android snapshots marker content by id, so the wording lives in it.
+        id: endpointBadges ? `track-start-${t('route.direction.start')}` : 'track-start',
         coordinate: coords[0],
         anchor: { x: 0.5, y: 0.5 },
-        content: <View style={styles.startMarker} />,
+        zIndex: endpointBadges ? 3 : undefined,
+        content: endpointBadges
+          ? <EndpointBadge color="#34C759" label={t('route.direction.start')} />
+          : <View style={styles.startMarker} />,
       },
-    ];
-    if (coords.length > 1) {
+    ] : [];
+    // A loop has one trailhead, as on the route page.
+    if (showEndpoints && coords.length > 1 && !(endpointBadges && isLoopTrack(coords))) {
       values.push({
-        id: 'track-end',
+        id: endpointBadges ? `track-end-${t('route.direction.finish')}` : 'track-end',
         coordinate: coords[coords.length - 1],
         anchor: { x: 0.5, y: 0.5 },
-        content: <View style={[styles.endMarker, { backgroundColor: theme.danger }]} />,
+        zIndex: endpointBadges ? 3 : undefined,
+        content: endpointBadges
+          ? <EndpointBadge color={theme.danger} label={t('route.direction.finish')} />
+          : <View style={[styles.endMarker, { backgroundColor: theme.danger }]} />,
       });
     }
     if (scrubPt) {
@@ -275,7 +296,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
       });
     }
     return values;
-  }, [accent, clusterZoom, coords, numberWaypoints, onWaypointPress, routePadding, routeStyleWaypoints, scrubLabel, scrubPt, selectedWaypoint, selectedWaypointIndex, showWaypointCallout, showWaypoints, theme, waypointGroups, waypoints]);
+  }, [accent, clusterZoom, coords, endpointBadges, numberWaypoints, showEndpoints, t, onWaypointPress, routePadding, routeStyleWaypoints, scrubLabel, scrubPt, selectedWaypoint, selectedWaypointIndex, showWaypointCallout, showWaypoints, theme, waypointGroups, waypoints]);
 
   // Kept out of `markers`, so a mark tap or a scrub doesn't rebuild every label.
   const distanceMarkers = useMemo<NativeMapMarker[]>(() => {
@@ -348,6 +369,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
         onCameraChange={onCameraOrientationChange}
         onCameraPositionChange={(camera) => { cameraRef.current = camera; updateZoom(camera.zoom); }}
         onZoomChange={updateZoom}
+        onReady={onReady}
       />
       {showLegend ? (
         <View style={styles.legend}>

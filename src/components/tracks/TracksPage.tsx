@@ -39,7 +39,7 @@ import { Icon } from '../Icon';
 import type { IconName } from '../Icon';
 import { Press } from '../Press';
 import { Glass } from '../Glass';
-import { GearMenuTransition } from '../gear/GearMenuTransition';
+import { GearMenuTransition, usePendingMenuAction } from '../gear/GearMenuTransition';
 import {
   BottomControl,
   CompactMenuRow,
@@ -111,21 +111,22 @@ const formatMeters = (meters: number, resolved: 'zh' | 'en') => {
   return Math.round(meters).toLocaleString(resolved === 'zh' ? 'zh-CN' : 'en-US');
 };
 
-// Short record dates like 10月18日; en falls back to "Oct 18".
+// Short record dates like 10月18日; a track from another year carries its year,
+// so the same day in two years does not read as one. en falls back to "Oct 18".
 function formatTrackDate(iso: string | undefined, resolved: 'zh' | 'en') {
   if (!iso) return '';
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
-  if (resolved === 'zh') return `${date.getMonth() + 1}月${date.getDate()}日`;
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const otherYear = date.getFullYear() !== new Date().getFullYear();
+  if (resolved === 'zh') return `${otherYear ? `${date.getFullYear()}年` : ''}${date.getMonth() + 1}月${date.getDate()}日`;
+  return date.toLocaleDateString('en-US', otherYear ? { year: 'numeric', month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric' });
 }
 
-// The list row follows GearSetsList's SetRow: open on the page, distance alone
-// in the right column so it scans as one, ascent, date and tags in one caption.
+// The list row follows GearSetsList's SetRow: open on the page, name and date on
+// the left, the two figures people compare (distance over ascent) on the right.
 function TrackRow({
   theme,
   track,
-  appliedCount,
   selectMode,
   selected,
   dateText,
@@ -134,7 +135,6 @@ function TrackRow({
 }: {
   theme: Theme;
   track: Track;
-  appliedCount: number;
   selectMode: boolean;
   selected: boolean;
   dateText: string;
@@ -156,29 +156,10 @@ function TrackRow({
     onPress();
   };
 
-  const hasGeometry = track.distM != null || (track.ascM != null && track.ascM > 0);
+  const hasAscent = track.ascM != null && track.ascM > 0;
+  const hasGeometry = track.distM != null || hasAscent;
   const distParts = splitUnit(track.distM != null ? formatTrackDistance(track.distM) : '—');
-  const facts = [
-    track.ascM != null && track.ascM > 0 ? (
-      <View key="asc" style={{ flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: space.xxs }}>
-        <Icon name="arrowUp" color={theme.text2} size={12} strokeWidth={2} />
-        <Text style={[type.caption, { fontFamily: MONO, fontVariant: ['tabular-nums'], color: theme.text2 }]}>{formatTrackAscent(track.ascM)}</Text>
-      </View>
-    ) : null,
-    dateText ? (
-      <Text key="date" numberOfLines={1} style={[type.caption, { flexShrink: 1, color: theme.text2 }]}>{dateText}</Text>
-    ) : null,
-    appliedCount > 0 ? (
-      <View key="applied" style={{ flexShrink: 0, paddingHorizontal: space.xxs + 2, paddingVertical: 1, borderRadius: radius.control / 2, backgroundColor: theme.accentSoft }}>
-        <Text style={[type.micro, { fontWeight: '600', color: theme.accent }]}>{t('tracks.usage.pillApplied', { count: appliedCount })}</Text>
-      </View>
-    ) : null,
-    track.fileFormat && !selectMode ? (
-      <View key="fmt" style={{ flexShrink: 0, paddingHorizontal: space.xxs + 1, paddingVertical: 1, borderRadius: radius.control / 2, backgroundColor: theme.fieldSurface }}>
-        <Text style={[type.tiny, { fontFamily: MONO, fontWeight: '800', letterSpacing: 0.4, color: theme.text2 }]}>{track.fileFormat.toUpperCase()}</Text>
-      </View>
-    ) : null,
-  ].filter(Boolean);
+  const caption = [dateText, hasGeometry ? '' : t('tracks.meta.noGeometry')].filter(Boolean).join('  ');
 
   return (
     <Pressable
@@ -188,9 +169,9 @@ function TrackRow({
       accessibilityState={selectMode ? { selected } : undefined}
       accessibilityLabel={[
         track.name || t('tracks.untitled'),
+        dateText || null,
         track.distM != null ? formatTrackDistance(track.distM) : null,
-        track.ascM != null && track.ascM > 0 ? formatTrackAscent(track.ascM) : null,
-        appliedCount > 0 ? t('tracks.usage.applied', { count: appliedCount }) : null,
+        hasAscent ? formatTrackAscent(track.ascM!) : null,
       ].filter(Boolean).join(', ')}
       style={({ pressed }) => [{
         minHeight: ROW_MIN_HEIGHT,
@@ -208,17 +189,17 @@ function TrackRow({
         <Text numberOfLines={2} style={[type.cardTitle, { lineHeight: 20, color: theme.text }]}>
           {track.name || t('tracks.untitled')}
         </Text>
-        {facts.length ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minWidth: 0 }}>{facts}</View>
+        {caption ? (
+          <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>{caption}</Text>
         ) : null}
       </View>
-      <View style={{ flexShrink: 0, alignItems: 'flex-end' }}>
+      <View style={{ flexShrink: 0, alignItems: 'flex-end', gap: space.xxs }}>
         <Text numberOfLines={1} style={[type.metric, { fontVariant: ['tabular-nums'], color: track.distM != null ? theme.text : theme.text3 }]}>
           {distParts.value}
           {distParts.unit ? <Text style={[type.liveUnit, { color: theme.text2 }]}>{` ${distParts.unit}`}</Text> : null}
         </Text>
-        {!hasGeometry ? (
-          <Text style={[type.caption, { marginTop: space.xxs, color: theme.text3 }]}>{t('tracks.meta.noGeometry')}</Text>
+        {hasAscent ? (
+          <Text numberOfLines={1} style={[type.caption, { fontFamily: MONO, fontVariant: ['tabular-nums'], color: theme.text2 }]}>{formatTrackAscent(track.ascM!)}</Text>
         ) : null}
       </View>
       {selectMode ? <SelectMark theme={theme} selected={selected} /> : null}
@@ -279,7 +260,7 @@ function TrackEmptyPlaceholders({ theme, onPress }: { theme: Theme; onPress: (ev
 
 function TrackTabBar({ theme, tabs, activeKey, onSelect }: {
   theme: Theme;
-  tabs: { key: TrackFilter; label: string; count: number }[];
+  tabs: { key: TrackFilter; label: string }[];
   activeKey: TrackFilter;
   onSelect: (key: TrackFilter) => void;
 }) {
@@ -295,10 +276,7 @@ function TrackTabBar({ theme, tabs, activeKey, onSelect }: {
             onPress={() => onSelect(tab.key)}
             style={{ height: TAB_BAR_HEIGHT, justifyContent: 'center' }}
           >
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: space.xxs }}>
-              <Text style={[type.cardTitle, { fontWeight: active ? '800' : '600', color: active ? theme.text : theme.text2 }]}>{tab.label}</Text>
-              <Text style={[type.micro, { fontFamily: MONO, fontVariant: ['tabular-nums'], color: theme.text3 }]}>{tab.count}</Text>
-            </View>
+            <Text style={[type.cardTitle, { fontWeight: active ? '800' : '600', color: active ? theme.text : theme.text2 }]}>{tab.label}</Text>
             {active ? (
               <View pointerEvents="none" style={{ position: 'absolute', left: 0, bottom: space.xxs, height: 3, minWidth: space.md, alignSelf: 'flex-start', borderRadius: radius.pill, backgroundColor: theme.accent }} />
             ) : null}
@@ -311,13 +289,14 @@ function TrackTabBar({ theme, tabs, activeKey, onSelect }: {
 
 // The add pill's menu: two rows that go straight into their step, anchored next
 // to the control that opened it, like AddGearMenu.
-function TrackAnchoredMenu({ theme, visible, anchor, title, rows, onClose }: {
+function TrackAnchoredMenu({ theme, visible, anchor, title, rows, onClose, onClosed }: {
   theme: Theme;
   visible: boolean;
   anchor: MenuAnchor | null;
   title: string;
   rows: { key: string; icon: IconName; label: string; subtitle: string; onPress: () => void }[];
   onClose: () => void;
+  onClosed?: () => void;
 }) {
   const { width, height } = useWindowDimensions();
   const MENU_WIDTH = 250;
@@ -335,6 +314,7 @@ function TrackAnchoredMenu({ theme, visible, anchor, title, rows, onClose }: {
       theme={theme}
       visible={visible}
       onClose={onClose}
+      onClosed={onClosed}
       placement={above ? 'bottom' : 'top'}
       backdropColor="transparent"
       positionStyle={{
@@ -348,10 +328,10 @@ function TrackAnchoredMenu({ theme, visible, anchor, title, rows, onClose }: {
     >
       <Glass solidOnAndroid theme={theme} radius={radius.feature} intensity={78}>
         <View style={{ paddingTop: space.sm, paddingBottom: space.xs, backgroundColor: theme.dark ? 'rgba(32,32,35,0.64)' : 'rgba(255,255,255,0.72)' }}>
-          <Text style={[type.eyebrow, { paddingHorizontal: space.xl, paddingBottom: space.xxs, color: theme.text2 }]}>{title}</Text>
+          <Text style={[type.eyebrow, { paddingHorizontal: space.lg, paddingBottom: space.xxs, color: theme.text2 }]}>{title}</Text>
           {rows.map((row) => (
             <Press key={row.key} accessibilityRole="button" onPress={row.onPress} style={{ minHeight: layout.fieldHeight + space.sm, paddingHorizontal: space.lg, flexDirection: 'row', alignItems: 'center' }}>
-              <View style={{ width: space.xl, alignItems: 'center' }}><Icon name={row.icon} color={theme.text} size={20} strokeWidth={1.9} /></View>
+              <View style={{ width: space.xl, alignItems: 'center' }}><Icon name={row.icon} color={theme.text} size={19} strokeWidth={1.8} /></View>
               <View style={{ flex: 1, marginLeft: space.sm, minWidth: 0 }}>
                 <Text numberOfLines={1} style={[type.body, { color: theme.text }]}>{row.label}</Text>
                 <Text numberOfLines={1} style={[type.caption, { marginTop: space.xxs, color: theme.text2 }]}>{row.subtitle}</Text>
@@ -384,7 +364,7 @@ function TrackSortMenu({ theme, visible, title, onClose, children }: { theme: Th
     >
       <Glass solidOnAndroid theme={theme} radius={radius.feature} intensity={78}>
         <View style={{ paddingTop: space.sm, paddingBottom: space.xs, backgroundColor: theme.dark ? 'rgba(32,32,35,0.64)' : 'rgba(255,255,255,0.72)' }}>
-          <Text style={[type.eyebrow, { paddingHorizontal: space.xl, paddingBottom: space.xxs, color: theme.text2 }]}>{title}</Text>
+          <Text style={[type.eyebrow, { paddingHorizontal: space.lg, paddingBottom: space.xxs, color: theme.text2 }]}>{title}</Text>
           {children}
         </View>
       </Glass>
@@ -401,7 +381,7 @@ export function TracksPage({
   theme: Theme;
   onBack: () => void;
   onOpenTrack: (track: Track) => void;
-  entryVariant?: 'push' | 'continuationX' | 'continuationY';
+  entryVariant?: 'push' | 'continuationX' | 'continuationY' | 'none';
 }) {
   const { t, resolved } = useI18n();
   const nav = useNav();
@@ -453,11 +433,6 @@ export function TracksPage({
     return track.name.toLocaleLowerCase().includes(needle)
       || (track.fileName ?? '').toLocaleLowerCase().includes(needle);
   }), [data.tracks, needle]);
-  const tabCounts = useMemo(() => {
-    let applied = 0;
-    for (const track of searchMatches) if (usedIds.has(track.id)) applied += 1;
-    return { all: searchMatches.length, applied, unused: searchMatches.length - applied };
-  }, [searchMatches, usedIds]);
   const rows = useMemo(() => {
     const matches = searchMatches.filter((track) => {
       const used = usedIds.has(track.id);
@@ -519,11 +494,16 @@ export function TracksPage({
     setSearchOpen(false);
     setFilter('all');
   };
-  // Menus close first and act on a small delay so the pressed row is visible
-  // for a beat before the page reacts, matching the gear list menus.
+  // Menu rows act once their menu has finished closing: the import picker
+  // never appears on iOS if it is presented while the menu is still dismissing.
+  const menuAction = usePendingMenuAction();
   const closeMoreThen = (action: () => void) => {
+    menuAction.run(action);
     setMoreOpen(false);
-    setTimeout(action, 140);
+  };
+  const closeAddThen = (action: () => void) => {
+    menuAction.run(action);
+    setAddOpen(false);
   };
   const openAddMenu = (event: GestureResponderEvent) => {
     measureAnchor(event).then((anchor) => {
@@ -719,7 +699,7 @@ export function TracksPage({
             </View>
           </View>
 
-          <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + layout.topBarHeight + space.md} width={Math.min(232, width - space.sm * 2)} onClose={() => setMoreOpen(false)}>
+          <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + layout.topBarHeight + space.md} width={Math.min(232, width - space.sm * 2)} onClose={() => { menuAction.cancel(); setMoreOpen(false); }} onClosed={menuAction.onClosed}>
             <MenuCaption theme={theme} text={t('journey.section.manage')} />
             <MenuRow theme={theme} icon="checkAll" label={t('tracks.action.select')} onPress={() => closeMoreThen(() => { setSelectedIds(new Set()); setSelectMode(true); })} />
             {offlineMapsAvailable() ? (
@@ -748,10 +728,11 @@ export function TracksPage({
               anchor={addAnchor}
               title={t('tracks.action.add')}
               rows={[
-                { key: 'import', icon: 'upload', label: t('tracks.add.import'), subtitle: t('tracks.add.importSub'), onPress: () => { setAddOpen(false); void runImport(); } },
-                { key: 'record', icon: 'record', label: t('tracks.add.record'), subtitle: t('tracks.add.recordSub'), onPress: () => { setAddOpen(false); recordTrail(); } },
+                { key: 'import', icon: 'upload', label: t('tracks.add.import'), subtitle: t('tracks.add.importSub'), onPress: () => closeAddThen(() => { void runImport(); }) },
+                { key: 'record', icon: 'record', label: t('tracks.add.record'), subtitle: t('tracks.add.recordSub'), onPress: () => closeAddThen(recordTrail) },
               ]}
-              onClose={() => setAddOpen(false)}
+              onClose={() => { menuAction.cancel(); setAddOpen(false); }}
+              onClosed={menuAction.onClosed}
             />
           ) : null}
         </>
@@ -846,9 +827,9 @@ export function TracksPage({
             activeKey={filter}
             onSelect={setFilter}
             tabs={[
-              { key: 'all', label: t('tracks.filter.all'), count: tabCounts.all },
-              { key: 'applied', label: t('tracks.filter.applied'), count: tabCounts.applied },
-              { key: 'unused', label: t('tracks.filter.unused'), count: tabCounts.unused },
+              { key: 'all', label: t('tracks.filter.all') },
+              { key: 'applied', label: t('tracks.filter.applied') },
+              { key: 'unused', label: t('tracks.filter.unused') },
             ]}
           />
         ) : <View />}
@@ -872,7 +853,6 @@ export function TracksPage({
                 key={track.id}
                 theme={theme}
                 track={track}
-                appliedCount={usageByTrack.get(track.id)?.length ?? 0}
                 selectMode={selectMode}
                 selected={selectedIds.has(track.id)}
                 dateText={formatTrackDate(track.startedAt ?? track.createdAt, resolved)}

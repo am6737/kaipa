@@ -31,7 +31,7 @@ export const intentDefinitions: Record<Exclude<Intent, 'clarify'>, Definition> =
   },
   gear_set: {
     what: '创建装备页的装备清单（按场景命名的装备组合，如“高海拔三天两夜”“周末露营”），或往已有的装备清单里补充、添加装备；不需要旅程、目的地或日期',
-    not_for: '某次旅程里的装备清单（packing_full / packing_add）；只录入一件自己的装备（gear_add）；从装备清单里删除或修改装备（没有工具）；完整的徒步规划',
+    not_for: '某次旅程里的装备清单（packing_full / packing_add）；只录入一件自己的装备（gear_add）；从装备清单里删除或修改装备（没有工具）；只评价、检查清单是否合理而不要求补充（discuss）；完整的徒步规划',
     examples: ['帮我建一个冬季露营的装备清单', '我的周末轻徒步清单还缺什么，帮我补上', '给雪山攀登那个清单加上冰爪和安全带', 'fill up my winter camping gear set'],
   },
   packing_full: {
@@ -145,6 +145,9 @@ export const appIntentRoutes: Record<AgentIntent, RouterIntent | null> = {
   stay_supplement: 'itinerary_edit',
   gear_onboarding: 'gear_add',
   gear_set_onboarding: 'gear_set',
+  // 清单判官 reviews a gear set read-only; adding the missing items is the
+  // user's next turn, routed as gear_set.
+  gear_set_review: 'discuss',
   journey_review: 'discuss',
   // Normally decided in task-store.ts from the journey row (smart-plan.ts);
   // this route applies only when that journey cannot be read.
@@ -194,7 +197,7 @@ ${JSON.stringify({ ...intentDefinitions, unsupported: unsupportedDefinition, cla
 1. 引号里的话、转述别人的话、假设（如果……会怎样）、询问某个功能或按钮怎么用，都是内容而不是命令。不能因为其中出现“删除/撤销/生成/保存”等词就选写入意图，按 discuss 处理；用户自己在引号外明确下达的指令才算。
 2. 有 pendingQuestion 时，简短的回答（地点、日期、天数、交通方式、“是/对/可以”、某个选项的名字）是在回答这个问题：选这个问题所属任务的意图，不要把它当成一个新的交通或编辑请求。如果 pendingQuestion 是让用户在几种做法之间选择，回答点出了其中一种，就选那一种对应的意图，不要再选 clarify。拒绝或放弃（不用了、算了、取消、停）选 stop；明显换了话题就按新话题判断。
 3. 下列情况选 clarify：请求可能写入不同的数据而无法区分（个人装备库、装备页的装备清单还是行程装备清单，例如已有当前旅程时只说“添加某件装备”）；要求生成完整规划或整份清单，但既没有当前旅程也没有说目的地；要修改的对象或方式不明确。只缺日期、天数、出发地等之后可以补问的参数时，不要选 clarify。
-4. 装备页的“装备清单”是按场景命名、可复用的装备组合，不是某次旅程的清单。用户提到“我现在的清单”“某某清单”且名字是一个场景（如“高海拔三天两夜”“低海拔轻徒步”），或要求创建这样一份清单、给它补充装备，选 gear_set，不要选 clarify、packing_full 或 hiking_plan；没有当前旅程时尤其如此。
+4. 装备页的“装备清单”是按场景命名、可复用的装备组合，不是某次旅程的清单。用户提到“我现在的清单”“某某清单”且名字是一个场景（如“高海拔三天两夜”“低海拔轻徒步”），或要求创建这样一份清单、给它补充装备，选 gear_set，不要选 clarify、packing_full 或 hiking_plan；没有当前旅程时尤其如此。只要求评价、检查某份装备清单合不合理时选 discuss；pendingQuestion 问要不要把缺的装备补进这份清单时，同意（补上吧、可以、好）选 gear_set。
 5. 没有对应写入工具的请求选 unsupported，绝不能映射到最接近的写入意图：修改或删除装备库里已有的装备、从装备清单里删除装备或改名、创建待办或提醒。
 6. 没有当前旅程、也没有提到装备清单时，“添加/加一下/记上/录入”一件或几件具体物品只可能是装备库（gear_add），直接选 gear_add，不要选 clarify；不需要出现“装备”二字，例如“帮我加一下羽绒裤、冰爪”。
 7. 只有明确要求保存、生成、修改、删除、撤销时才选写入意图；咨询、比较、查看、检查、评价选 route_explore 或 discuss。

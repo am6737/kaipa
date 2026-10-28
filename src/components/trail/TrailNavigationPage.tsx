@@ -21,7 +21,7 @@ import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useStat
 import { AccessibilityInfo, Animated, BackHandler, Linking, PanResponder, Platform, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { platformLocationImage } from '../maps/locationImage';
-import { AppProgressBar, layout, motion, radius, space, type } from '../../design-system';
+import { AppActionDialog, AppProgressBar, layout, motion, radius, space, type } from '../../design-system';
 import { useData } from '../../data/DataContext';
 import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
@@ -31,6 +31,7 @@ import { distanceMeters, JOURNEY_SEGMENT_COLORS, type Coordinate } from '../../l
 import { formatClock, formatPace, remainingAscent, routeMeasure, splitDistance, type RouteProgress, type TrailFix } from '../../lib/trailGeo';
 import { previewTrailVoice, setTrailVoice } from '../../lib/trailGuide';
 import { takeTrailPhoto } from '../../lib/trailMarkPhotos';
+import { dismissLockScreenGuide, shouldShowLockScreenGuide } from '../../lib/trailLockScreenGuide';
 import { getTrailLayers, getTrailOverlays, setTrailLayer, setTrailOverlays, subscribeTrailLayers, subscribeTrailOverlays } from '../../lib/trailOverlays';
 import {
   addTrailMark,
@@ -101,6 +102,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
   const [readyHeight, setReadyHeight] = useState(392);
   const [readyHidden, setReadyHidden] = useState(262);
   const [readyOpen, setReadyOpen] = useState(false);
+  const [lockGuide, setLockGuide] = useState(false);
   const readyLift = useRef(new Animated.Value(0)).current;
   const [sheetIndex, setSheetIndex] = useState(1);
   const sheetY = useRef(new Animated.Value(0)).current;
@@ -533,7 +535,13 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
     if (ok) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
       followMe();
+      void shouldShowLockScreenGuide().then((show) => { if (show) setLockGuide(true); });
     }
+  };
+
+  const closeLockGuide = (openSettings: boolean) => {
+    setLockGuide(false);
+    dismissLockScreenGuide(openSettings);
   };
 
   const movingMs = trailMovingMs(session);
@@ -806,6 +814,17 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
           setOverlayPicker(false);
           setTrailOverlays(ids);
         }}
+      />
+
+      <AppActionDialog
+        theme={theme}
+        visible={lockGuide}
+        title={t('trail.lockGuide.title')}
+        message={t('trail.lockGuide.message')}
+        confirmLabel={t('trail.lockGuide.open')}
+        cancelLabel={t('trail.lockGuide.later')}
+        onConfirm={() => closeLockGuide(true)}
+        onCancel={() => closeLockGuide(false)}
       />
 
     </View>

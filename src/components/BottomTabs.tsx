@@ -9,9 +9,9 @@ import { useNav, MainTab } from '../nav/NavContext';
 import { countRender, markTabTap } from '../lib/tabSwitchProbe';
 import { useI18n } from '../i18n';
 import { useNotifCenter } from '../data/notifications';
-import { useTrail, useTrailSnapshot } from '../trail/TrailContext';
+import { useTrail, useTrailStatus } from '../trail/TrailContext';
 import { formatClock } from '../lib/trailGeo';
-import { trailMovingMs } from '../lib/trailRecorder';
+import { getTrailSnapshot, trailMovingMs } from '../lib/trailRecorder';
 
 // 记录 is an action rather than a screen: it opens the 徒步导航 page over
 // whichever tab is showing, ready for a free walk or the running recording.
@@ -32,7 +32,8 @@ const BAR_BORDER = 1.5;
 export function BottomTabs({ theme, hidden = false }: { theme: Theme; hidden?: boolean }) {
   const nav = useNav();
   const trail = useTrail();
-  const { session } = useTrailSnapshot();
+  // The status only: the whole snapshot changes on every GPS fix.
+  const trailStatus = useTrailStatus();
   countRender('Tabs');
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
@@ -140,15 +141,15 @@ export function BottomTabs({ theme, hidden = false }: { theme: Theme; hidden?: b
                 <Press
                   key={tab}
                   accessibilityRole="button"
-                  accessibilityLabel={session ? `${t('tabs.record')} ${t(`trail.status.${session.status}`)}` : t('tabs.record')}
+                  accessibilityLabel={trailStatus ? `${t('tabs.record')} ${t(`trail.status.${trailStatus}`)}` : t('tabs.record')}
                   onPress={() => trail.openTrail()}
                   style={styles.tab}
                 >
                   {renderContent(
                     tab,
                     false,
-                    session ? (session.status === 'recording' ? theme.trailMine : theme.text3) : undefined,
-                    session ? <RecordClock theme={theme} /> : undefined,
+                    trailStatus ? (trailStatus === 'recording' ? theme.trailMine : theme.text3) : undefined,
+                    trailStatus ? <RecordClock theme={theme} /> : undefined,
                   )}
                 </Press>
               );
@@ -183,9 +184,11 @@ export function BottomTabs({ theme, hidden = false }: { theme: Theme; hidden?: b
 
 /** The 记录 tab's label during a recording: the moving time, ticking on its own so the bar doesn't re-render. */
 function RecordClock({ theme }: { theme: Theme }) {
-  const { session } = useTrailSnapshot();
+  const status = useTrailStatus();
   const [, setTick] = useState(0);
-  const recording = session?.status === 'recording';
+  const recording = status === 'recording';
+  // Moving time only moves with the status, which re-renders this, and the tick.
+  const session = getTrailSnapshot().session;
 
   useEffect(() => {
     if (!recording) return;

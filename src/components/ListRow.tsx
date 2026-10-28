@@ -9,6 +9,7 @@ import { orderCompanionsForDisplay, Poi } from '../data/pois';
 import { Avatar, AvatarStack } from './Avatar';
 import { Icon } from './Icon';
 import { Press } from './Press';
+import { regionLabel } from '../lib/regionLabel';
 
 export function PoiRow({
   theme,
@@ -58,8 +59,8 @@ export function PoiRow({
             {poi.fav && <Icon name="heartFill" color={theme.trailMine} size={13} />}
           </View>
           <Text numberOfLines={1} style={{ fontSize: 11.5, color: theme.text2 }}>
-            {poi.region}
-            {isJourney && poi.date ? ' · ' + poi.date : ''}
+            {regionLabel(poi.region)}
+            {isJourney && poi.date ? '  ' + poi.date : ''}
           </Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2 }}>{poi.dist}</Text>

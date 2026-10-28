@@ -23,6 +23,7 @@ import { PhotoTile } from '../PhotoTile';
 import { Glass, GlassIconBtn } from '../Glass';
 import { ToneAvatar } from '../ToneAvatar';
 import { useI18n } from '../../i18n';
+import { regionLabel } from '../../lib/regionLabel';
 
 type Phase = 'starting' | 'needsHotspot' | 'live' | 'error';
 type Peer = { id: string; name: string; tone: string };
@@ -120,7 +121,7 @@ export function HostShareSheet({ theme, poi, onClose, onToast }: { theme: Theme;
         <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingTop: insets.top + 56, paddingHorizontal: 22, paddingBottom: insets.bottom + 20 }}>
           {/* title */}
           <Text style={{ fontSize: 26, fontWeight: '800', color: '#fff', letterSpacing: -0.5, textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 14, textShadowOffset: { width: 0, height: 1 } }} numberOfLines={2}>{poi.name}</Text>
-          {poi.region ? <Text style={{ fontFamily: MONO, fontSize: 12, color: 'rgba(255,255,255,0.72)', textAlign: 'center', marginTop: 8, letterSpacing: 0.3 }}>{poi.region}</Text> : null}
+          {poi.region ? <Text style={{ fontFamily: MONO, fontSize: 12, color: 'rgba(255,255,255,0.72)', textAlign: 'center', marginTop: 8, letterSpacing: 0.3 }}>{regionLabel(poi.region)}</Text> : null}
 
           {/* QR pass */}
           <View style={{ alignItems: 'center', marginTop: 26, marginBottom: 8 }}>

@@ -12,6 +12,7 @@ import { radius, space } from '../design-system';
 import { TrackThumbnail } from '../components/tracks/TrackThumbnail';
 import { searchPublishedTracks, type PublishedTrackCard } from '../hooks/useSocial';
 import { formatTrackAscent, formatTrackDistance } from '../lib/trackParser';
+import { regionLabel } from '../lib/regionLabel';
 
 const CHINA_REGIONS = [
   '全国', '北京', '上海', '天津', '重庆', '河北', '山西', '辽宁', '吉林', '黑龙江',
@@ -178,7 +179,7 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
         <Highlight text={poi.name} query={normalizedQuery} theme={theme} style={[styles.resultTitle, { color: theme.text }]} />
         <View style={styles.resultSubRow}>
           <Text style={[styles.resultSubKind, { color: theme.text3 }]}>{kind === 'route' ? '路线' : '旅程'}</Text>
-          <Highlight text={kind === 'route' ? (poi.region || poi.desc || '') : (poi.date || poi.region || '')} query={normalizedQuery} theme={theme} style={[styles.resultSub, { color: theme.text3 }]} />
+          <Highlight text={kind === 'route' ? (regionLabel(poi.region) || poi.desc || '') : (poi.date || regionLabel(poi.region))} query={normalizedQuery} theme={theme} style={[styles.resultSub, { color: theme.text3 }]} />
         </View>
       </View>
     </Press>
@@ -212,7 +213,7 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
         <Highlight text={`${route.name} 攻略`} query={normalizedQuery} theme={theme} style={[styles.resultTitle, { color: theme.text }]} />
         <View style={styles.resultSubRow}>
           <Text style={[styles.resultSubKind, { color: theme.text3 }]}>攻略</Text>
-          <Highlight text={route.region || '路线攻略'} query={normalizedQuery} theme={theme} style={[styles.resultSub, { color: theme.text3 }]} />
+          <Highlight text={regionLabel(route.region) || '路线攻略'} query={normalizedQuery} theme={theme} style={[styles.resultSub, { color: theme.text3 }]} />
         </View>
       </View>
     </Press>

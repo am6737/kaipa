@@ -41,6 +41,7 @@ import ReAnimated, { Easing, cancelAnimation, interpolate, runOnJS, useAnimatedS
 import { journeyDayDisplayLabel, journeyDayKey, journeyDayOrdinal, nextJourneyDayKey } from '../lib/journeyDays';
 import { useJourneyVersionSummary, type JourneyVersionSnapshot } from '../hooks/useJourneyVersions';
 import { formatJourneyVersionTime, journeyVersionActivitySummary } from '../components/journey/journeyVersionPresentation';
+import { regionLabel } from '../lib/regionLabel';
 
 function SectionHeader({ theme, title, action, onAction }: { theme: Theme; title: string; action?: string; onAction?: () => void }) {
   const trailing = action ? (
@@ -2272,7 +2273,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
               }}
             >
               <Text style={[type.body, { color: theme.text2, flex: 1 }]} numberOfLines={1}>
-                {poi.region}
+                {regionLabel(poi.region)}
               </Text>
               <View
                 style={{
@@ -2345,8 +2346,8 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                   marginTop: 3,
                 }}
               >
-              {poi.region}
-              {isJourney && journeyTimingValue !== '—' ? ' · ' + journeyTimingValue : ''}
+              {regionLabel(poi.region)}
+              {isJourney && journeyTimingValue !== '—' ? '  ' + journeyTimingValue : ''}
             </Text>
           </View>
         </View>

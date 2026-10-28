@@ -19,6 +19,7 @@ import { PhotoTile } from '../PhotoTile';
 import { Glass, GlassIconBtn } from '../Glass';
 import { ToneAvatar } from '../ToneAvatar';
 import { useI18n } from '../../i18n';
+import { regionLabel } from '../../lib/regionLabel';
 
 type View_ = 'list' | 'preview' | 'joining' | 'joined' | 'failed';
 type NearbyShare = { id: string; journey: string; region: string; host: string; hostTone: string; tone: string; joined: number };
@@ -175,7 +176,7 @@ function PreviewView({ theme, t, insets, share, onJoin }: { theme: Theme; t: Ret
       </View>
 
       <Text style={{ fontSize: 34, fontWeight: '800', color: '#fff', letterSpacing: -0.6, lineHeight: 38, textShadowColor: 'rgba(0,0,0,0.45)', textShadowRadius: 16, textShadowOffset: { width: 0, height: 2 } }}>{share.journey}</Text>
-      <Text style={{ fontFamily: MONO, fontSize: 12.5, color: 'rgba(255,255,255,0.78)', marginTop: 9, letterSpacing: 0.3 }}>{share.region}</Text>
+      <Text style={{ fontFamily: MONO, fontSize: 12.5, color: 'rgba(255,255,255,0.78)', marginTop: 9, letterSpacing: 0.3 }}>{regionLabel(share.region)}</Text>
 
       <Glass solidOnAndroid theme={theme} radius={16} intensity={30} style={{ marginTop: 18 }}>
         <View style={{ flexDirection: 'row' }}>

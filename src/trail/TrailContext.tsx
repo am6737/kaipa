@@ -16,6 +16,7 @@ import {
   type TrailRouteRef,
   type TrailSession,
   type TrailSnapshot,
+  type TrailStatus,
 } from '../lib/trailRecorder';
 import { elevationProfile } from '../lib/trailGeo';
 import { distanceMeters } from '../lib/routeSegments';
@@ -50,12 +51,48 @@ interface TrailValue {
 
 const TrailContext = createContext<TrailValue | null>(null);
 
+/**
+ * Passes changes on only while the app is on screen, and once more on coming
+ * back if any were missed. In the background Android stops mounting and queues
+ * every React commit until the app returns: a fix every 2 s re-rendering the
+ * tab bar, the pill or the trail map piled up hundreds of commits that all
+ * landed in the first frames back, as lag on the first tab taps. The recorder
+ * and trailGuide keep their own listeners, so recording and voice carry on.
+ */
+function whileOnScreen(subscribe: (listener: () => void) => () => void) {
+  return (listener: () => void) => {
+    let missed = false;
+    const unsubscribe = subscribe(() => {
+      if (AppState.currentState === 'background' || AppState.currentState === 'inactive') missed = true;
+      else listener();
+    });
+    const appState = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' || !missed) return;
+      missed = false;
+      listener();
+    });
+    return () => {
+      unsubscribe();
+      appState.remove();
+    };
+  };
+}
+
+const subscribeTrailOnScreen = whileOnScreen(subscribeTrail);
+const subscribeTrailGuideOnScreen = whileOnScreen(subscribeTrailGuide);
+const getTrailStatus = () => getTrailSnapshot().session?.status ?? null;
+
 export function useTrailSnapshot(): TrailSnapshot {
-  return useSyncExternalStore(subscribeTrail, getTrailSnapshot, getTrailSnapshot);
+  return useSyncExternalStore(subscribeTrailOnScreen, getTrailSnapshot, getTrailSnapshot);
+}
+
+/** Just the recording's status, for chrome that shouldn't re-render on every fix. */
+export function useTrailStatus(): TrailStatus | null {
+  return useSyncExternalStore(subscribeTrailOnScreen, getTrailStatus, getTrailStatus);
 }
 
 export function useTrailGuide(): TrailGuideState {
-  return useSyncExternalStore(subscribeTrailGuide, getTrailGuide, getTrailGuide);
+  return useSyncExternalStore(subscribeTrailGuideOnScreen, getTrailGuide, getTrailGuide);
 }
 
 export function useTrail(): TrailValue {

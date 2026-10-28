@@ -5,7 +5,6 @@ import React, { useRef, useState } from 'react';
 import { View, Text, StyleSheet, useWindowDimensions, Animated, Easing as NativeEasing, Platform, Share, Switch } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReAnimated, { Easing, cancelAnimation, interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { MoreHorizontal, Share2, type LucideIcon } from 'lucide-react-native';
 import { captureRef } from 'react-native-view-shot';
@@ -22,10 +21,10 @@ import { openVisibilityPicker, visibilityLabel } from '../social/VisibilityPicke
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat, GearSet, Metric, METRICS, itemWeight, itemPrice, itemQty, packStats, WeightUnit, fmtWeight, splitWeight } from '../../data/gear';
 import { GearItemRow, yuan, yuanWithGap } from './parts';
-import { DetailPage, space, type } from '../../design-system';
+import { DetailPage, layout, radius, space, type } from '../../design-system';
 import { LabeledDonut, Row } from './LabeledDonut';
 import { buildGearSetText, GearSetExportData, GearSetPoster } from './GearSetExport';
-import { GearMenuTransition } from './GearMenuTransition';
+import { GearMenuTransition, usePendingMenuAction } from './GearMenuTransition';
 import { BottomControl, EmptyPlaceholderCards, SummaryStat } from './GearItemsList';
 
 const fieldBg = (t: Theme) => t.fieldSurface;
@@ -151,36 +150,45 @@ function ExportMenuRow({ theme, icon, label, onPress, destructive = false, trail
   return (
     <Press
       onPress={onPress}
-      style={{ height: 62, paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center' }}
+      style={{ height: MENU_ROW, paddingHorizontal: space.lg, flexDirection: 'row', alignItems: 'center' }}
       scaleTo={0.985}
     >
-      <View style={{ width: 28, alignItems: 'center' }}>
-        {icon ? <Icon name={icon} color={color} size={23} strokeWidth={1.9} /> : null}
+      <View style={{ width: space.xl, alignItems: 'center' }}>
+        {icon ? <Icon name={icon} color={color} size={19} strokeWidth={1.8} /> : null}
       </View>
-      <Text style={{ marginLeft: 18, fontSize: 15, fontWeight: '400', color }}>{label}</Text>
+      <Text style={[type.body, { marginLeft: space.sm, color }]}>{label}</Text>
       {trailing ? <View style={{ marginLeft: 'auto' }}>{trailing}</View> : null}
     </Press>
   );
 }
 
-function FloatingMenu({ theme, visible, top, width, animatedStyle, onClose, children }: { theme: Theme; visible: boolean; top: number; width: number; animatedStyle?: any; onClose: () => void; children: React.ReactNode }) {
+// The ⋯ menu animates its height, so its size is computed from these rows:
+// 清单判官 or AI 配装, 展示设置, 谁可以看到, 编辑, 复制, 删除 plus the 4 display switches.
+const MENU_ROW = layout.menuRowHeight;
+const MENU_PAD = space.xs;
+const DISPLAY_PANEL_PAD = space.xxs;
+const MORE_MENU_HEIGHT = MENU_PAD * 2 + MENU_ROW * 6;
+const DISPLAY_PANEL_HEIGHT = MENU_ROW * 4 + DISPLAY_PANEL_PAD;
+
+function FloatingMenu({ theme, visible, top, width, animatedStyle, onClose, onClosed, children }: { theme: Theme; visible: boolean; top: number; width: number; animatedStyle?: any; onClose: () => void; onClosed?: () => void; children: React.ReactNode }) {
   return (
     <GearMenuTransition
       theme={theme}
       visible={visible}
       onClose={onClose}
+      onClosed={onClosed}
       positionStyle={[{
         position: 'absolute',
         top,
         right: 14,
         width,
-        borderRadius: 26,
+        borderRadius: radius.feature,
         overflow: 'hidden',
         boxShadow: theme.dark ? '0px 18px 46px rgba(0,0,0,0.52)' : '0px 18px 46px rgba(0,0,0,0.18)',
       }, animatedStyle]}
     >
-      <Glass solidOnAndroid theme={theme} radius={26} intensity={76}>
-        <View style={{ backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)', paddingVertical: 13 }}>
+      <Glass solidOnAndroid theme={theme} radius={radius.feature} intensity={76}>
+        <View style={{ backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)', paddingVertical: MENU_PAD }}>
           {children}
         </View>
       </Glass>
@@ -190,8 +198,8 @@ function FloatingMenu({ theme, visible, top, width, animatedStyle, onClose, chil
 
 function DisplaySettingRow({ theme, label, value, onChange, last }: { theme: Theme; label: string; value: boolean; onChange: (value: boolean) => void; last?: boolean }) {
   return (
-    <View style={{ minHeight: 56, paddingLeft: 70, paddingRight: 24, flexDirection: 'row', alignItems: 'center', borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth, borderBottomColor: theme.hairline }}>
-      <Text style={{ flex: 1, fontSize: 13.5, lineHeight: 18, color: theme.text }}>{label}</Text>
+    <View style={{ height: MENU_ROW, paddingLeft: space.lg + space.xl + space.sm, paddingRight: space.lg, flexDirection: 'row', alignItems: 'center', borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth, borderBottomColor: theme.hairline }}>
+      <Text style={[type.small, { flex: 1, color: theme.text }]}>{label}</Text>
       <View style={{ width: 42, height: 28, marginLeft: 6, alignItems: 'center', justifyContent: 'center' }}>
         <Switch value={value} onValueChange={onChange} trackColor={{ false: theme.hairline, true: theme.accent }} thumbColor="#FFFFFF" style={{ transform: [{ scale: 0.78 }] }} />
       </View>
@@ -257,16 +265,17 @@ function GearSetDetailView({
   const displayProgress = useSharedValue(0);
   const posterRef = useRef<any>(null);
   const exportingRef = useRef(false);
+  const menuAction = usePendingMenuAction();
 
   const moreMenuStyle = useAnimatedStyle(() => ({
-    height: interpolate(displayProgress.value, [0, 1], [318, 544]),
+    height: interpolate(displayProgress.value, [0, 1], [MORE_MENU_HEIGHT, MORE_MENU_HEIGHT + DISPLAY_PANEL_HEIGHT]),
   }));
   const displayPanelStyle = useAnimatedStyle(() => ({
     opacity: displayProgress.value,
     transform: [{ translateY: interpolate(displayProgress.value, [0, 1], [-8, 0]) }],
   }));
   const displayActionsStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: interpolate(displayProgress.value, [0, 1], [-226, 0]) }],
+    transform: [{ translateY: interpolate(displayProgress.value, [0, 1], [-DISPLAY_PANEL_HEIGHT, 0]) }],
   }));
   const displayChevronStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${interpolate(displayProgress.value, [0, 1], [0, 180])}deg` }],
@@ -360,7 +369,6 @@ function GearSetDetailView({
       pack: t('gear.pack.pack'),
       worn: t('gear.pack.worn'),
       consumable: t('gear.pack.consumable'),
-      generatedBy: t('gear.setDetail.generatedBy'),
     },
   };
 
@@ -380,31 +388,41 @@ function GearSetDetailView({
       await Share.share({ title: set.name, url: uri });
     }
   };
-  const runExport = async (action: () => Promise<void>) => {
+  const reportExportError = (error: any) => {
+    if (error?.message === 'User did not share') return;
+    console.warn('[GearSetExport] export failed:', error);
+    nav.showToast(t('gear.setDetail.exportFailed'));
+  };
+  // The lock covers only preparing the file. The share sheet's promise is left
+  // outside it: if a presentation is ever dropped that promise never settles,
+  // and holding the lock on it would leave every later export dead.
+  const runExport = async (prepare: () => Promise<(() => Promise<unknown>) | void>) => {
     if (exportingRef.current) return;
     exportingRef.current = true;
+    let share: (() => Promise<unknown>) | void;
     try {
-      await action();
-    } catch (error: any) {
-      if (error?.message !== 'User did not share') {
-        console.warn('[GearSetExport] export failed:', error);
-        nav.showToast(t('gear.setDetail.exportFailed'));
-      }
+      share = await prepare();
+    } catch (error) {
+      reportExportError(error);
+      return;
     } finally {
       exportingRef.current = false;
     }
+    if (share) share().catch(reportExportError);
   };
   const exportImage = () => runExport(async () => {
     setPosterMounted(true);
     try {
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null))));
       const uri = await captureRef(posterRef, { format: 'png', quality: 1 });
-      await shareFile(uri, 'image/png', safeFilename('png'));
-      nav.showToast(t('gear.setDetail.exportImageSaved'));
+      return () => shareFile(uri, 'image/png', safeFilename('png'))
+        .then(() => nav.showToast(t('gear.setDetail.exportImageSaved')));
     } finally {
       setPosterMounted(false);
     }
   });
+  // Shared as a message, not a .txt file, so it pastes straight into a chat.
+  // Web has no reliable text share, so it still downloads the file there.
   const exportText = () => runExport(async () => {
     const content = buildGearSetText(exportData);
     if (Platform.OS === 'web') {
@@ -413,13 +431,7 @@ function GearSetDetailView({
       URL.revokeObjectURL(uri);
       return;
     }
-    const file = new File(Paths.cache, safeFilename('txt'));
-    file.create({ overwrite: true });
-    file.write(content);
-    await shareFile(file.uri, 'text/plain', file.name);
-  });
-  const systemShare = () => runExport(async () => {
-    await Share.share({ title: set.name, message: buildGearSetText(exportData) });
+    return () => Share.share({ title: set.name, message: content });
   });
 
   const confirmDelete = () =>
@@ -437,18 +449,23 @@ function GearSetDetailView({
     }
   });
   const runFromExportMenu = (action: () => void) => {
+    menuAction.run(action);
     setExportOpen(false);
-    setTimeout(action, 140);
   };
   const runFromMoreMenu = (action: () => void) => {
+    menuAction.run(action);
     setMoreOpen(false);
-    setTimeout(action, 140);
   };
-  // The hidden prompt carries the set ID so the assistant supplements this
-  // exact set; the conversation shows only the readable request.
+  // The hidden prompts carry the set ID so the assistant works on this exact
+  // set; the conversation shows only the readable request. An empty set is
+  // filled directly; a set with gear is reviewed first (清单判官).
   const openAiFill = () => nav.openAssistant(
     t('gear.setDetail.aiFillPrompt', { name: set.name, id: set.id }), undefined, true,
-    t('gear.setDetail.aiFillDisplay', { name: set.name }), true,
+    t('gear.setDetail.aiFillDisplay', { name: set.name }), true, 'gear_set_onboarding',
+  );
+  const openAiReview = () => nav.openAssistant(
+    t('gear.setDetail.aiReviewPrompt', { name: set.name, id: set.id }), undefined, true,
+    t('gear.setDetail.aiReviewDisplay', { name: set.name }), true, 'gear_set_review',
   );
   const toggleDisplayExpanded = () => {
     const next = !displayExpanded;
@@ -483,20 +500,17 @@ function GearSetDetailView({
               <GearSetPoster ref={posterRef} data={exportData} theme={theme} width={winW} metric={metric} agg={agg} total={total} items={setItems} selected={sel} displaySettings={displaySettings} />
             </View>
           ) : null}
-          {!applicationAction ? <FloatingMenu theme={theme} visible={exportOpen} top={insets.top + 66} width={Math.min(204, winW - 28)} onClose={() => setExportOpen(false)}>
-            <Text style={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: 7, fontSize: 12, fontWeight: '600', color: theme.text2 }}>
-              {t('gear.setDetail.exportSection')}
-            </Text>
+          {!applicationAction ? <FloatingMenu theme={theme} visible={exportOpen} top={insets.top + 66} width={Math.min(204, winW - 28)} onClose={() => { menuAction.cancel(); setExportOpen(false); }} onClosed={menuAction.onClosed}>
             <ExportMenuRow theme={theme} icon="photo" label={t('gear.setDetail.exportImage')} onPress={() => runFromExportMenu(exportImage)} />
             <ExportMenuRow theme={theme} icon="list" label={t('gear.setDetail.exportText')} onPress={() => runFromExportMenu(exportText)} />
-
-            <Text style={{ paddingHorizontal: 24, paddingTop: 22, paddingBottom: 7, fontSize: 12, fontWeight: '600', color: theme.text2 }}>
-              {t('gear.setDetail.shareSection')}
-            </Text>
-            <ExportMenuRow theme={theme} icon="share" label={t('gear.setDetail.systemShare')} onPress={() => runFromExportMenu(systemShare)} />
           </FloatingMenu> : null}
-          {!applicationAction ? <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + 66} width={Math.min(232, winW - 28)} animatedStyle={moreMenuStyle} onClose={closeMore}>
-            <ExportMenuRow theme={theme} label={t('gear.setDetail.aiFill')} onPress={() => runFromMoreMenu(openAiFill)} />
+          {!applicationAction ? <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + 66} width={Math.min(232, winW - 28)} animatedStyle={moreMenuStyle} onClose={() => { menuAction.cancel(); closeMore(); }} onClosed={menuAction.onClosed}>
+            <ExportMenuRow
+              theme={theme}
+              icon={totN > 0 ? 'scale' : 'wandSparkles'}
+              label={totN > 0 ? t('gear.setDetail.aiReview') : t('gear.setDetail.aiFill')}
+              onPress={() => runFromMoreMenu(totN > 0 ? openAiReview : openAiFill)}
+            />
             <ExportMenuRow
               theme={theme}
               icon="gearSettings"
@@ -509,7 +523,7 @@ function GearSetDetailView({
               )}
             />
             <ReAnimated.View pointerEvents={displayExpanded ? 'auto' : 'none'} style={displayPanelStyle}>
-              <View style={{ marginTop: -2, paddingBottom: 4 }}>
+              <View style={{ paddingBottom: DISPLAY_PANEL_PAD }}>
                 <DisplaySettingRow theme={theme} label={t('gear.setDetail.displayImages')} value={displaySettings.images} onChange={(value) => updateDisplaySettings({ images: value })} />
                 <DisplaySettingRow theme={theme} label={t('gear.setDetail.displayWeight')} value={displaySettings.weight} onChange={(value) => updateDisplaySettings({ weight: value })} />
                 <DisplaySettingRow theme={theme} label={t('gear.setDetail.displayValue')} value={displaySettings.value} onChange={(value) => updateDisplaySettings({ value })} />
@@ -517,6 +531,13 @@ function GearSetDetailView({
               </View>
             </ReAnimated.View>
             <ReAnimated.View style={displayActionsStyle}>
+              <ExportMenuRow
+                theme={theme}
+                icon="eye"
+                label={t('profile.visibilityTitle')}
+                onPress={() => runFromMoreMenu(editVisibility)}
+                trailing={<Text numberOfLines={1} style={{ fontSize: 13, color: theme.text2 }}>{visibilityLabel(t, set.visibility ?? 'private')}</Text>}
+              />
               <ExportMenuRow theme={theme} icon="edit" label={t('gear.setDetail.editSet')} onPress={() => runFromMoreMenu(onEdit)} />
               <ExportMenuRow theme={theme} icon="copy" label={t('gear.setDetail.copySet')} onPress={() => runFromMoreMenu(onDuplicate)} />
               <ExportMenuRow theme={theme} icon="trash" label={t('gear.setDetail.deleteSet')} destructive onPress={() => runFromMoreMenu(confirmDelete)} />
@@ -525,7 +546,7 @@ function GearSetDetailView({
           {!applicationAction && totN === 0 ? (
             // The first placeholder card already adds gear, so only AI stays here.
             <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingBottom: Math.max(insets.bottom, space.md) + space.xxs, alignItems: 'center' }}>
-              <BottomControl theme={theme} label={t('gear.setDetail.aiFill')} onPress={openAiFill} />
+              <BottomControl theme={theme} icon="wandSparkles" label={t('gear.setDetail.aiFill')} onPress={openAiFill} />
             </View>
           ) : null}
           {applicationAction ? (
@@ -556,14 +577,6 @@ function GearSetDetailView({
             <Text style={{ marginTop: 8, fontSize: 14, lineHeight: 21, color: theme.text2 }}>{description}</Text>
           </View>
         ) : null}
-
-        {applicationAction ? null : (
-          <Press onPress={editVisibility} accessibilityRole="button" accessibilityLabel={t('profile.visibilityTitle')} style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, paddingBottom: 18 }}>
-            <Text style={{ flex: 1, fontSize: 15.5, color: theme.text2 }}>{t('profile.visibilityTitle')}</Text>
-            <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '700', color: theme.text }}>{visibilityLabel(t, set.visibility ?? 'private')}</Text>
-            <Icon name="chevronR" color={theme.text3} size={14} strokeWidth={2} />
-          </Press>
-        )}
 
         {totN === 0 ? (
           <>
@@ -605,7 +618,7 @@ function GearSetDetailView({
               <View key={g.cat.id} style={{ marginTop: gi === 0 ? 30 : 18 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Text style={{ flex: 1, fontSize: 12.5, fontWeight: '700', color: theme.text2 }}>{g.cat.name}</Text>
-                  {displaySettings.groupStats ? <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3 }}>{g.its.length} · {fmtWeight(g.w, weightUnit, true)}</Text> : null}
+                  {displaySettings.groupStats ? <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3 }}>{g.its.length}{'  '}{fmtWeight(g.w, weightUnit, true)}</Text> : null}
                 </View>
                 <View style={{ marginTop: 10, paddingHorizontal: 14, borderRadius: 24, backgroundColor: fieldBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: fieldBorder(theme) }}>
                   {g.its.map((it, i) => (

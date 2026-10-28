@@ -851,11 +851,11 @@ export const addGear = tool({
 // set membership changes do not bump the gear revision.
 export const listGearSets = tool({
   name: 'list_gear_sets',
-  description: 'Read the user\'s gear sets (装备页的装备清单: reusable named lists such as 高海拔三天两夜) with the library items in each. Use before adding to a set; match the set the user names loosely (高海拔两天 can mean 高海拔三天两夜).',
+  description: 'Read the user\'s gear sets (装备页的装备清单: reusable named lists such as 高海拔三天两夜) with the library items in each. Use before adding to or reviewing a set; match the set the user names loosely (高海拔两天 can mean 高海拔三天两夜).',
   parameters: z.object({}),
   execute: async (args, runContext) => mutate('list_gear_sets', args, runContext as RunContext, async (client, context) => {
     const { data, error } = await client.from('gear_sets')
-      .select('id,name,description,gear_set_items(item_id,qty,status,gear_items(name,cat_id,owned))')
+      .select('id,name,description,gear_set_items(item_id,qty,status,gear_items(name,cat_id,owned,weight,note))')
       .eq('user_id', context.userId).order('created_at').limit(100);
     if (error) throw error;
     return {
@@ -864,6 +864,8 @@ export const listGearSets = tool({
         items: (set.gear_set_items || []).map((link: any) => ({
           gearItemId: link.item_id, name: link.gear_items?.name ?? null, categoryId: link.gear_items?.cat_id ?? null,
           owned: link.gear_items?.owned !== false, quantity: link.qty ?? null, status: link.status ?? null,
+          // Per-unit kg; 0 means the user never entered a weight.
+          weightKg: Number(link.gear_items?.weight) || 0, note: link.gear_items?.note ?? null,
         })),
       })),
     };

@@ -17,6 +17,7 @@ import { Theme } from '../../theme/theme';
 import { Press } from '../Press';
 import { PhotoTile } from '../PhotoTile';
 import { PosterBackButton } from '../PosterBackButton';
+import { regionLabel } from '../../lib/regionLabel';
 
 const climb = (route: Poi) => parseFloat(route.asc.replace(/[^\d.]/g, '')) || 0;
 const distance = (route: Poi) => parseFloat(route.dist.replace(/[^\d.]/g, '')) || 0;
@@ -202,7 +203,7 @@ export function RouteTopicPage({
               </PhotoTile>
               <View style={styles.rowCopy}>
                 <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text, fontSize: 16 }]}>{route.name}</Text>
-                <Text numberOfLines={1} style={[styles.rowMeta, { color: theme.text2 }]}>{route.region.replace(/\s*·\s*/g, ' ')}</Text>
+                <Text numberOfLines={1} style={[styles.rowMeta, { color: theme.text2 }]}>{regionLabel(route.region)}</Text>
                 <Text numberOfLines={1} style={[styles.rowMeta, { color: theme.text2 }]}>
                   {[route.dist, t('journeyHome.topic.climb', { value: route.asc.replace('+', '') }), route.diff ? t('journeyHome.topic.diff', { value: route.diff }) : ''].filter(Boolean).join('  ')}
                 </Text>

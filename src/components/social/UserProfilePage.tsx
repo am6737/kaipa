@@ -244,6 +244,7 @@ export function UserProfilePage({ theme, userId, onBack }: { theme: Theme; userI
                       theme={theme}
                       outing={outing}
                       subject={nick}
+                      avatarUri={summary?.avatarUrl}
                       highlighted={highlighted === outing.id}
                       onOpen={openerFor(outing)}
                     />

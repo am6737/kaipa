@@ -51,6 +51,7 @@ import {
   JourneyLocationValue,
   locationFromPoi,
 } from "../../lib/amapGeocoding";
+import { regionLabel } from "../../lib/regionLabel";
 
 function RowDivider({ theme }: { theme: Theme }) {
   return (
@@ -512,7 +513,7 @@ export function JourneySettings({
                 { color: theme.text2, marginTop: space.xs, fontVariant: ["tabular-nums"] },
               ]}
             >
-              {[location.region, location.coord].filter(Boolean).join("  ")}
+              {[regionLabel(location.region), location.coord].filter(Boolean).join("  ")}
             </Text>
           ) : null}
         </View>
@@ -562,7 +563,7 @@ export function JourneySettings({
                     numberOfLines={1}
                     style={[type.cardTitle, { color: theme.text }]}
                   >
-                    {location.region || t("journey.settings.locationOpen")}
+                    {regionLabel(location.region) || t("journey.settings.locationOpen")}
                   </Text>
                   {location.coord ? (
                     <Text

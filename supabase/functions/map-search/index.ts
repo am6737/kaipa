@@ -191,6 +191,11 @@ Deno.serve(protectEndpoint('map', 'map_requests')(async (req) => {
         lng: body.lng,
         lat: body.lat,
         coord: coordinateLabel(body.lng, body.lat),
+        // Administrative levels for callers that label a whole track by its
+        // area rather than the nearest township. Empty outside AMap coverage.
+        province: text(component?.province),
+        city: text(city),
+        district: text(component?.district),
       } });
     }
 

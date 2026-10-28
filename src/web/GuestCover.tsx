@@ -10,6 +10,7 @@ import { Press } from '../components/Press';
 import { useI18n } from '../i18n';
 import { makeIdentity, type GuestIdentity } from './IdentitySheet';
 import type { JourneyData, HostData } from './useGuestData';
+import { regionLabel } from '../lib/regionLabel';
 
 interface Props {
   theme: Theme;
@@ -99,7 +100,7 @@ export function GuestCover({ theme, journey, host, identity, onJoin }: Props) {
             {!!journey.region && (
               <View style={s.metaItem}>
                 <PinIcon color={metaColor} />
-                <Text style={s.meta}>{journey.region}</Text>
+                <Text style={s.meta}>{regionLabel(journey.region)}</Text>
               </View>
             )}
           </View>

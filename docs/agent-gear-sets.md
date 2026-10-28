@@ -13,11 +13,23 @@ their own intent and write.
   `packingMode: none`.
 - Removing or renaming inside a set has no tool yet and stays `unsupported`.
 - App entry `gear_set_onboarding` maps to `gear_set`.
+- App entry `gear_set_review` (清单判官) maps to `discuss`, so that turn has no write
+  tool. Agreeing afterwards (“补上吧”) is routed as `gear_set` by the router.
+
+## Skill
+
+The review rubric and fill rules live in the `gear_sets` planning skill
+(`skills.ts`): infer the scenario from the set name, then report missing,
+redundant, heavy and mislabelled items, verdict first, and ask before adding.
+The server injects it into the task input for `gear_set_review` and for any
+`add_gear_set_items` task, so it does not depend on the model loading it. Edit
+the rubric there; it ships with an app-agent deploy, not an app release.
 
 ## Tools
 
 - `list_gear_sets` reads the sets live (not via the revision-cached gear snapshot),
-  with each item's library ID, category and `owned`.
+  with each item's library ID, category, `owned`, per-unit `weightKg` (0 = not
+  entered) and note.
 - `add_gear_set_items` calls the RPC `agent_add_gear_set_items`
   (migration `20261020120000_agent_gear_sets.sql`). The call is additive only:
   - It finds the set by `setId`, or by case-insensitive name, or creates it.
@@ -35,8 +47,9 @@ their own intent and write.
 
 - `GearItem.owned`: absent or true means owned. 待购 items show a badge in lists
   and a notice with 已买到 in the item detail.
-- The gear set page has “AI 补充装备” in the more menu and in the empty state.
-  It sends a hidden prompt carrying the set ID.
+- The gear set page has “清单判官” in the more menu when the set has gear, and
+  “AI 配装” in the more menu and empty state when it has none (2026-10-28; was
+  “AI 补充装备”). Both send a hidden prompt carrying the set ID plus their app entry.
 - The assistant shows a result card (“已加入 N 件装备，其中 M 件待购”) that opens the
   sets page.
 

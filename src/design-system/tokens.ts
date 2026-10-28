@@ -30,6 +30,8 @@ export const layout = {
   iconButton: 44,
   fieldHeight: 44,
   listRowMinHeight: 64,
+  // Rows of the floating glass menus (⋯, share, sort, add): a 44 touch target plus breathing room.
+  menuRowHeight: 48,
   overviewCardMinHeight: 144,
   sectionGap: 30,
 } as const;

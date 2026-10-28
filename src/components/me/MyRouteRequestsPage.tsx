@@ -22,6 +22,7 @@ import { TwoStageSwipeable } from "../TwoStageSwipeable";
 import { MePushPage } from "./MePushPage";
 import { JOURNEY_SWIPE_SPRING, JourneySwipeDeleteAction } from "./JourneySwipeDelete";
 import type { RouteRequest } from "../../hooks/useRouteRequests";
+import { regionLabel } from "../../lib/regionLabel";
 
 // The four server statuses collapse into three user-facing sections;
 // rejected and duplicate read the same to the requester — the reason lives in
@@ -235,7 +236,7 @@ function RequestCard({
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 }}>
                   <Icon name="pin" color={theme.text3} size={12} />
                   <Text numberOfLines={1} style={[type.caption, { flex: 1, color: theme.text2 }]}>
-                    {request.region}
+                    {regionLabel(request.region)}
                   </Text>
                 </View>
               ) : null}

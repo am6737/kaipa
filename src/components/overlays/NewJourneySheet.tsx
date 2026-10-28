@@ -43,6 +43,7 @@ import {
 import { buildTrackData } from '../../lib/trackParser';
 import { createTrackFromFile, parseTrackFile, TrackFileError, type ParsedTrackFile } from '../../lib/trackImport';
 import { AssistantMark } from '../assistant/AssistantMark';
+import { regionLabel } from '../../lib/regionLabel';
 
 export { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF };
 
@@ -199,7 +200,7 @@ function NJRouteCard({ theme, route, selected, onPress, compact }: { theme: Them
           {route.name}
         </Text>
         <Text numberOfLines={1} style={{ fontSize: 11.5, color: theme.text2, marginTop: 2 }}>
-          {route.region}
+          {regionLabel(route.region)}
         </Text>
         {!compact && !route.custom && (
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
@@ -794,9 +795,9 @@ function NJPresetPlanner({
                 <View style={{ maxHeight: 180, marginTop: space.xs, borderRadius: radius.card, overflow: 'hidden', backgroundColor: theme.surfaceTop, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
                   {routeSearchResults.map((suggestion) => {
                     const destination = locationFromPoi(suggestion.region || suggestion.name, suggestion.lng ?? 104, suggestion.lat ?? 35, suggestion.coord);
-                    return <Press key={`route-${suggestion.id}`} accessibilityRole="button" onPress={() => addDestination({ ...destination, name: suggestion.name, route: suggestion })} style={{ minHeight: 52, paddingHorizontal: space.md, paddingVertical: space.sm, justifyContent: 'center' }}><Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{suggestion.name}</Text><Text numberOfLines={1} style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>{suggestion.region}</Text></Press>;
+                    return <Press key={`route-${suggestion.id}`} accessibilityRole="button" onPress={() => addDestination({ ...destination, name: suggestion.name, route: suggestion })} style={{ minHeight: 52, paddingHorizontal: space.md, paddingVertical: space.sm, justifyContent: 'center' }}><Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{suggestion.name}</Text><Text numberOfLines={1} style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>{regionLabel(suggestion.region)}</Text></Press>;
                   })}
-                  {locationResults.map((item, index) => <Press key={`location-${item.lng}-${item.lat}-${index}`} accessibilityRole="button" onPress={() => addDestination(item)} style={{ minHeight: 52, paddingHorizontal: space.md, paddingVertical: space.sm, justifyContent: 'center' }}><Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{item.name}</Text><Text numberOfLines={1} style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>{item.address || item.region}</Text></Press>)}
+                  {locationResults.map((item, index) => <Press key={`location-${item.lng}-${item.lat}-${index}`} accessibilityRole="button" onPress={() => addDestination(item)} style={{ minHeight: 52, paddingHorizontal: space.md, paddingVertical: space.sm, justifyContent: 'center' }}><Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{item.name}</Text><Text numberOfLines={1} style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>{regionLabel(item.address || item.region)}</Text></Press>)}
                 </View>
               ) : null}
             </View>
@@ -1354,7 +1355,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
                         >
                           <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{routeSuggestion.name}</Text>
                           <Text numberOfLines={1} style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>
-                            {[routeSuggestion.region, routeSuggestion.dist, routeSuggestion.asc].filter(Boolean).join('  ')}
+                            {[regionLabel(routeSuggestion.region), routeSuggestion.dist, routeSuggestion.asc].filter(Boolean).join('  ')}
                             {'  '}{t('journeyEdit.form.routeLibraryResult')}
                           </Text>
                         </Press>

@@ -44,6 +44,7 @@ import { journeyTracks, trackForId, trackLengthMatches, type JourneyTrack } from
 import { JourneyAccessPathSheet } from './JourneyAccessPathSheet';
 import { TrackPointPickerSheet } from './TrackPointPicker';
 import { searchJourneyLocations, type JourneyLocationValue } from '../../lib/amapGeocoding';
+import { regionLabel } from '../../lib/regionLabel';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -302,7 +303,7 @@ function PlaceSearchOverlay({ theme, keyboardLift, carryPlace, onSelect, onClose
               return (
                 <Press key={`${result.lng}-${result.lat}-${index}`} onPress={() => { onSelect(result); onClose(); }} style={{ paddingVertical: 13 }}>
                   <HighlightedPlaceName theme={theme} name={result.name} query={query} />
-                  <Text numberOfLines={1} style={{ color: theme.text3, fontSize: 13, marginTop: 5 }}>{category ? `${category}｜` : ''}{result.address || result.region}</Text>
+                  <Text numberOfLines={1} style={{ color: theme.text3, fontSize: 13, marginTop: 5 }}>{category ? `${category}｜` : ''}{regionLabel(result.address || result.region)}</Text>
                 </Press>
               );
             })}

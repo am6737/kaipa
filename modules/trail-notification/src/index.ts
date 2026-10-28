@@ -1,4 +1,5 @@
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 
 export interface TrailNotificationContent {
@@ -40,7 +41,17 @@ type NativeTrailNotification = {
   startStillness?: () => boolean;
   stopStillness?: () => void;
   stillnessSpread?: () => number | null;
+  notificationStatus?: () => TrailNotificationStatus;
+  openNotificationSettings?: () => void;
 };
+
+export interface TrailNotificationStatus {
+  enabled: boolean;
+  /** NotificationManager.IMPORTANCE_*; null before the channel exists or below Android 8. */
+  importance: number | null;
+  /** Notification.VISIBILITY_*, as the user left it on the channel; -1000 means unchanged. */
+  lockscreenVisibility: number | null;
+}
 
 const native = Platform.OS === 'android'
   ? requireOptionalNativeModule<NativeTrailNotification>('TrailNotification')
@@ -81,3 +92,26 @@ export const nativeStillness = native?.startStillness && native.stopStillness &&
     spread: () => native.stillnessSpread!() ?? null,
   }
   : null;
+
+/** Android: what the user allows for the recording card. Null off Android and on binaries built before it existed. */
+export function trailNotificationStatus(): TrailNotificationStatus | null {
+  return native?.notificationStatus?.() ?? null;
+}
+
+/** Android: opens the app's notification settings, where the lock screen and banner switches are. */
+export async function openTrailNotificationSettings(): Promise<void> {
+  if (native?.openNotificationSettings) {
+    native.openNotificationSettings();
+    return;
+  }
+  // Older binaries: the same page through a plain intent, then the app details page.
+  const pkg = Constants.expoConfig?.android?.package;
+  try {
+    if (!pkg) throw new Error('no package');
+    await Linking.sendIntent('android.settings.APP_NOTIFICATION_SETTINGS', [
+      { key: 'android.provider.extra.APP_PACKAGE', value: pkg },
+    ]);
+  } catch {
+    await Linking.openSettings();
+  }
+}

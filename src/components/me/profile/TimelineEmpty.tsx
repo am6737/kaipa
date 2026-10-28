@@ -18,12 +18,15 @@ export function TimelineEmpty({ theme, title, body, action, secondaryAction }: {
     <View style={{ alignItems: 'center', paddingTop: space.xxxl + space.xs, paddingBottom: space.xxxl, paddingHorizontal: space.xl }}>
       <Text style={[type.sectionTitle, { color: theme.text, textAlign: 'center' }]}>{title}</Text>
       <Text style={[type.lead, { color: theme.text2, marginTop: space.xs, textAlign: 'center', maxWidth: 300 }]}>{body}</Text>
-      {action ? (
-        <EmptyButton theme={theme} action={action} primary={Boolean(secondaryAction)} style={{ marginTop: space.xl }} />
-      ) : null}
-      {secondaryAction ? (
-        <EmptyButton theme={theme} action={secondaryAction} style={{ marginTop: space.sm }} />
-      ) : null}
+      {/* 两个按钮拉伸到同一宽度（以较宽的为准），高度本来就一致。 */}
+      <View style={{ alignSelf: 'center', alignItems: 'stretch', marginTop: space.xl }}>
+        {action ? (
+          <EmptyButton theme={theme} action={action} primary={Boolean(secondaryAction)} />
+        ) : null}
+        {secondaryAction ? (
+          <EmptyButton theme={theme} action={secondaryAction} style={{ marginTop: space.sm }} />
+        ) : null}
+      </View>
     </View>
   );
 }

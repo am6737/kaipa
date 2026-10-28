@@ -860,7 +860,7 @@ function GearItemDetailView({
         </View>
 
         {/* 所属清单 */}
-        <AppSectionHeader theme={theme} text={`${t('gear.section.memberSets')}${memberSetRows.length > 0 ? ' · ' + memberSetRows.length : ''}`} marginTop={32} />
+        <AppSectionHeader theme={theme} text={`${t('gear.section.memberSets')}${memberSetRows.length > 0 ? ' ' + memberSetRows.length : ''}`} marginTop={32} />
         {memberSetRows.length === 0 ? (
           <View style={{ paddingVertical: 12 }}>
             <Text style={{ fontSize: 13.5, color: theme.text3 }}>{t('gear.itemDetail.noMemberSets')}</Text>

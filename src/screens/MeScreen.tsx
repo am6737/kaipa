@@ -118,6 +118,7 @@ import { CardPickerPage, type CardPickerOption } from "../components/me/CardPick
 import { LanguagePickerPage } from "../components/me/LanguagePickerPage";
 import { LoginMethodPage } from "../components/me/LoginMethodPage";
 import { removeMedia } from "../lib/storage";
+import { regionLabel } from "../lib/regionLabel";
 
 const appVersionLabel = Constants.expoConfig?.version
   ? `v${Constants.expoConfig.version}`
@@ -131,7 +132,7 @@ type MePage =
   | { type: "contributions" }
   | { type: "routeGuides" }
   | { type: "routeRequests" }
-  | { type: "tracks" }
+  | { type: "tracks"; underDetail?: boolean }
   | { type: "trackDetail"; trackId: string }
   | { type: "trash" }
   | { type: "profile" }
@@ -260,7 +261,7 @@ function PopupOption({
     >
       <View
         style={{
-          minHeight: 54,
+          minHeight: layout.menuRowHeight,
           paddingHorizontal: space.md,
           flexDirection: "row",
           alignItems: "center",
@@ -965,7 +966,7 @@ function JourneyRecordCard({
     journey.days ||
     "—"
   ).replace(/\s*·\s*/g, " ");
-  const region = journey.region.replace(/\s*·\s*/g, " ");
+  const region = regionLabel(journey.region);
 
   return (
     <Press
@@ -1794,8 +1795,10 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
   }, [nav.membershipPageRequest]);
   useEffect(() => {
     if (!nav.trackPageRequest) return;
-    // Under the library, so 返回 lands on 我的轨迹 rather than the root.
-    setStack([{ type: "tracks" }, { type: "trackDetail", trackId: nav.trackPageRequest }]);
+    // Under the library, so 返回 lands on 我的轨迹 rather than the root. It
+    // mounts already in place: a slide-in started under the detail could stop
+    // off-screen, leaving an invisible page that kept the tab bar hidden.
+    setStack([{ type: "tracks", underDetail: true }, { type: "trackDetail", trackId: nav.trackPageRequest }]);
     nav.clearTrackPageRequest();
   }, [nav.trackPageRequest]);
   const [appearancePopup, setAppearancePopup] =
@@ -2231,6 +2234,7 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
         return (
           <TracksPage
             theme={theme}
+            entryVariant={pg.underDetail ? "none" : undefined}
             onBack={pop}
             onOpenTrack={(track) =>
               push({ type: "trackDetail", trackId: track.id })
@@ -2453,8 +2457,8 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
   const popupWidth = Math.min(260, windowWidth - space.xl * 2);
   const popupHeight =
     appearancePopup === "accent"
-      ? ACCENT_PRESETS.length * 54 + space.xs * 2
-      : 178;
+      ? ACCENT_PRESETS.length * layout.menuRowHeight + space.xs * 2
+      : 3 * layout.menuRowHeight + space.xs * 2;
   const popupCollapsedHeight = 16;
   const popupLeft = popupAnchor
     ? Math.max(
@@ -2640,6 +2644,7 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
                 sets: gearSets,
                 onOpenItems: () => nav.openGearPage("items"),
                 onOpenSets: () => nav.openGearPage("sets"),
+                onOpenSet: (setId: string) => nav.openGearSet(setId),
               }}
               yearDistance={yearDistance}
             />
@@ -2655,7 +2660,8 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
                     <OutingCard
                       theme={theme}
                       outing={outing}
-                      subject={t("profile.you")}
+                      subject={profile.nick || t("me.unnamed")}
+                      avatarUri={data.profile.avatarUrl}
                       showVisibility
                       onChangeVisibility={() => changeOutingVisibility(outing)}
                       reviewPrompt={reviewPromptFor(outing)}
@@ -2835,7 +2841,7 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
                   top: popupTop,
                   left: popupLeft,
                   width: popupWidth,
-                  borderRadius: 26,
+                  borderRadius: radius.feature,
                   overflow: "hidden",
                   boxShadow: theme.dark
                     ? "0px 18px 46px rgba(0,0,0,0.52)"
@@ -2844,7 +2850,7 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
                 popupMenuStyle,
               ]}
             >
-              <Glass solidOnAndroid theme={theme} radius={26} intensity={76}>
+              <Glass solidOnAndroid theme={theme} radius={radius.feature} intensity={76}>
                 <View
                   style={{
                     paddingVertical: space.xs,

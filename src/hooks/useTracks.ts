@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useOfflineState } from '../lib/offlineCache';
 import { toTrack } from '../lib/mappers';
 import { removeMedia } from '../lib/storage';
+import { reverseTrackRegion } from '../lib/amapGeocoding';
 import { setOutingVisibility } from './useSocial';
 import type { Track } from '../data/tracks';
 
@@ -28,6 +29,7 @@ function draftToRow(draft: Partial<TrackDraft>) {
   set('ascM', 'asc_m');
   set('pointCount', 'point_count');
   set('startedAt', 'started_at');
+  set('region', 'region');
   set('visibility', 'visibility');
   set('ownOuting', 'own_outing');
   return row;
@@ -70,6 +72,18 @@ export function useTracks(userId: string | undefined) {
     }
     const track = toTrack(data);
     setTracks((prev) => [track, ...prev]);
+    // 时间线卡片要显示地点；查不到或失败就留空，不挡保存。
+    if (!track.region && track.coords?.length) {
+      void reverseTrackRegion(track.coords).then(async (region) => {
+        if (!region) return;
+        const { error: regionError } = await supabase.from('tracks').update({ region }).eq('id', track.id);
+        if (regionError) {
+          console.warn('[createTrack] region update error:', regionError.message);
+          return;
+        }
+        setTracks((prev) => prev.map((t) => (t.id === track.id ? { ...t, region } : t)));
+      }).catch((regionError) => console.warn('[createTrack] region lookup failed:', regionError));
+    }
     return track;
   }, [userId]);
 

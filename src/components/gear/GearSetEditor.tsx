@@ -1,6 +1,7 @@
 // GearSetEditor.tsx — 新建 / 编辑清单的全屏表单。
 // 与「我的装备」同一套无背景版式：名称直接作为页面标题输入，重量和价值两个大数，
 // 装备按分类列出；点一件装备从底部弹出面板调整携带方式、数量或移出。
+// 长按进入多选，一次改多件的携带方式或一起移出。
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, Modal, PanResponder, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,11 +25,13 @@ import {
   packStats,
   splitWeight,
 } from '../../data/gear';
-import { GearItemsList, ItemRow, ItemThumb, SummaryStat, formatItemValue } from './GearItemsList';
+import { GearHeaderIconButton, GearItemsList, ItemRow, ItemThumb, SummaryStat, formatItemValue } from './GearItemsList';
 import type { MenuAnchor } from './AddGearMenu';
 import { AppFilterSegmented, DetailPage, layout, motion, radius, space, type } from '../../design-system';
 
 const BAR_HEIGHT = 54;
+// The status segment that sits above the bar in multi-select.
+const BATCH_STATUS_HEIGHT = 64;
 
 export function GearSetEditor({
   theme,
@@ -72,6 +75,8 @@ export function GearSetEditor({
   const [pickerOpen, setPickerOpen] = useState(openPicker);
   const [weightInfoOpen, setWeightInfoOpen] = useState(false);
   const [sheetName, setSheetName] = useState<string | null>(null);
+  // Names picked for a batch change; null outside multi-select.
+  const [batch, setBatch] = useState<Set<string> | null>(null);
   // 按描述搭配. Everything here is a draft until the user saves the set.
   const [composing, setComposing] = useState(false);
   const [composeError, setComposeError] = useState<string | null>(null);
@@ -125,13 +130,34 @@ export function GearSetEditor({
       forgetAiPick(itemName);
     }
   };
-  const removeItem = (itemName: string) => {
-    noteRemoved([itemName]);
+  const removeItems = (itemNames: string[]) => {
+    noteRemoved(itemNames);
     setSelectedNames((current) => {
       const next = new Set(current);
-      next.delete(itemName);
+      itemNames.forEach((itemName) => next.delete(itemName));
       return next;
     });
+  };
+
+  // A rebuild can drop gear that was picked, so only count what is still in the set.
+  const batchItems = batch ? selectedItems.filter((item) => batch.has(item.name)) : [];
+  const batchStatuses = new Set(batchItems.map(itemStatus));
+  const batchStatus = batchStatuses.size === 1 ? [...batchStatuses][0] : null;
+  const allBatched = batch != null && hasItems && batchItems.length === selectedItems.length;
+  const toggleBatch = (itemNames: string[], on: boolean) => setBatch((current) => {
+    const next = new Set(current);
+    itemNames.forEach((itemName) => on ? next.add(itemName) : next.delete(itemName));
+    return next;
+  });
+  const setBatchStatus = (status: GearCarryStatus) => {
+    batchItems.forEach((item) => {
+      const source = allItems.find((candidate) => candidate.name === item.name);
+      if (source) patchOverride(source, { status });
+    });
+  };
+  const removeBatch = () => {
+    removeItems(batchItems.map((item) => item.name));
+    setBatch(null);
   };
   const submit = () => {
     if (!valid) return;
@@ -243,13 +269,30 @@ export function GearSetEditor({
     <View style={{ flex: 1 }}>
       <DetailPage
       theme={theme}
-      title={mode === 'edit' ? t('gear.setEditor.titleEdit') : t('gear.setEditor.titleNew')}
-      onBack={onCancel}
+      title={batch ? t('gear.select.title', { count: batchItems.length }) : mode === 'edit' ? t('gear.setEditor.titleEdit') : t('gear.setEditor.titleNew')}
+      onBack={batch ? () => setBatch(null) : onCancel}
       backgroundColor={theme.featureSurface}
       flatChrome
+      right={batch ? (
+        <View style={{ flexDirection: 'row', gap: space.xs }}>
+          <GearHeaderIconButton theme={theme} icon="checkAll" onPress={() => setBatch(allBatched ? new Set() : new Set(selectedItems.map((item) => item.name)))} active={allBatched} label={allBatched ? t('common.deselectAll') : t('common.selectAll')} />
+          <GearHeaderIconButton theme={theme} icon="close" onPress={() => setBatch(null)} label={t('common.close')} />
+        </View>
+      ) : undefined}
       overlay={(
         <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
           <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: layout.pagePadding, paddingBottom: Math.max(insets.bottom, space.sm) + space.xxs }}>
+            {batch ? (
+              <BatchBar
+                theme={theme}
+                count={batchItems.length}
+                status={batchStatus}
+                onStatus={setBatchStatus}
+                onRemove={removeBatch}
+                onDone={() => setBatch(null)}
+              />
+            ) : (
+            <>
             {!valid || toBuyCount ? (
               <Text style={[type.caption, { marginBottom: space.xs, textAlign: 'center', color: theme.text3 }]}>
                 {!valid ? t('gear.setEditor.nameRequired') : t('gear.setEditor.toBuyOnCreate', { count: toBuyCount })}
@@ -276,11 +319,13 @@ export function GearSetEditor({
                 </Text>
               </Press>
             </View>
+            </>
+            )}
           </View>
         </View>
       )}
     >
-      <View style={{ paddingHorizontal: layout.pagePadding, paddingTop: space.xs, paddingBottom: BAR_HEIGHT + space.xxxl * 2 }}>
+      <View style={{ paddingHorizontal: layout.pagePadding, paddingTop: space.xs, paddingBottom: BAR_HEIGHT + space.xxxl * 2 + (batch ? BATCH_STATUS_HEIGHT : 0) }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
           <TextInput
             value={name}
@@ -290,7 +335,7 @@ export function GearSetEditor({
             maxLength={24}
             returnKeyType="done"
             accessibilityLabel={t('gear.setEditor.nameLabel')}
-            style={[type.pageTitle, { flex: 1, minWidth: 0, padding: 0, color: theme.text }]}
+            style={[type.pageTitle, { flex: 1, minWidth: 0, padding: 0, lineHeight: 32, color: theme.text }]}
           />
           <Text style={countCaption}>{name.length}/24</Text>
         </View>
@@ -366,11 +411,21 @@ export function GearSetEditor({
           </View>
         ) : null}
 
-        {hasItems ? selectedGroups.map((group) => (
+        {hasItems ? selectedGroups.map((group) => {
+          const groupNames = group.items.map((item) => item.name);
+          const groupBatched = batch != null && groupNames.every((itemName) => batch.has(itemName));
+          return (
           <View key={group.category.id}>
             <View style={{ paddingTop: space.lg, paddingBottom: space.xxs, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: space.sm }}>
               <Text numberOfLines={1} style={[type.eyebrow, { flexShrink: 1, color: theme.text2 }]}>{group.category.name}</Text>
-              <Text style={countCaption}>{group.items.length} {t('gear.unit.items')}  {fmtWeight(group.weight, weightUnit)}</Text>
+              {batch ? (
+                // Gear in one category often changes together, e.g. all clothing to 穿戴.
+                <Press onPress={() => toggleBatch(groupNames, !groupBatched)} hitSlop={space.xs} accessibilityRole="button">
+                  <Text style={[type.chip, { color: theme.accent }]}>{groupBatched ? t('common.deselectAll') : t('common.selectAll')}</Text>
+                </Press>
+              ) : (
+                <Text style={countCaption}>{group.items.length} {t('gear.unit.items')}  {fmtWeight(group.weight, weightUnit)}</Text>
+              )}
             </View>
             {group.items.map((item) => (
               // Optional gear counts toward no weight, so it reads as set aside.
@@ -381,9 +436,10 @@ export function GearSetEditor({
                   cat={catMap[item.cat]}
                   showCategory={false}
                   weightUnit={weightUnit}
-                  onPress={() => setSheetName(item.name)}
-                  selectMode={false}
-                  selected={false}
+                  onPress={() => batch ? toggleBatch([item.name], !batch.has(item.name)) : setSheetName(item.name)}
+                  onLongPress={batch ? undefined : () => setBatch(new Set([item.name]))}
+                  selectMode={batch != null}
+                  selected={batch?.has(item.name) ?? false}
                   showImage
                   showPhoto
                   loading={false}
@@ -394,7 +450,8 @@ export function GearSetEditor({
               </View>
             ))}
           </View>
-        )) : (
+          );
+        }) : (
           <Press
             onPress={() => setPickerOpen(true)}
             style={{ marginTop: space.md, minHeight: 150, borderRadius: radius.feature, alignItems: 'center', justifyContent: 'center', gap: space.xs, borderWidth: 1.5, borderStyle: 'dashed', borderColor: theme.border }}
@@ -423,7 +480,7 @@ export function GearSetEditor({
         weightUnit={weightUnit}
         onPatch={(patch) => { if (sheetSource) patchOverride(sheetSource, patch); }}
         onRemove={() => {
-          if (sheetName != null) removeItem(sheetName);
+          if (sheetName != null) removeItems([sheetName]);
           setSheetName(null);
         }}
         onClose={() => setSheetName(null)}
@@ -652,6 +709,45 @@ function SetItemSheet({
         </Press>
       </View>
     </BottomSheet>
+  );
+}
+
+// Multi-select bar: one tap sets the carry status of every picked item; the
+// segment stays blank while they differ.
+function BatchBar({ theme, count, status, onStatus, onRemove, onDone }: {
+  theme: Theme;
+  count: number;
+  status: GearCarryStatus | null;
+  onStatus: (status: GearCarryStatus) => void;
+  onRemove: () => void;
+  onDone: () => void;
+}) {
+  const { t } = useI18n();
+  const statusOptions = useMemo(
+    () => GEAR_STATUS.map((entry) => [entry.id, t(`gear.status.${entry.id}`)] as const),
+    [t],
+  );
+  const empty = count === 0;
+  return (
+    <View style={{ gap: space.sm }}>
+      <View pointerEvents={empty ? 'none' : 'auto'} style={{ paddingHorizontal: space.sm, paddingTop: space.sm, paddingBottom: space.xxs, borderRadius: radius.feature, backgroundColor: theme.controlSurface, boxShadow: theme.controlShadow, opacity: empty ? 0.5 : 1 }}>
+        <AppFilterSegmented<GearCarryStatus> theme={theme} options={statusOptions} value={empty ? null : status} onChange={onStatus} />
+      </View>
+      <View style={{ flexDirection: 'row', gap: space.sm }}>
+        <Press
+          onPress={onRemove}
+          disabled={empty}
+          style={{ height: BAR_HEIGHT, paddingHorizontal: space.lg, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, boxShadow: theme.controlShadow }}
+        >
+          <Text style={{ fontSize: 15, fontWeight: '700', color: empty ? theme.text3 : theme.danger }}>
+            {empty ? t('gear.setEditor.batchPrompt') : t('gear.setEditor.removeCount', { count })}
+          </Text>
+        </Press>
+        <Press onPress={onDone} style={{ flex: 1, height: BAR_HEIGHT, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accent, boxShadow: theme.controlShadow }}>
+          <Text style={{ fontSize: 16, fontWeight: '800', color: '#FFFFFF' }}>{t('common.done')}</Text>
+        </Press>
+      </View>
+    </View>
   );
 }
 

@@ -44,6 +44,7 @@ import {
   EMPTY_TOTALS,
   formatClock,
   judgeFix,
+  JUMP_STREAK_LIMIT,
   SETTLE_FIXES,
   smoothFix,
   splitDistance,
@@ -340,6 +341,8 @@ function armSignalTimer() {
 let lastPersistAt = 0;
 // Smoothing state for the current segment; a pause or a new recording starts it again.
 let smoother: TrailSmoother | null = null;
+// Fixes rejected in a row as jumps from the segment's last point.
+let jumpStreak = 0;
 
 // A fix reporting this speed is moving, whatever the accelerometer says: a
 // phone on the seat of a smooth train can read as still.
@@ -379,7 +382,10 @@ function ingest(fixes: TrailFix[]) {
     const smoothed = smoothFix(smoother, next);
     smoother = smoothed.state;
     if (!last && smoother.count < SETTLE_FIXES) continue;
-    if (judgeFix(smoothed.fix, last) !== 'accept') continue;
+    const verdict = judgeFix(smoothed.fix, last);
+    if (verdict === 'jump' && ++jumpStreak < JUMP_STREAK_LIMIT) continue;
+    if (verdict !== 'accept' && verdict !== 'jump') continue;
+    jumpStreak = 0;
     const point = toTrailPoint(smoothed.fix);
     const { totals, climbRef } = addPoint(session.totals, session.climbRef, last, point);
     segment.push(point);
@@ -698,6 +704,7 @@ export async function startTrail(route: TrailRouteRef | null): Promise<boolean> 
   };
   persistedChunks = new Set();
   smoother = null;
+  jumpStreak = 0;
   // The fix that showed "you are here" before the start becomes the first
   // point, when it is a GPS-grade one: the dot may come from a cache or Wi-Fi.
   if (fix && now - fix.t < 15_000 && fix.acc != null && fix.acc <= SEED_MAX_ACCURACY_METERS) {
@@ -754,6 +761,7 @@ export async function resumeTrail(): Promise<boolean> {
     segments: lastSegment.length ? [...session.segments, []] : session.segments,
   };
   smoother = null;
+  jumpStreak = 0;
   try {
     session.background = await startRecordingSource();
   } catch {

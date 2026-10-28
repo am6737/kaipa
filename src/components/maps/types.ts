@@ -159,7 +159,15 @@ export interface NativeMapHandle {
   fitCoordinates: (coordinates: MapCoordinate[], padding?: [number, number, number, number], duration?: number) => void;
   moveCamera: (coordinate: MapCoordinate, zoom?: number, duration?: number, options?: MoveCameraOptions) => void;
   resetNorth: () => void;
+  /**
+   * Renders what the map shows now, line and markers included, to an image
+   * file. iOS also returns where `marks` fall in that image, in dp from its
+   * top left, for callers that draw their own markers over it.
+   */
+  takeSnapshot: (marks?: MapCoordinate[]) => Promise<MapSnapshot>;
 }
+
+export type MapSnapshot = { uri: string; points?: [number, number][] };
 
 export type NativeMapCamera = { center: MapCoordinate; zoom: number };
 
@@ -208,4 +216,6 @@ export interface NativeMapProps {
   onCameraPositionChange?: (camera: NativeMapCamera) => void;
   onZoomChange?: (zoom: number) => void;
   onGestureStart?: () => void;
+  /** Once, after the map has loaded and `initialFitCoordinates` has been applied. */
+  onReady?: () => void;
 }

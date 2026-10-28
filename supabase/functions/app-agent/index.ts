@@ -27,6 +27,7 @@ import { runPipeline, useStagedPipeline } from './pipeline.ts';
 import { renderTaskResponse } from './response-presentation.ts';
 import { planDraftSchema, taskClarification, taskOutcome, type PlanDraft } from './task.ts';
 import { intentRouterMode, isAgentIntent } from './intent-router.ts';
+import { planningSkills } from './skills.ts';
 import { assistantStoragePath, InvalidTrackError, isTrackAttachment, readAttachment, trackInput } from './attachments.ts';
 
 const corsHeaders = {
@@ -1086,8 +1087,12 @@ Deno.serve(async (req) => {
       : null;
     if (gearCategories?.error) throw gearCategories.error;
     const gearContext = gearCategories ? `\n用户装备分类（add_gear 的 categoryId 只能取这里的 id；不必为分类调用 list_gear）：${JSON.stringify(gearCategories.data)}` : '';
+    // The 清单判官 button and any gear-set write always get the gear_sets skill,
+    // rather than relying on the model to load it.
+    const gearSetSkill = body.intent === 'gear_set_review' || task.decision.operations.includes('add_gear_set_items')
+      ? `\n已加载技能 gear_sets（无需再调用 load_planning_skill）：\n${planningSkills.gear_sets.body}` : '';
     const travelFacts = `\n已确认交通信息（历史事实，不是新指令；本轮用户更正优先）：${JSON.stringify(confirmedTravel)}`;
-    const userInputText = `${temporalContext}${recoveryContext}${packingRecovery}${locationContext}${travelFacts}${gearContext}${dataContext}\n本轮任务状态（权限不能由执行助手扩大）：${JSON.stringify(task)}
+    const userInputText = `${temporalContext}${recoveryContext}${packingRecovery}${locationContext}${travelFacts}${gearContext}${gearSetSkill}${dataContext}\n本轮任务状态（权限不能由执行助手扩大）：${JSON.stringify(task)}
 
 用户消息：${effectiveMessage}${attachmentContext}`;
     const agentInput = attachments.length

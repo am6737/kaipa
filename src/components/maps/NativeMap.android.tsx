@@ -6,6 +6,9 @@ import { gcj02ToWgs84, wgs84ToGcj02 } from '../../lib/coordinates';
 import { fitBoundsCorners, mapPoiFromProvider, projectTrack, withColorAlpha, type NativeMapHandle, type NativeMapProps } from './types';
 
 const AMap = amapModule();
+// How long after the camera lands before onReady: AMap has no "tiles loaded"
+// event, and a screenshot taken earlier shows the loading grid.
+const TILE_SETTLE_MS = 1500;
 
 function point(coordinate: [number, number]) {
   const [longitude, latitude] = wgs84ToGcj02(coordinate);
@@ -60,6 +63,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   onCameraPositionChange,
   onZoomChange,
   onGestureStart,
+  onReady,
 }, ref) {
   const mapRef = useRef<MapViewRef>(null);
   const fitted = useRef(false);
@@ -170,6 +174,14 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
         }).catch(() => undefined);
       });
     },
+    // AMap's screenshot is of the rendered GL surface, overlays included, so it
+    // needs the tiles on screen first; see the delay before onReady.
+    takeSnapshot: async () => {
+      const path = await mapRef.current?.takeSnapshot();
+      if (!path) throw new Error('map not mounted');
+      // Markers are part of AMap's own screenshot, so there are no points to place.
+      return { uri: path.startsWith('file:') ? path : `file://${path}` };
+    },
   }), []);
 
   if (!module || !ensureAmapReady(module)) return <View style={style} />;
@@ -238,8 +250,13 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
               zoom: bounds.recommendedZoom,
               bearing: 0,
               tilt: 0,
-            }, 0);
+            }, 0).then(() => {
+              // Tiles for the new camera still have to arrive and draw.
+              if (onReady) setTimeout(onReady, TILE_SETTLE_MS);
+            }, () => undefined);
           };
+        } else if (onReady) {
+          setTimeout(onReady, TILE_SETTLE_MS);
         }
         flushCameraAction();
       }}

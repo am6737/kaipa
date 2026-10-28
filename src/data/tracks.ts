@@ -38,6 +38,8 @@ export interface Track {
   ascM?: number;
   pointCount?: number;
   startedAt?: string;
+  /** 「城市 区县」，保存后按轨迹中段反查填上；高德查不到的地方为空。 */
+  region?: string;
   /** Profile visibility; only used while the track is not on a journey. */
   visibility?: 'private' | 'followers' | 'public';
   /** An imported file the owner says they walked, so it counts as a timeline outing. */

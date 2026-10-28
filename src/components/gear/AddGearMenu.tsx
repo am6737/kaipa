@@ -96,11 +96,11 @@ export function GearAnchoredMenu({ theme, visible, anchor, title, rows, onClose 
     >
       <Glass solidOnAndroid theme={theme} radius={24} intensity={78}>
         <View style={{ paddingTop: 12, paddingBottom: 10, backgroundColor: theme.dark ? 'rgba(32,32,35,0.64)' : 'rgba(255,255,255,0.72)' }}>
-          <Text style={{ paddingHorizontal: 24, paddingTop: 2, paddingBottom: 5, fontSize: 11.5, fontWeight: '600', color: theme.text2 }}>{title}</Text>
+          <Text style={{ paddingHorizontal: 20, paddingTop: 2, paddingBottom: 5, fontSize: 11.5, fontWeight: '600', color: theme.text2 }}>{title}</Text>
           {rows.map((row) => (
             <Press key={row.key} accessibilityRole="button" onPress={row.onPress} style={{ height: 48, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' }}>
-              <View style={{ width: 25, alignItems: 'center' }}><Icon name={row.icon} color={theme.text} size={19} strokeWidth={1.8} /></View>
-              <Text style={{ marginLeft: 13, fontSize: 14.5, color: theme.text }}>{row.label}</Text>
+              <View style={{ width: 24, alignItems: 'center' }}><Icon name={row.icon} color={theme.text} size={19} strokeWidth={1.8} /></View>
+              <Text style={{ marginLeft: 12, fontSize: 14.5, color: theme.text }}>{row.label}</Text>
             </Press>
           ))}
         </View>

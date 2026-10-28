@@ -70,7 +70,7 @@ export function buildRouteEndpointMarkers({
   return values;
 }
 
-function EndpointBadge({ color, label }: { color: string; label: string }) {
+export function EndpointBadge({ color, label }: { color: string; label: string }) {
   return (
     <View style={[styles.badge, { backgroundColor: color }]}>
       <Text style={styles.badgeText}>{label}</Text>

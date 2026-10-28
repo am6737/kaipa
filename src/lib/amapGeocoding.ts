@@ -8,6 +8,10 @@ export interface JourneyLocationValue {
   lat: number;
   coord: string;
   category?: string;
+  /** Only on reverse results: administrative levels, empty outside AMap coverage. */
+  province?: string;
+  city?: string;
+  district?: string;
 }
 
 // A city or district a departure can name; `place` is the full 省市区 path.
@@ -80,6 +84,17 @@ export async function reverseJourneyLocation(
   const payload = await request({ action: 'reverse', lng, lat, language }, signal);
   if (!payload.result) throw new Error('map-search-empty-result');
   return payload.result;
+}
+
+/** 轨迹所在的「城市 区县」，取中段的一个点反查，不用起点，免得落到住处附近。
+ *  高德查不到（国外）或函数还没返回行政区字段时给 null。 */
+export async function reverseTrackRegion(coords: [number, number][], signal?: AbortSignal): Promise<string | null> {
+  const [lng, lat] = coords[Math.floor(coords.length / 2)] ?? [];
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+  const { result } = await request({ action: 'reverse', lng, lat, language: 'zh_cn' }, signal);
+  const parts = [result?.city || result?.province, result?.district]
+    .filter((part, index, all): part is string => Boolean(part) && all.indexOf(part) === index);
+  return parts.length ? parts.join(' ') : null;
 }
 
 export function locationFromPoi(region: string, lng: number, lat: number, coord?: string): JourneyLocationValue {

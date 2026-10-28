@@ -63,7 +63,8 @@ export function AppFilterSegmented<T extends string>({
 }: {
   theme: Theme;
   options: readonly (readonly [T, string])[];
-  value: T;
+  /** null highlights no segment, e.g. when a batch mixes values. */
+  value: T | null;
   onChange: (value: T) => void;
   caption?: string;
 }) {

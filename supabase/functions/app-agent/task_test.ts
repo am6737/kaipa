@@ -140,7 +140,8 @@ Deno.test('outcome requires receipts for requested deliverables and preserves dr
 Deno.test('skills are discoverable but not eagerly injected; runtime hides denied writes', async () => {
   // Reserve 300 additional characters for the topic boundary, including mixed
   // requests that remain on the conversational path. Keep skill bodies lazy.
-  assert(coreInstructions.length < 5000, 'Core prompt grew beyond its budget');
+  // 5100 since the gear_sets catalog line (2026-10-28).
+  assert(coreInstructions.length < 5100, 'Core prompt grew beyond its budget');
   for (const [name, skill] of Object.entries(planningSkills)) {
     assert(coreInstructions.includes(name) && !coreInstructions.includes(skill.body));
     const loaded = await loadPlanningSkill.invoke({} as never, JSON.stringify({ name }));

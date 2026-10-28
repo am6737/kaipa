@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Collapsed card: the moving time large on the left, distance and climb with the status on the right.
+     Fits the 48dp a decorated custom view gets when collapsed. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:layout_width="match_parent"
+  android:layout_height="wrap_content"
+  android:gravity="center_vertical"
+  android:orientation="horizontal">
+
+  <Chronometer
+    android:id="@+id/trail_clock"
+    style="@style/TextAppearance.Compat.Notification.Title"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:fontFamily="sans-serif-medium"
+    android:fontFeatureSettings="tnum"
+    android:maxLines="1"
+    android:textSize="26sp" />
+
+  <TextView
+    android:id="@+id/trail_time"
+    style="@style/TextAppearance.Compat.Notification.Title"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:fontFamily="sans-serif-medium"
+    android:fontFeatureSettings="tnum"
+    android:maxLines="1"
+    android:textSize="26sp"
+    android:visibility="gone" />
+
+  <LinearLayout
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="16dp"
+    android:layout_weight="1"
+    android:gravity="end"
+    android:orientation="vertical">
+
+    <TextView
+      android:id="@+id/trail_stats"
+      style="@style/TextAppearance.Compat.Notification.Title"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:ellipsize="end"
+      android:fontFeatureSettings="tnum"
+      android:maxLines="1"
+      android:textSize="14sp" />
+
+    <TextView
+      android:id="@+id/trail_status"
+      style="@style/TextAppearance.Compat.Notification.Info"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:ellipsize="end"
+      android:maxLines="1" />
+  </LinearLayout>
+</LinearLayout>

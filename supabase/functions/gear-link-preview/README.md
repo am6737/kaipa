@@ -49,6 +49,28 @@ supabase secrets set TAOBAO_ADZONE_ID=12345678
 
 ## 京东
 
+京东分享短链（`3.cn`）会 302 到明文 SKU 的 `item.m.jd.com` 商品页。函数优先读取
+页面服务端渲染的 `window._itemInfo.product`，拿到完整标题、品牌、型号、颜色、主图和
+含包装毛重；价格需要登录才可见，留给用户填写。页面解析失败时才回退到下面的联盟接口。
+
+京东风控会把 Edge Runtime 对 `/product/{sku}.html` 和 `item.jd.com` 的请求 302 到
+`cfe.m.jd.com` 验证页（curl/Node 不会，本地测试通过不代表线上可用），所以函数优先请求
+`item.m.jd.com/ware/view.action?wareId={sku}`，短链解析也在拿到 SKU 的第一跳就停止。
+验证时请在 `supabase/edge-runtime` 容器里跑。
+
+京东风控按出口 IP 计数：十几秒内约 80 次商品页请求就会被拦，封禁 1–5 分钟。成功结果
+按 SKU 写入共享的 `agent_external_cache`（key `gear-link-preview:v1:jd:{sku}`，默认
+30 天，可用 `GEAR_LINK_CACHE_TTL_SECONDS` 调整），同一商品只请求京东一次；分享文案
+预填的兜底结果不会缓存。
+
+一旦商品页请求被重定向到 `cfe.m.jd.com` 验证页，函数会暂停京东商品页请求 5 分钟
+（`GEAR_LINK_JD_PAUSE_SECONDS`，60–3600），状态写在同一张缓存表的
+`gear-link-preview:v1:jd-risk-pause`，所有实例共享。暂停期间缓存命中照常返回，
+未命中则用分享文案预填；手动解除可删除这一行。
+
+联盟 APP 的基础权限只能用加密 `itemId` 查 `goods.bigfield.query`（`sceneId=1`），
+无法直接查明文 SKU；`promotiongoodsinfo.query` 需要额外申请权限。
+
 ```bash
 supabase secrets set \
   JD_APP_KEY=... \

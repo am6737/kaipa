@@ -50,9 +50,20 @@ Work backwards from the saved hike start with local access, station/airport chec
 Before saving, call review_transport_plan with the proposed chain and the saved hiking window; resolve reported gaps and conflicts. Use minutes relative to midnight on the first hiking date, including negative values for previous-evening travel. Every physical transfer must be represented, and minimum buffers must reflect the actual mode/hub, not zero simply to pass checks. This is a consistency check, not live-service verification. Do not save speculative exact departures as verified bookings. Existing matching transport must be reused, not appended twice.
 For a new full journey plan, coordinate travel and hiking together within total trip days; there is no saved hiking window to preserve. For transport-only supplements, append ordinary itinerary items to the existing journey without deleting/reordering the hike or rebuilding packing. Extra travel days are not hiking days. Only when the user explicitly requests schedule changes, use update_journey_schedule with all current row/group days assigned exactly once, preserving names and trail order. Omit plannedDate to preserve it. Never bypass day bounds with custom groups. Do not change hiking endpoints for travel-only additions.`,
   },
+  gear_sets: {
+    description: 'Review or fill a gear-page gear set (装备清单).',
+    body: `A gear set is a reusable list named after a scenario (高海拔三天两夜, 周末露营), not a journey: never plan a trip, ask for dates or create a journey for it. Read it with list_gear_sets; match the set by setId, or loosely by name. Infer the scenario from the set name and description: season, altitude, days, overnight or not, camping or lodging, cooking or not. State the assumption you made in one short clause; ask only when the name gives no usable scenario at all.
+Review (清单判官): judge whether the set is fit for that scenario, like an experienced partner checking a pack, not a generic essentials lecture. Check, in this order, and report only real findings:
+1. Missing: essentials the scenario needs and the set lacks: carrying (pack), shelter and sleep for overnights, warmth and rain layers, footwear, lighting, navigation and communication, power, water and treatment, food, cooking for cooking trips, sun protection, first aid and emergency items. Name a concrete generic item, not a category.
+2. Redundant: duplicates or overlapping items (two puffy jackets for a summer day hike), and comfort extras that do not fit the scenario's weight goal.
+3. Heavy: using the given weights (kg), point out the heaviest items when they dominate the base weight or a lighter common alternative is typical. Weight 0 means unknown, not weightless; never comment on it as light.
+4. Labels: carry status that looks wrong: clothing that is normally worn while walking marked packed, food or fuel not consumable, an essential marked optional or a scenario-dependent extra marked packed.
+Write the verdict first in one sentence (基本合理 / 有几处需要调整 / 缺少关键装备), then the findings grouped by the four checks above, most important first, each one line with a short reason. Skip a check that has no finding instead of writing 无. Do not repeat the whole list back, invent brands or prices, or recommend buying what the user already owns in the library (check list_gear). If something is missing, end by asking whether to add the missing items to this set; offer quick replies for that. Reviewing never writes: do not call add_gear_set_items in a review turn.
+Filling: when the user asks to add what the set lacks, or agrees after a review, call add_gear_set_items once with only the missing items, using the user's own library item (gearItemId) whenever one matches; the rest are saved as 待购. After a review, add exactly the missing items the review named unless the user narrows them. Removing, renaming or relabelling items inside a set has no tool: say so and leave it to the user.`,
+  },
 } as const;
 
-export const skillNames = ['guides', 'routes', 'hiking', 'packing', 'travel'] as const;
+export const skillNames = ['guides', 'routes', 'hiking', 'packing', 'travel', 'gear_sets'] as const;
 export const skillCatalog = skillNames.map(name => `${name}: ${planningSkills[name].description}`).join('\n');
 
 export const loadPlanningSkill = tool({

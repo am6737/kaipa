@@ -115,13 +115,13 @@ function externalId(provider: Provider, url: URL) {
     return url.searchParams.get('id') || url.pathname.match(/(?:i|item\/)(\d{6,})/i)?.[1];
   }
   if (provider === 'jd') {
-    return url.searchParams.get('sku') || url.searchParams.get('skuId') || url.pathname.match(/\/(\d{5,})(?:\.html)?/i)?.[1];
+    return url.searchParams.get('sku') || url.searchParams.get('skuId') || url.searchParams.get('wareId') || url.pathname.match(/^\/(?:product\/)?(\d{5,})\.html$/i)?.[1];
   }
   if (provider === 'dewu') return url.searchParams.get('spuId') || undefined;
   return undefined;
 }
 
-async function fetchFollowingSafeRedirects(initial: URL, init: RequestInit = {}, maxRedirects = 4) {
+async function fetchFollowingSafeRedirects(initial: URL, init: RequestInit = {}, maxRedirects = 4, stopAt?: (url: URL) => boolean) {
   let url = initial;
   for (let index = 0; index <= maxRedirects; index += 1) {
     if (!allowedFetchHost(url.hostname)) throw new PreviewError('host_not_allowed', '该网站尚未加入可解析域名列表');
@@ -137,6 +137,7 @@ async function fetchFollowingSafeRedirects(initial: URL, init: RequestInit = {},
     const location = response.headers.get('location');
     if (!location) return { response, url };
     url = validateUrl(new URL(location, url).toString());
+    if (stopAt?.(url)) return { response, url };
   }
   throw new PreviewError('too_many_redirects', '商品链接重定向次数过多');
 }
@@ -465,6 +466,157 @@ async function jdPreview(url: URL, id: string): Promise<Preview> {
   };
 }
 
+// Successful lookups are shared across users so a popular SKU only reaches JD
+// once per TTL; JD's risk control blocks the server IP after ~80 quick requests.
+const PREVIEW_CACHE_VERSION = 'v1';
+
+function cacheClient() {
+  const supabaseUrl = env('SUPABASE_URL');
+  const serviceRoleKey = env('SUPABASE_SERVICE_ROLE_KEY');
+  if (!supabaseUrl || !serviceRoleKey) return null;
+  return createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+const previewCacheKey = (provider: Provider, id: string) => `gear-link-preview:${PREVIEW_CACHE_VERSION}:${provider}:${id}`;
+
+async function readPreviewCache(provider: Provider, id: string): Promise<Preview | undefined> {
+  try {
+    const client = cacheClient();
+    if (!client) return undefined;
+    const { data, error } = await client.rpc('read_agent_external_cache', { p_cache_key: previewCacheKey(provider, id) });
+    if (error) throw error;
+    return data && typeof data === 'object' && compact((data as Preview).name) ? data as Preview : undefined;
+  } catch (error) {
+    console.error('[gear-link-preview] cache read failed', error instanceof Error ? error.message : error);
+    return undefined;
+  }
+}
+
+async function writePreviewCache(preview: Preview) {
+  if (!preview.externalId) return;
+  try {
+    const client = cacheClient();
+    if (!client) return;
+    const ttl = Math.min(63_072_000, Math.max(3600, Number(env('GEAR_LINK_CACHE_TTL_SECONDS')) || 2_592_000));
+    const { error } = await client.rpc('write_agent_external_cache', {
+      p_cache_key: previewCacheKey(preview.provider, preview.externalId),
+      p_payload: preview,
+      p_ttl_seconds: ttl,
+    });
+    if (error) throw error;
+  } catch (error) {
+    console.error('[gear-link-preview] cache write failed', error instanceof Error ? error.message : error);
+  }
+}
+
+// Requests made while JD is already blocking us seem to extend the block, so a
+// captcha redirect pauses page reads for every user. The in-memory copy saves a
+// DB round trip within one isolate; the shared row covers the other isolates.
+const JD_PAUSE_KEY = `gear-link-preview:${PREVIEW_CACHE_VERSION}:jd-risk-pause`;
+let jdPausedUntil = 0;
+
+async function jdPaused() {
+  if (Date.now() < jdPausedUntil) return true;
+  try {
+    const client = cacheClient();
+    if (!client) return false;
+    const { data, error } = await client.rpc('read_agent_external_cache', { p_cache_key: JD_PAUSE_KEY });
+    if (error) throw error;
+    const until = Number((data as { until?: unknown } | null)?.until);
+    if (Number.isFinite(until) && until > Date.now()) {
+      jdPausedUntil = until;
+      return true;
+    }
+  } catch (error) {
+    console.error('[gear-link-preview] jd pause read failed', error instanceof Error ? error.message : error);
+  }
+  return false;
+}
+
+async function pauseJd() {
+  const seconds = Math.min(3600, Math.max(60, Number(env('GEAR_LINK_JD_PAUSE_SECONDS')) || 300));
+  jdPausedUntil = Date.now() + seconds * 1000;
+  console.error('[gear-link-preview] jd risk control hit, pausing page reads', seconds);
+  try {
+    const client = cacheClient();
+    if (!client) return;
+    const { error } = await client.rpc('write_agent_external_cache', {
+      p_cache_key: JD_PAUSE_KEY,
+      p_payload: { until: jdPausedUntil },
+      p_ttl_seconds: seconds,
+    });
+    if (error) throw error;
+  } catch (error) {
+    console.error('[gear-link-preview] jd pause write failed', error instanceof Error ? error.message : error);
+  }
+}
+
+function jdImageUrl(path: unknown) {
+  const value = compact(path);
+  if (/^https?:\/\//i.test(value)) return value;
+  if (/^\/\//.test(value)) return `https:${value}`;
+  if (/^jfs\//i.test(value)) return `https://img14.360buyimg.com/n0/${value}`;
+  return undefined;
+}
+
+// The mobile item page server-renders `window._itemInfo.product` with the full
+// SKU record, so share links work without union API permissions.
+const isJdRiskUrl = (url: URL) => hostMatches(url.hostname, 'cfe.m.jd.com') || url.pathname.includes('risk_handler');
+
+async function jdPageProduct(pageUrl: URL, id: string) {
+  const { response, url } = await fetchFollowingSafeRedirects(pageUrl, {
+    headers: {
+      'User-Agent': env('GEAR_LINK_USER_AGENT') || 'Mozilla/5.0 KaipaGearPreview/1.0',
+      Accept: 'text/html,application/xhtml+xml',
+      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.6',
+    },
+  }, 4, isJdRiskUrl);
+  if (isJdRiskUrl(url)) {
+    try { await response.body?.cancel(); } catch {}
+    throw new PreviewError('jd_risk_blocked', '京东暂时限制了商品识别，请稍后再试或手动填写');
+  }
+  if (!response.ok) throw new PreviewError('page_fetch_failed', `京东商品页面访问失败（${response.status}）`);
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('text/html')) throw new PreviewError('unsupported_content', '链接不是可识别的京东商品页面');
+  const html = await readTextLimited(response, 1_500_000);
+  const product = embeddedJsonValue(html, 'product') as Record<string, unknown> | undefined;
+  const item = embeddedJsonValue(html, 'item') as Record<string, unknown> | undefined;
+  const name = compact(product?.skuName) || compact(item?.skuName);
+  if (!product || compact(product.skuId) !== id || !name) throw new PreviewError('product_not_found', '京东页面中没有找到商品信息');
+  return { product, item, name };
+}
+
+async function jdPagePreview(id: string): Promise<Preview> {
+  // JD's risk control always sends Edge Runtime requests for /product/{sku}.html
+  // to a captcha page; the legacy view.action route still serves the same SSR data.
+  const { product, item, name } = await jdPageProduct(new URL(`https://item.m.jd.com/ware/view.action?wareId=${id}`), id);
+
+  const brand = compact(product.brandName) || compact(item?.brandName);
+  const model = compact(product.model);
+  const color = compact(product.color);
+  const images = Array.isArray(item?.image) ? item.image : [];
+  const imageUrl = jdImageUrl(product.imageurl) || images.map(jdImageUrl).find(Boolean);
+  const weight = weightKg(product.weight);
+  const attrs = [
+    [brand ? '品牌' : '', brand],
+    [model ? '型号' : '', model],
+    [color ? '颜色' : '', color],
+  ].filter(([key, value]) => key && value) as [string, string][];
+  const warnings = ['京东未公开商品价格，请按实际购买价格填写'];
+  warnings.push(weight == null ? '京东未提供可靠的商品净重，请手动确认' : '重量为京东登记的含包装毛重，请按实际净重确认');
+  return {
+    provider: 'jd',
+    sourceUrl: `https://item.jd.com/${id}.html`,
+    externalId: id,
+    name,
+    weightKg: weight,
+    imageUrl,
+    brand: brand || undefined,
+    attrs,
+    warnings,
+  };
+}
+
 function decodeEntities(value: string) {
   return value.replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
 }
@@ -708,7 +860,8 @@ async function resolvePreview(rawUrl: string, shareText = ''): Promise<Preview> 
   // Resolve short share links before selecting an official provider adapter.
   if (!id && allowedFetchHost(url.hostname)) {
     try {
-      const resolved = await fetchFollowingSafeRedirects(url, { method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0 KaipaGearPreview/1.0' } });
+      // Stop at the first JD hop that names a SKU: following on lands on a risk-control captcha page.
+      const resolved = await fetchFollowingSafeRedirects(url, { method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0 KaipaGearPreview/1.0' } }, 4, (next) => providerFor(next) === 'jd' && !!externalId('jd', next));
       url = resolved.url;
       provider = providerFor(url);
       id = externalId(provider, url);
@@ -733,7 +886,27 @@ async function resolvePreview(rawUrl: string, shareText = ''): Promise<Preview> 
   const pastedTitle = sharedTitle(shareText);
   try {
     if ((provider === 'taobao' || provider === 'tmall') && id) return await taobaoPreview(url, provider, id);
-    if (provider === 'jd' && id) return await jdPreview(url, id);
+    if (provider === 'jd' && id) {
+      const cached = await readPreviewCache('jd', id);
+      if (cached) return cached;
+      let preview: Preview;
+      try {
+        if (await jdPaused()) throw new PreviewError('jd_risk_paused', '京东暂时限制了商品识别，请稍后再试或手动填写');
+        preview = await jdPagePreview(id);
+      } catch (error) {
+        const pageError = error instanceof PreviewError ? error : new PreviewError('page_fetch_failed', '京东商品页面访问失败');
+        if (pageError.code === 'jd_risk_blocked') await pauseJd();
+        console.error('[gear-link-preview] jd page fallback', pageError.code, pageError.message);
+        try {
+          preview = await jdPreview(url, id);
+        } catch (apiError) {
+          // The union API usually lacks SKU permission; the risk message is the actionable one.
+          throw pageError.code.startsWith('jd_risk') ? pageError : apiError;
+        }
+      }
+      await writePreviewCache(preview);
+      return preview;
+    }
     if (provider === 'dewu' && id) return await dewuPreview(url, id);
   } catch (error) {
     officialError = error instanceof PreviewError ? error : new PreviewError('provider_error', '开放平台调用失败');
@@ -764,6 +937,8 @@ async function resolvePreview(rawUrl: string, shareText = ''): Promise<Preview> 
   }
 
   try {
+    // JD's public metadata path only ever reaches the risk-control captcha page.
+    if (provider === 'jd') throw officialError || new PreviewError('product_not_found', '京东页面中没有找到商品信息');
     return await genericPreview(url, provider);
   } catch (error) {
     if (pastedTitle) {
@@ -775,7 +950,9 @@ async function resolvePreview(rawUrl: string, shareText = ''): Promise<Preview> 
         priceCny: finite(url.searchParams.get('price')),
         attrs: [],
         warnings: [
-          officialError
+          officialError && provider === 'jd'
+            ? '京东商品页暂未返回该商品，已使用分享文案预填，请手动确认图片、重量和价格'
+            : officialError
             ? '淘宝开放平台暂未返回该商品，已使用分享文案预填，请手动确认图片、重量和价格'
             : '已使用分享文案预填，请手动确认图片、重量和价格',
         ],

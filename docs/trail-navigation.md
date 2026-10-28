@@ -40,7 +40,11 @@ shows the running one and toasts `trail.busy`.
     out instead of being drawn;
   - drop steps from the last kept point that stay inside the fix's error circle
     (5–25 m), or within twice that while Doppler speed is under 0.4 m/s;
-  - drop jumps faster than 12 m/s.
+  - drop jumps faster than 12 m/s, unless the fix's own Doppler speed backs
+    the step (×1.5 + 5 m/s); after 3 jumps in a row the last kept point is the
+    stale one and the next fix is taken. Judged against the last kept point
+    alone, an e-bike or car above 12 m/s had every fix dropped until it slowed,
+    and the track drew a straight line across the gap.
 - **First point** of each segment waits for 3 smoothed fixes; the pre-start
   dot only seeds it when its accuracy is 15 m or better. The first answers are
   often a cached or Wi-Fi position, and anchoring there drew a 100 m line
@@ -77,6 +81,11 @@ shows the running one and toasts `trail.busy`.
   200-point chunks, and only the open chunk is rewritten. Writes are throttled
   to every 5 s and flushed when the app goes to background. On next launch the
   page reopens on the recording.
+- **Screens wait for the app**: `useTrailSnapshot`/`useTrailGuide` pass fixes on
+  only while the app is on screen, and once on return. Android's Fabric stops
+  mounting in the background and queues every commit; per-fix renders of the
+  tab bar or trail map piled up and drained as lag on the first taps back. The
+  tab bar reads `useTrailStatus` so it doesn't re-render on every fix either.
 - **Saving offline**: `createTrack` returning null queues the draft under
   `kaipa.trail.pendingSaves.v1`. The queue flushes on launch and when the app
   becomes active.

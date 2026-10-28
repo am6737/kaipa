@@ -21,7 +21,6 @@ interface ExportCopy {
   pack: string;
   worn: string;
   consumable: string;
-  generatedBy: string;
 }
 
 export interface GearSetExportData {
@@ -69,13 +68,12 @@ export function buildGearSetText(data: GearSetExportData) {
 
   data.groups.forEach((group) => {
     const groupWeight = group.items.reduce((sum, item) => sum + itemWeight(item), 0);
-    lines.push('', `${group.cat.name} · ${fmtWeight(groupWeight, data.weightUnit, true)}`);
+    lines.push('', `${group.cat.name}  ${fmtWeight(groupWeight, data.weightUnit, true)}`);
     group.items.forEach((item) => {
-      lines.push(`- ${item.name} x${itemQty(item)} · ${fmtWeight(itemWeight(item), data.weightUnit, true)} · ${money(itemPrice(item))}`);
+      lines.push(`- ${item.name} x${itemQty(item)}  ${fmtWeight(itemWeight(item), data.weightUnit, true)}  ${money(itemPrice(item))}`);
     });
   });
 
-  lines.push('', data.copy.generatedBy);
   return lines.join('\n');
 }
 
@@ -149,10 +147,10 @@ export const GearSetPoster = React.forwardRef<any, { data: GearSetExportData; th
                 <View key={group.cat.id} style={[styles.matchSection, { marginTop: gi === 0 ? 30 : 18 }]}>
                   <View style={styles.matchCategoryHeader}>
                     <Text style={[styles.matchCategoryName, { color: theme.text2 }]}>{group.cat.name}</Text>
-                    {displaySettings.groupStats ? <Text style={[styles.matchCategoryMeta, { color: theme.text3 }]}>{group.items.length} · {fmtWeight(groupWeight, data.weightUnit, true)}</Text> : null}
+                    {displaySettings.groupStats ? <Text style={[styles.matchCategoryMeta, { color: theme.text3 }]}>{group.items.length}{'  '}{fmtWeight(groupWeight, data.weightUnit, true)}</Text> : null}
                   </View>
                   {group.items.map((item) => {
-                    const meta = [displaySettings.weight ? fmtWeight(itemWeight(item), data.weightUnit) : null, displaySettings.value ? money(itemPrice(item)) : null, itemQty(item) > 1 ? `×${itemQty(item)}` : null].filter(Boolean).join(' · ');
+                    const meta = [displaySettings.weight ? fmtWeight(itemWeight(item), data.weightUnit) : null, displaySettings.value ? money(itemPrice(item)) : null, itemQty(item) > 1 ? `×${itemQty(item)}` : null].filter(Boolean).join('  ');
                     return (
                       <View key={`${group.cat.id}-${item.name}`} style={styles.matchRow}>
                         {displaySettings.images ? <GearItemImage theme={theme} item={item} radius={12} style={styles.matchThumb} /> : null}

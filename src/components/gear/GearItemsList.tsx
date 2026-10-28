@@ -34,8 +34,7 @@ const INITIAL_RENDER_COUNT = 12;
 // Floating bottom pills and the sheet's primary button.
 const PILL_HEIGHT = layout.iconButton + space.xs;
 // Rows of the glass menus.
-const MENU_ROW_HEIGHT = layout.fieldHeight + space.sm;
-const COMPACT_ROW_HEIGHT = layout.fieldHeight + space.xxs;
+const MENU_ROW_HEIGHT = layout.menuRowHeight;
 // List-row thumbnail; the row and its empty placeholders share this geometry.
 import { catIcon } from './catIcon';
 import { useRollingText } from './useRollingText';
@@ -46,7 +45,7 @@ const headerButtonStyle = { width: layout.iconButton, height: layout.iconButton,
 function GearHeaderButton({ icon: IconComponent, onPress, label, color, active }: { icon: LucideIcon; onPress: (event: GestureResponderEvent) => void; label: string; color: string; active?: boolean }) {
   return <Press accessibilityRole="button" accessibilityLabel={label} accessibilityState={active == null ? undefined : { selected: active }} onPress={onPress} style={headerButtonStyle}><IconComponent color={color} size={25} strokeWidth={2.2} /></Press>;
 }
-function GearHeaderIconButton({ theme, icon, onPress, label, active = false }: { theme: Theme; icon: IconName; onPress: () => void; label: string; active?: boolean }) {
+export function GearHeaderIconButton({ theme, icon, onPress, label, active = false }: { theme: Theme; icon: IconName; onPress: () => void; label: string; active?: boolean }) {
   return <Press accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected: active }} onPress={onPress} style={headerButtonStyle}><Icon name={icon} color={active ? theme.accent : theme.text} size={25} strokeWidth={2.2} /></Press>;
 }
 type LayoutMode = 'list' | 'grid';
@@ -514,7 +513,7 @@ function GearItemsListView({
                 // The first placeholder card already adds an item, so only AI stays here.
                 onOpenAssistant ? (
                   <View style={{ flex: 1, alignItems: 'center' }}>
-                    <BottomControl theme={theme} label={t('gear.empty.askAiItems')} onPress={onOpenAssistant} />
+                    <BottomControl theme={theme} icon="wandSparkles" label={t('gear.empty.askAiItems')} onPress={onOpenAssistant} />
                   </View>
                 ) : null
               ) : (
@@ -1110,34 +1109,27 @@ export function BottomControl({ theme, icon, leading, label, onPress, primary = 
 }
 
 export function MenuCaption({ theme, text, spaced = false }: { theme: Theme; text: string; spaced?: boolean }) {
-  return <Text style={[type.eyebrow, { paddingHorizontal: space.xl, paddingTop: spaced ? space.lg : space.xxs, paddingBottom: space.xs, color: theme.text2 }]}>{text}</Text>;
+  return <Text style={[type.eyebrow, { paddingHorizontal: space.lg, paddingTop: spaced ? space.md : space.xxs, paddingBottom: space.xxs, color: theme.text2 }]}>{text}</Text>;
 }
 
 export function MenuRow({ theme, icon, label, onPress, selected = false, trailing, destructive = false }: { theme: Theme; icon: IconName; label: string; onPress: () => void; selected?: boolean; trailing?: React.ReactNode; destructive?: boolean }) {
   const color = destructive ? theme.danger : theme.text;
   return (
-    <Press onPress={onPress} scaleTo={0.985} style={{ minHeight: MENU_ROW_HEIGHT, paddingHorizontal: space.xl, flexDirection: 'row', alignItems: 'center' }}>
-      <View style={{ width: space.xl, alignItems: 'center' }}><Icon name={icon} color={color} size={21} strokeWidth={1.9} /></View>
-      <Text numberOfLines={1} style={[type.body, { flex: 1, marginLeft: space.md, color }]}>{label}</Text>
-      {trailing || (selected ? <Icon name="check" color={theme.accent} size={17} strokeWidth={2.2} /> : null)}
+    <Press onPress={onPress} scaleTo={0.985} style={{ minHeight: MENU_ROW_HEIGHT, paddingHorizontal: space.lg, flexDirection: 'row', alignItems: 'center' }}>
+      <View style={{ width: space.xl, alignItems: 'center' }}><Icon name={icon} color={color} size={19} strokeWidth={1.8} /></View>
+      <Text numberOfLines={1} style={[type.body, { flex: 1, marginLeft: space.sm, color }]}>{label}</Text>
+      {trailing || (selected ? <Icon name="check" color={theme.accent} size={16} strokeWidth={2.2} /> : null)}
     </Press>
   );
 }
 
-export function CompactMenuRow({ theme, icon, label, onPress, selected = false }: { theme: Theme; icon: IconName; label: string; onPress: () => void; selected?: boolean }) {
-  return (
-    <Press onPress={onPress} scaleTo={0.985} style={{ height: COMPACT_ROW_HEIGHT, paddingHorizontal: space.lg, flexDirection: 'row', alignItems: 'center' }}>
-      <View style={{ width: space.xl, alignItems: 'center' }}><Icon name={icon} color={theme.text} size={19} strokeWidth={1.8} /></View>
-      <Text style={[type.body, { marginLeft: space.sm, color: theme.text }]}>{label}</Text>
-      {selected ? <View style={{ marginLeft: 'auto' }}><Icon name="check" color={theme.accent} size={16} strokeWidth={2.2} /></View> : null}
-    </Press>
-  );
-}
+// Sort menus share the row; kept as a name for their call sites.
+export const CompactMenuRow = MenuRow;
 
 function DisplaySettingRow({ theme, label, value, onChange, last }: { theme: Theme; label: string; value: boolean; onChange: (value: boolean) => void; last?: boolean }) {
   // Indented to line up with the MenuRow labels above.
   return (
-    <View style={{ minHeight: MENU_ROW_HEIGHT, paddingLeft: space.xl * 2 + space.md, paddingRight: space.xl, flexDirection: 'row', alignItems: 'center', borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth, borderBottomColor: theme.hairline }}>
+    <View style={{ minHeight: MENU_ROW_HEIGHT, paddingLeft: space.lg + space.xl + space.sm, paddingRight: space.lg, flexDirection: 'row', alignItems: 'center', borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth, borderBottomColor: theme.hairline }}>
       <Text style={[type.small, { flex: 1, color: theme.text }]}>{label}</Text>
       <View style={{ width: 42, height: 28, marginLeft: space.xs, alignItems: 'center', justifyContent: 'center' }}>
         <Switch value={value} onValueChange={onChange} trackColor={{ false: theme.hairline, true: theme.accent }} thumbColor="#FFFFFF" style={{ transform: [{ scale: 0.78 }] }} />
@@ -1146,16 +1138,17 @@ function DisplaySettingRow({ theme, label, value, onChange, last }: { theme: The
   );
 }
 
-export function FloatingMenu({ theme, visible, top, width, onClose, children }: { theme: Theme; visible: boolean; top: number; width: number; onClose: () => void; children: React.ReactNode }) {
+export function FloatingMenu({ theme, visible, top, width, onClose, onClosed, children }: { theme: Theme; visible: boolean; top: number; width: number; onClose: () => void; onClosed?: () => void; children: React.ReactNode }) {
   return (
     <GearMenuTransition
       theme={theme}
       visible={visible}
       onClose={onClose}
+      onClosed={onClosed}
       positionStyle={{ position: 'absolute', top, right: space.sm, width, borderRadius: radius.feature, overflow: 'hidden', boxShadow: theme.dark ? '0px 18px 46px rgba(0,0,0,0.52)' : '0px 18px 46px rgba(0,0,0,0.18)' }}
     >
       <Glass solidOnAndroid theme={theme} radius={radius.feature} intensity={76}>
-        <View style={{ paddingVertical: space.sm, backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)' }}>{children}</View>
+        <View style={{ paddingVertical: space.xs, backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)' }}>{children}</View>
       </Glass>
     </GearMenuTransition>
   );
@@ -1182,7 +1175,7 @@ function CompactChoiceMenu({ theme, visible, title, onClose, children }: { theme
     >
       <Glass solidOnAndroid theme={theme} radius={radius.feature} intensity={78}>
         <View style={{ paddingTop: space.sm, paddingBottom: space.xs, backgroundColor: theme.dark ? 'rgba(32,32,35,0.64)' : 'rgba(255,255,255,0.72)' }}>
-          <Text style={[type.eyebrow, { paddingHorizontal: space.xl, paddingBottom: space.xxs, color: theme.text2 }]}>{title}</Text>
+          <Text style={[type.eyebrow, { paddingHorizontal: space.lg, paddingBottom: space.xxs, color: theme.text2 }]}>{title}</Text>
           {children}
         </View>
       </Glass>
