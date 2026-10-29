@@ -1186,6 +1186,10 @@ export const zh = {
       imageReadFailed: "无法读取图片，请重新选择",
       imageRecognitionFailed: "图片识别失败",
       productPage: "商品页",
+      clipboardFrom: "来自{source}",
+      clipboardPrice: "价格",
+      clipboardWeight: "重量",
+      clipboardAdd: "添加到装备",
     },
     editor: {
       namePlaceholder: "未命名装备",

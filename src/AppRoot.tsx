@@ -53,6 +53,7 @@ import { RouteGuidePage } from './components/discover/RouteGuidePage';
 import { RouteTopicPage } from './components/discover/RouteTopicPage';
 import { PlusPosterPage } from './components/me/PlusPosterPage';
 import { AppAssistant } from './components/assistant/AppAssistant';
+import { ClipboardProductGate } from './components/gear/ClipboardProductGate';
 import { QrLoginScannerPage } from './components/auth/QrLoginScannerPage';
 import { fetchJourneyPoiById } from './lib/journeyInvite';
 import { joinJourneyByCode } from './lib/journeyShare';
@@ -494,6 +495,7 @@ function AppShell() {
         }}
       />
       <TrailLayer theme={theme} tabsVisible={!tabsHidden} />
+      <ClipboardProductGate />
       {nav.actionSheet && <ActionSheet theme={theme} config={nav.actionSheet} onClose={() => nav.closeActionSheet()} />}
       {nav.toast ? <Toast message={nav.toast.message} placement={nav.toast.placement} dark={theme.dark} /> : null}
     </View>

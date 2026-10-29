@@ -1,0 +1,7 @@
+{
+  "name": "clipboard-probe",
+  "version": "1.0.0",
+  "description": "App-local iOS pasteboard probe that gates Kaipa's clipboard product recognition.",
+  "main": "src/index.ts",
+  "private": true
+}

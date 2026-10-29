@@ -51,6 +51,9 @@ export const type = {
   lead: { fontSize: 14, lineHeight: 23 },
   fieldLabel: { fontSize: 17, fontWeight: '600' as const },
   fieldValue: { fontSize: 21, fontWeight: '600' as const, fontVariant: tabular },
+  // The 2×2 figures a detail sheet opens with (预计用时 / 距离 / 爬升 / 下降).
+  statLabel: { fontSize: 12, fontWeight: '500' as const },
+  statValue: { fontSize: 22, fontWeight: '600' as const, letterSpacing: -0.3, lineHeight: 28, fontVariant: tabular },
   hint: { fontSize: 12, lineHeight: 19 },
   chip: { fontSize: 14, fontWeight: '600' as const },
   readoutLabel: { fontSize: 14, fontWeight: '500' as const },

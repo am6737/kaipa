@@ -6,6 +6,7 @@
 import React, { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Poi } from '../data/pois';
 import { TLRow } from '../data/timeline';
+import type { GearItem } from '../data/gear';
 import type { JourneyVersion } from '../hooks/useJourneyVersions';
 import { reverseRoute } from '../lib/routeDirection';
 import { launchRegion } from '../lib/launchRegion';
@@ -13,6 +14,8 @@ import type { AgentIntent } from '../lib/appAgent';
 
 export type MainTab = 'discover' | 'journey' | 'gear' | 'me';
 export type GearPageRequest = 'sets' | 'items';
+/** A recognized product handed to the gear tab: opens the item editor pre-filled. */
+export type GearDraftRequest = { item: GearItem; source: { label: string; url?: string } };
 export type JourneyTabRequest = { journeyId: string; tab?: 'checklist'; day?: string };
 /** Curated route lists opened from the journey starter cards. */
 export type RouteTopic = 'season' | 'easy' | 'hard';
@@ -71,6 +74,9 @@ export interface NavValue {
   gearPageRequest: GearPageRequest | null;
   openGearPage: (page: GearPageRequest) => void;
   clearGearPageRequest: () => void;
+  gearDraftRequest: GearDraftRequest | null;
+  openGearDraft: (draft: GearDraftRequest) => void;
+  clearGearDraftRequest: () => void;
   /** Asks the journey detail to open on a tab or day, e.g. where the assistant just made changes. */
   journeyTabRequest: JourneyTabRequest | null;
   requestJourneyTab: (request: JourneyTabRequest) => void;
@@ -272,6 +278,7 @@ export function NavProvider({
   const [gearSetRequestId, setGearSetRequestId] = useState<string | null>(null);
   const [journeyTabRequest, setJourneyTabRequest] = useState<JourneyTabRequest | null>(null);
   const [gearPageRequest, setGearPageRequest] = useState<GearPageRequest | null>(null);
+  const [gearDraftRequest, setGearDraftRequest] = useState<GearDraftRequest | null>(null);
   const [pointInfo, setPointInfo] = useState<Poi | null>(null);
   const [pointSource, setPointSource] = useState<Poi | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -469,6 +476,15 @@ export function NavProvider({
         setMainTab('gear');
       },
       clearGearPageRequest: () => setGearPageRequest(null),
+      gearDraftRequest,
+      openGearDraft: (draft) => {
+        setGearItemRequestId(null);
+        setGearSetRequestId(null);
+        setGearPageRequest(null);
+        setGearDraftRequest(draft);
+        setMainTab('gear');
+      },
+      clearGearDraftRequest: () => setGearDraftRequest(null),
       journeyTabRequest,
       requestJourneyTab: (request) => setJourneyTabRequest(request),
       clearJourneyTabRequest: () => setJourneyTabRequest(null),
@@ -709,6 +725,7 @@ export function NavProvider({
       gearItemRequestId,
       gearSetRequestId,
       gearPageRequest,
+      gearDraftRequest,
       journeyTabRequest,
       pointInfo,
       pointSource,

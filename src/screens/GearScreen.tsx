@@ -157,6 +157,15 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
     nav.clearGearPageRequest();
   }, [nav.gearPageRequest]);
 
+  // A product recognized from the clipboard arrives as a ready draft: open the
+  // same 添加装备 editor the paste-link page hands over, in 'recognized' mode.
+  useEffect(() => {
+    if (!nav.gearDraftRequest) return;
+    const draft = nav.gearDraftRequest;
+    setItemEditor({ mode: 'new', item: { ...blankGearItem(cats), ...draft.item }, start: 'recognized', recognitionSource: draft.source });
+    nav.clearGearDraftRequest();
+  }, [nav.gearDraftRequest]);
+
   // Rewrite the open pages when an item is renamed or edited; the same call
   // applied backwards is how a failed optimistic save is undone.
   const swapInStack = (fromName: string, to: GearItem) =>

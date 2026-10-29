@@ -1187,6 +1187,10 @@ export const en: SameShape<typeof zh> = {
       imageReadFailed: "Unable to read the image. Please choose it again.",
       imageRecognitionFailed: "Image recognition failed",
       productPage: "product page",
+      clipboardFrom: "From {source}",
+      clipboardPrice: "Price",
+      clipboardWeight: "Weight",
+      clipboardAdd: "Add to gear",
     },
     editor: {
       namePlaceholder: "Untitled gear",

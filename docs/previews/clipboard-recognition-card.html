@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>剪贴板识别卡片 方向对比</title>
+<style>
+  :root { --grouped:#F4F4F5; --feature:#FFFFFF; --control:#FFFFFF; --field:rgba(0,0,0,0.045); --text:#000; --text2:rgba(60,60,67,0.62); --text3:rgba(60,60,67,0.32); --hairline:rgba(0,0,0,0.08); --accent:#0A84FF; --accentSoft:rgba(10,132,255,0.12); --shadow:0 10px 30px rgba(0,0,0,0.14); --frame:rgba(0,0,0,0.10); --page:#E9E9EE; --scrim:rgba(0,0,0,0.38); --img:#EEF1F4; }
+  [data-theme="dark"] { --grouped:#1C1C1E; --feature:#000; --control:#2C2C2E; --field:rgba(255,255,255,0.07); --text:#FFF; --text2:rgba(235,235,245,0.62); --text3:rgba(235,235,245,0.30); --hairline:rgba(255,255,255,0.10); --accentSoft:rgba(10,132,255,0.22); --shadow:0 10px 30px rgba(0,0,0,0.5); --frame:rgba(255,255,255,0.14); --page:#111; --scrim:rgba(0,0,0,0.6); --img:#2A2D31; }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-font-smoothing:antialiased; }
+  body { background:var(--page); color:var(--text); font-family:-apple-system,"SF Pro Text","PingFang SC",sans-serif; padding:28px 20px 60px; }
+  .tab { font-variant-numeric:tabular-nums; }
+  .mono { font-family:Menlo,"SF Mono",monospace; font-variant-numeric:tabular-nums; }
+  h1 { font-size:22px; font-weight:800; }
+  .lead { font-size:13.5px; line-height:21px; color:var(--text2); margin-top:8px; max-width:820px; }
+  .toolbar { margin:16px 0 4px; display:flex; gap:8px; flex-wrap:wrap; }
+  .toolbar button { font:inherit; font-size:13px; font-weight:600; color:var(--text); background:var(--field); border:none; border-radius:999px; padding:8px 14px; cursor:pointer; }
+  .toolbar button.primary { background:var(--accent); color:#FFF; }
+  .boards { display:flex; flex-wrap:wrap; gap:28px; margin-top:22px; align-items:flex-start; }
+  .board { width:340px; max-width:100%; }
+  .head { padding:0 4px 10px; min-height:80px; }
+  .head b { font-size:15px; font-weight:800; }
+  .head b em { font-style:normal; font-size:11px; font-weight:700; color:var(--accent); background:var(--accentSoft); border-radius:999px; padding:2px 8px; margin-left:6px; vertical-align:2px; }
+  .head span { display:block; font-size:12px; line-height:18px; color:var(--text2); margin-top:4px; }
+
+  /* phone + background page */
+  .phone { position:relative; height:680px; background:var(--feature); border:1px solid var(--frame); border-radius:40px; overflow:hidden; }
+  .status { height:44px; display:flex; justify-content:space-between; align-items:center; padding:0 26px; font-size:14px; font-weight:600; }
+  .screen { padding:6px 20px; }
+  .ptitle { font-size:25px; font-weight:800; letter-spacing:-.4px; margin:6px 0 4px; }
+  .psub { font-size:11.5px; color:var(--text3); margin-bottom:16px; }
+  .summary { display:flex; gap:28px; margin-bottom:18px; }
+  .summary small { display:block; font-size:12px; font-weight:500; color:var(--text2); margin-bottom:2px; }
+  .summary b { font-family:Menlo,"SF Mono",monospace; font-size:26px; font-weight:800; letter-spacing:-1px; }
+  .summary b span { font-size:13px; letter-spacing:0; color:var(--text2); }
+  .row { display:flex; align-items:center; gap:12px; min-height:62px; }
+  .th { width:46px; height:46px; border-radius:15px; background:var(--field); flex:none; }
+  .rb { flex:1; min-width:0; }
+  .rn { font-size:15px; font-weight:700; }
+  .rc { font-size:11.5px; color:var(--text2); margin-top:3px; }
+  .rw { font-family:Menlo,monospace; font-size:15px; font-weight:800; }
+  .tabbar { position:absolute; left:16px; right:16px; bottom:22px; height:58px; border-radius:999px; background:var(--control); box-shadow:0 6px 18px rgba(0,0,0,0.08); display:flex; align-items:center; justify-content:space-around; }
+  [data-theme="dark"] .tabbar { box-shadow:inset 0 0 0 1px var(--hairline); }
+  .tabbar span { width:22px; height:22px; border-radius:7px; background:var(--field); }
+  .tabbar span.on { background:var(--accent); opacity:.85; }
+
+  .scrim { position:absolute; inset:0; background:var(--scrim); transition:opacity .25s; }
+  .hide .scrim { opacity:0; }
+
+  /* product image block (stands for the platform's real product photo) */
+  .img { background:var(--img); display:flex; align-items:center; justify-content:center; color:var(--text3); position:relative; overflow:hidden; }
+  .img svg { opacity:.9; }
+  .src { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; color:var(--text2); }
+  .src i { width:16px; height:16px; border-radius:5px; background:#E1251B; color:#FFF; font-style:normal; font-size:9px; font-weight:800; display:flex; align-items:center; justify-content:center; }
+  .src i.dy { background:#161823; }
+
+  .stats { display:flex; gap:22px; }
+  .stats small { display:block; font-size:12px; font-weight:500; color:var(--text2); }
+  .stats b { font-size:22px; font-weight:600; letter-spacing:-.3px; line-height:28px; font-variant-numeric:tabular-nums; }
+  .stats b.empty { color:var(--text3); }
+
+  .btn { height:50px; border-radius:999px; border:none; font:inherit; font-size:16px; font-weight:700; cursor:pointer; width:100%; }
+  .btn.p { background:var(--accent); color:#FFF; }
+  .btn.s { background:var(--field); color:var(--text); }
+  .closeO { width:36px; height:36px; border-radius:18px; border:1.5px solid rgba(255,255,255,0.7); color:#FFF; background:transparent; font-size:16px; display:flex; align-items:center; justify-content:center; margin:18px auto 0; cursor:pointer; }
+
+  /* A: centre card (抖音式) */
+  .center { position:absolute; left:34px; right:34px; top:120px; transition:transform .35s cubic-bezier(.2,.9,.25,1.15), opacity .25s; }
+  .hide .center { transform:scale(.9); opacity:0; }
+  .ccard { background:var(--control); border-radius:24px; overflow:hidden; }
+  .ccard .img { height:200px; }
+  .ccard .body { padding:16px 18px 18px; }
+  .ccard .name { font-size:17px; font-weight:700; line-height:23px; margin:8px 0 14px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .ccard .btn { margin-top:18px; }
+
+  /* B: bottom sheet */
+  .sheet { position:absolute; left:0; right:0; bottom:0; background:var(--control); border-radius:28px 28px 0 0; padding:10px 20px 30px; transition:transform .35s cubic-bezier(.2,.9,.25,1); }
+  .hide .sheet { transform:translateY(100%); }
+  .grab { width:36px; height:5px; border-radius:3px; background:var(--field); margin:0 auto 16px; }
+  .sq { font-size:20px; font-weight:800; line-height:26px; }
+  .sl { font-size:13px; line-height:20px; color:var(--text2); margin:4px 0 16px; }
+  .prod { display:flex; gap:14px; align-items:center; }
+  .prod .img { width:84px; height:84px; border-radius:18px; flex:none; }
+  .prod .name { font-size:15px; font-weight:700; line-height:21px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin-top:4px; }
+  .sheet .stats { margin:18px 0 20px; }
+  .two { display:flex; gap:10px; }
+  .two .btn.s { flex:0 0 96px; }
+
+  /* C: top expanding capsule */
+  .cap { position:absolute; left:12px; right:12px; top:50px; background:var(--control); border-radius:24px; box-shadow:var(--shadow); overflow:hidden; transition:transform .35s cubic-bezier(.2,.9,.25,1.1), opacity .25s; }
+  [data-theme="dark"] .cap { box-shadow:var(--shadow), inset 0 0 0 1px var(--hairline); }
+  .hide .cap { transform:translateY(-30px); opacity:0; }
+  .capRow { display:flex; align-items:center; gap:12px; padding:12px; }
+  .capRow .img { width:56px; height:56px; border-radius:14px; flex:none; }
+  .capRow .cb { flex:1; min-width:0; }
+  .capRow .name { font-size:15px; font-weight:700; line-height:20px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:3px; }
+  .capRow .meta { font-size:13px; color:var(--text2); margin-top:2px; font-variant-numeric:tabular-nums; }
+  .capRow .go { flex:none; height:36px; padding:0 16px; border-radius:999px; background:var(--accent); color:#FFF; border:none; font:inherit; font-size:14px; font-weight:700; cursor:pointer; }
+
+  .notes { margin-top:30px; max-width:820px; }
+  .notes h2 { font-size:18px; font-weight:800; margin-bottom:10px; }
+  .notes p { font-size:13.5px; line-height:22px; color:var(--text2); margin-bottom:8px; }
+  .notes b { color:var(--text); }
+</style>
+</head>
+<body>
+<h1>剪贴板识别卡片 方向对比</h1>
+<p class="lead">和上一版的区别：<b>先在后台识别完，再弹卡片</b>。卡片直接展示商品本身（图、名称、价格），用户只需决定“加不加”，不再问“要不要识别”。灰色图块代表平台返回的真实商品图。</p>
+<div class="toolbar">
+  <button onclick="toggleTheme()">切换深色 / 浅色</button>
+  <button class="primary" onclick="replay()">模拟切回 App</button>
+</div>
+
+<div class="boards">
+  <!-- A -->
+  <div class="board">
+    <div class="head"><b>A 居中大卡片<em>最像抖音</em></b><span>压暗背景，屏幕中间一张大卡片，商品图占主要位置，下方一个大按钮，关闭按钮在卡片外。存在感最强，必须处理完才能继续。</span></div>
+    <div class="phone" data-anim>
+      <div class="status"><span class="tab">9:41</span><span>●●●</span></div>
+      <div class="screen" data-bg></div>
+      <div class="tabbar"><span></span><span></span><span class="on"></span><span></span></div>
+      <div class="scrim"></div>
+      <div class="center">
+        <div class="ccard">
+          <div class="img" data-tent></div>
+          <div class="body">
+            <span class="src"><i>京</i>来自京东</span>
+            <div class="name">Big Agnes 铜钉 UL2 超轻双人三季帐篷</div>
+            <div class="stats">
+              <div><small>价格</small><b>¥3,299</b></div>
+              <div><small>重量</small><b class="empty">--</b></div>
+            </div>
+            <button class="btn p">添加到装备</button>
+          </div>
+        </div>
+        <button class="closeO">✕</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- B -->
+  <div class="board">
+    <div class="head"><b>B 底部半屏面板</b><span>从底部升起，标题直接提问。商品信息和数值完整，主按钮和“忽略”并排。下滑即可关闭，单手操作最方便，和 App 里其他面板风格一致。</span></div>
+    <div class="phone" data-anim>
+      <div class="status"><span class="tab">9:41</span><span>●●●</span></div>
+      <div class="screen" data-bg></div>
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="grab"></div>
+        <div class="sq">添加这件装备？</div>
+        <div class="sl">刚才复制了一条京东商品链接</div>
+        <div class="prod">
+          <div class="img" data-tent-sm></div>
+          <div style="min-width:0">
+            <span class="src"><i>京</i>京东</span>
+            <div class="name">Big Agnes 铜钉 UL2 超轻双人三季帐篷</div>
+          </div>
+        </div>
+        <div class="stats">
+          <div><small>价格</small><b>¥3,299</b></div>
+          <div><small>重量</small><b class="empty">--</b></div>
+        </div>
+        <div class="two"><button class="btn s">忽略</button><button class="btn p">添加到装备</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- C -->
+  <div class="board">
+    <div class="head"><b>C 顶部浮动胶囊</b><span>不压暗、不打断，从顶部滑下，带商品缩略图和价格，几秒后自动收起。打扰最少，但容易被忽略。</span></div>
+    <div class="phone" data-anim>
+      <div class="status"><span class="tab">9:41</span><span>●●●</span></div>
+      <div class="screen" data-bg></div>
+      <div class="tabbar"><span></span><span></span><span class="on"></span><span></span></div>
+      <div class="cap">
+        <div class="capRow">
+          <div class="img" data-tent-xs></div>
+          <div class="cb">
+            <span class="src"><i>京</i>复制的京东商品</span>
+            <div class="name">Big Agnes 铜钉 UL2 超轻双人帐篷</div>
+            <div class="meta">¥3,299</div>
+          </div>
+          <button class="go">添加</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <h2>三个方向共同的规则</h2>
+  <p><b>先识别再弹出：</b>切回 App 后在后台识别，大约 1 到 2 秒；识别失败或者不是商品，就什么都不弹。</p>
+  <p><b>重量显示 <span class="mono">--</span>：</b>平台拿不到重量，点添加后进入装备表单，光标直接停在重量这一栏。</p>
+  <p><b>iOS 的限制：</b>默认设置下读取剪贴板会弹系统授权框，所以“先识别再弹出”需要用户在设置里把粘贴设为“允许”（抖音、淘宝也是这样）。没开的话，只能先弹一个不带内容的轻提示。</p>
+  <p><b>每段内容只弹一次：</b>关闭或忽略后，同样的内容不会再弹。</p>
+</div>
+
+<script>
+  const tent = (w) => `<svg width="${w}" height="${w*0.75}" viewBox="0 0 120 90" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"><path d="M10 78 L60 14 L110 78 Z"/><path d="M60 14 L44 78 M60 14 L76 78"/><path d="M4 78 H116"/></svg>`;
+  document.querySelectorAll('[data-tent]').forEach(e => e.innerHTML = tent(130));
+  document.querySelectorAll('[data-tent-sm]').forEach(e => e.innerHTML = tent(52));
+  document.querySelectorAll('[data-tent-xs]').forEach(e => e.innerHTML = tent(36));
+  const bg = `
+    <div class="ptitle">我的装备</div>
+    <div class="psub">共 23 件</div>
+    <div class="summary"><div><small>总重量</small><b>8.42<span> kg</span></b></div><div><small>总价值</small><b>¥9,860</b></div></div>
+    <div class="row"><div class="th"></div><div class="rb"><div class="rn">Zpacks 背包 Arc Haul</div><div class="rc">背负系统</div></div><div class="rw">0.69</div></div>
+    <div class="row"><div class="th"></div><div class="rb"><div class="rn">鹅绒睡袋 -5°C</div><div class="rc">睡眠系统</div></div><div class="rw">0.82</div></div>
+    <div class="row"><div class="th"></div><div class="rb"><div class="rn">炉头套锅</div><div class="rc">炊具</div></div><div class="rw">0.31</div></div>
+    <div class="row"><div class="th"></div><div class="rb"><div class="rn">软壳外套</div><div class="rc">服装</div></div><div class="rw">0.45</div></div>
+    <div class="row"><div class="th"></div><div class="rb"><div class="rn">头灯</div><div class="rc">照明</div></div><div class="rw">0.08</div></div>`;
+  document.querySelectorAll('[data-bg]').forEach(e => e.innerHTML = bg);
+  function replay() {
+    const phones = document.querySelectorAll('[data-anim]');
+    phones.forEach(p => p.classList.add('hide'));
+    setTimeout(() => phones.forEach(p => p.classList.remove('hide')), 700);
+  }
+  function toggleTheme() {
+    const d = document.documentElement;
+    d.dataset.theme = d.dataset.theme === 'dark' ? '' : 'dark';
+  }
+</script>
+</body>
+</html>
