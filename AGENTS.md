@@ -13,6 +13,7 @@ Kaipa is an Expo SDK 56 + React Native + TypeScript app.
 
 - Supabase is self-hosted for this workspace. Deploy Edge Functions with `infra/supabase/deploy-functions.sh`; never use `supabase functions deploy` or link this checkout to Supabase Cloud.
 - Apply individual SQL changes with `infra/supabase/apply-migration.sh`; do not use `supabase db push` from this checkout.
+- Moving the backend to a new server: follow `docs/server-deployment.md` (scripts in `infra/server/`). Never regenerate the runtime secrets or re-run `setup-kaipa-supabase.sh` on a migrated server.
 - Main app: `App.tsx`, `src/AppRoot.tsx`.
 - Web guest app: `App.web.tsx`, `src/web/`.
 - UI/navigation state: `src/nav/NavContext.tsx`.

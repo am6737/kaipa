@@ -18,7 +18,7 @@ mkdir -p "$RUNTIME_DIR/topic-guard"
 install -m 644 "$ROOT"/infra/supabase/topic-guard/{Dockerfile,requirements.txt,server.py,config.yml,prompts.yml,evaluate.py,eval_cases.json} "$RUNTIME_DIR/topic-guard/"
 install -m 644 "$ROOT/infra/supabase/topic-guard.compose.yml" "$RUNTIME_DIR/topic-guard.compose.yml"
 compose=(-f "$RUNTIME_DIR/docker-compose.yml")
-for overlay in rail-query flyai-query; do
+for overlay in production rail-query flyai-query; do
   if [[ -f "$RUNTIME_DIR/$overlay.compose.yml" ]]; then compose+=(-f "$RUNTIME_DIR/$overlay.compose.yml"); fi
 done
 compose+=(-f "$RUNTIME_DIR/topic-guard.compose.yml")

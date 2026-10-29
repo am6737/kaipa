@@ -19,6 +19,7 @@ _archive/
 /topic-guard.compose.yml
 /storage-sweeper.mjs
 /storage-sweeper.compose.yml
+/production.compose.yml
 
 # docker-compose state / local overrides
 docker-compose.override.yml

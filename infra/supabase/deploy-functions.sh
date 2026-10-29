@@ -71,7 +71,7 @@ done
 # which fails every app-agent run. Layer every overlay that exists, as the
 # sibling deploy scripts do.
 compose=(-f "$RUNTIME_DIR/docker-compose.yml")
-for overlay in rail-query flyai-query topic-guard; do
+for overlay in production rail-query flyai-query topic-guard; do
   if [[ -f "$RUNTIME_DIR/$overlay.compose.yml" ]]; then compose+=(-f "$RUNTIME_DIR/$overlay.compose.yml"); fi
 done
 if docker inspect "$FUNCTIONS_CONTAINER" >/dev/null 2>&1; then

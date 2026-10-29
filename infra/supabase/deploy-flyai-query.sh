@@ -18,6 +18,8 @@ mkdir -p "$RUNTIME_DIR/flyai-query"
 install -m 644 "$ROOT"/infra/supabase/flyai-query/{Dockerfile,server.mjs} "$RUNTIME_DIR/flyai-query/"
 install -m 644 "$ROOT/infra/supabase/flyai-query.compose.yml" "$RUNTIME_DIR/flyai-query.compose.yml"
 compose=(-f "$RUNTIME_DIR/docker-compose.yml")
+# Keep the production port bindings when `functions` pulls kong back up.
+if [[ -f "$RUNTIME_DIR/production.compose.yml" ]]; then compose+=(-f "$RUNTIME_DIR/production.compose.yml"); fi
 # Preserve the existing rail provider when recreating Edge with its new env.
 if [[ -f "$RUNTIME_DIR/rail-query.compose.yml" ]]; then compose+=(-f "$RUNTIME_DIR/rail-query.compose.yml"); fi
 compose+=(-f "$RUNTIME_DIR/flyai-query.compose.yml")
