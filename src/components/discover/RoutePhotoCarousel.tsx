@@ -2,9 +2,17 @@ import React, { useMemo, useState } from 'react';
 import { Dimensions, FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { Theme } from '../../theme/theme';
-import { radius } from '../../design-system';
+import { layout, radius, space, type } from '../../design-system';
+import { useI18n } from '../../i18n';
+import type { RouteGalleryPhoto } from '../../lib/routePreview';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
+
+/** The page counter's row: where it sits, and how high, so a caption can clear
+ *  it instead of running under it. */
+const COUNTER_BOTTOM = 42;
+const COUNTER_HEIGHT = 26;
+const COUNTER_TOP = COUNTER_BOTTOM + COUNTER_HEIGHT;
 
 type Props = {
   theme: Theme;
@@ -72,34 +80,71 @@ export function RoutePhotoCarousel({ theme, photos, width, height, radius: corne
   );
 }
 
-function RoutePhotoViewer({ theme, photos, index, onClose }: { theme: Theme; photos: string[]; index: number; onClose: () => void }) {
+/** Full-screen swipeable photo pages, shared by the carousel and the photo
+ *  strip. `index` is where it opens; swiping covers every photo. A page may be
+ *  a bare URL or a gallery photo that knows which waypoint it was taken at. */
+export function RoutePhotoViewer({ theme, photos, index, onClose, onOpenWaypoint }: {
+  theme: Theme;
+  photos: (string | RouteGalleryPhoto)[];
+  index: number;
+  onClose: () => void;
+  /** Given: a photo taken at a waypoint offers to open that spot on the map. */
+  onOpenWaypoint?: (index: number) => void;
+}) {
+  const { t } = useI18n();
   const screenWidth = Dimensions.get('window').width;
   const screenHeight = Dimensions.get('window').height;
+  const items = useMemo(() => photos.map((photo) => (typeof photo === 'string' ? { uri: photo } : photo)), [photos]);
   const [current, setCurrent] = useState(index);
+  const photo = items[Math.min(current, items.length - 1)];
+  const caption = photo?.name && photo.km != null ? t('route.preview.photoCaption', { name: photo.name, km: photo.km.toFixed(1) }) : null;
+  const waypointIndex = onOpenWaypoint ? photo?.waypointIndex : undefined;
   return (
     <Modal visible animationType="fade" presentationStyle="fullScreen" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: '#000' }}>
         <FlatList
-          data={photos}
+          data={items}
           horizontal
           pagingEnabled
           initialScrollIndex={index}
           getItemLayout={(_, itemIndex) => ({ length: screenWidth, offset: screenWidth * itemIndex, index: itemIndex })}
           showsHorizontalScrollIndicator={false}
           onMomentumScrollEnd={(event) => setCurrent(Math.round(event.nativeEvent.contentOffset.x / screenWidth))}
-          keyExtractor={(uri, i) => `${uri}-${i}`}
-          renderItem={({ item }) => (
+          keyExtractor={(item, i) => `${item.uri}-${i}`}
+          renderItem={({ item: page }) => (
             <View style={{ width: screenWidth, height: screenHeight, alignItems: 'center', justifyContent: 'center' }}>
-              <Image source={{ uri: item }} contentFit="contain" style={{ width: screenWidth, height: screenHeight }} />
+              <Image source={{ uri: page.uri }} contentFit="contain" style={{ width: screenWidth, height: screenHeight }} />
             </View>
           )}
         />
         <Press onPress={onClose} accessibilityRole="button" accessibilityLabel="关闭照片" style={{ position: 'absolute', top: 52, right: 18, width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.45)' }}>
-          <Icon name="close" color="#fff" size={22} />
+          <Icon name="close" color="#FFFFFF" size={22} />
         </Press>
-        <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 42, alignItems: 'center' }}>
-          <View style={{ paddingHorizontal: 11, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' }}>
-            <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>{current + 1} / {photos.length}</Text>
+        {/* The page counter owns the bottom row, so where the photo came from —
+            and the way to that spot — sits above it. Both are white on the
+            black page, the one colour the theme cannot supply here. */}
+        {caption || waypointIndex != null ? (
+          <View pointerEvents="box-none" style={{ position: 'absolute', left: layout.pagePadding, right: layout.pagePadding, bottom: COUNTER_TOP + space.xs, alignItems: 'flex-start', gap: space.xs }}>
+            {caption ? (
+              <View style={{ maxWidth: '100%', paddingHorizontal: space.sm, minHeight: layout.fieldHeight, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' }}>
+                <Text numberOfLines={1} style={[type.caption, { color: '#FFFFFF', fontWeight: '600' }]}>{caption}</Text>
+              </View>
+            ) : null}
+            {waypointIndex != null ? (
+              <Press
+                onPress={() => { onOpenWaypoint?.(waypointIndex); onClose(); }}
+                accessibilityRole="button"
+                accessibilityLabel={t('route.preview.photoOnMap')}
+                style={{ minHeight: layout.fieldHeight, paddingHorizontal: space.md, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.16)' }}
+              >
+                <Text style={[type.chip, { color: '#FFFFFF' }]}>{t('route.preview.photoOnMap')}</Text>
+              </Press>
+            ) : null}
+          </View>
+        ) : null}
+        <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: COUNTER_BOTTOM, alignItems: 'center' }}>
+          <View style={{ paddingHorizontal: 11, height: COUNTER_HEIGHT, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' }}>
+            <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>{current + 1} / {items.length}</Text>
           </View>
         </View>
       </View>

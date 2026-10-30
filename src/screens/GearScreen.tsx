@@ -20,11 +20,13 @@ import { GearItemsList } from '../components/gear/GearItemsList';
 import { usePinnedSets } from '../components/gear/usePinnedSets';
 import type { GearSetSuggestion } from '../lib/gearSetCompose';
 
+/** `landInPlace`: the page was opened straight onto the gear tab, so it mounts
+ *  where it belongs instead of sliding in over a tab that has nothing behind it. */
 type GearPage =
-  | { type: 'item'; item: GearItem }
-  | { type: 'set'; set: GearSet }
-  | { type: 'setsList' }
-  | { type: 'itemsList' };
+  | { type: 'item'; item: GearItem; landInPlace?: boolean }
+  | { type: 'set'; set: GearSet; landInPlace?: boolean }
+  | { type: 'setsList'; landInPlace?: boolean }
+  | { type: 'itemsList'; landInPlace?: boolean };
 
 const normItem = (it: GearItem) => ({
   name: it.name,
@@ -75,18 +77,31 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
   // Pushed detail and list pages, newest last.
   const [pageStack, setPageStack] = useState<GearPage[]>(() => initialItem ? [{ type: 'item', item: initialItem }] : []);
   const pushPage = (p: GearPage) => setPageStack((s) => [...s, p]);
-  // Render a requested collection immediately; the effect below then commits it
-  // to the local stack and clears the cross-feature request.
-  const visiblePageStack = pageStack.length > 0
+  // Render the requested page in the same commit that switches to this tab; the
+  // effects below then move it into the local stack and clear the request.
+  // Resolving them only in the effect left this screen's blank root visible for
+  // a frame, so opening a set from 我的 flashed white first.
+  const requestedSet = pageStack.length === 0 && nav.gearSetRequestId != null
+    ? sets.find((candidate) => candidate.id === nav.gearSetRequestId)
+    : undefined;
+  const requestedItem = pageStack.length === 0 && nav.gearItemRequestId != null
+    ? allItems.find((candidate) => candidate.id === nav.gearItemRequestId)
+    : undefined;
+  const visiblePageStack: GearPage[] = pageStack.length > 0
     ? pageStack
-    : nav.gearPageRequest
-      ? [{ type: nav.gearPageRequest === 'sets' ? 'setsList' : 'itemsList' } as GearPage]
-      : [];
+    : requestedSet
+      ? [{ type: 'set', set: requestedSet, landInPlace: true }]
+      : requestedItem
+        ? [{ type: 'item', item: requestedItem, landInPlace: true }]
+        : nav.gearPageRequest
+          ? [{ type: nav.gearPageRequest === 'sets' ? 'setsList' : 'itemsList', landInPlace: true } as GearPage]
+          : [];
   const popPage = () => {
-    const stackLength = pageStack.length || (nav.gearPageRequest ? 1 : 0);
-    if (stackLength === 1) {
+    if (visiblePageStack.length <= 1) {
       setPageStack([]);
       if (nav.gearPageRequest) nav.clearGearPageRequest();
+      if (nav.gearSetRequestId != null) nav.clearGearSetRequest();
+      if (nav.gearItemRequestId != null) nav.clearGearItemRequest();
       if (onExit) onExit();
       else nav.setMainTab('me');
       return;
@@ -132,7 +147,7 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
       if (!data.gearLoading) nav.clearGearItemRequest();
       return;
     }
-    setPageStack([{ type: 'item', item }]);
+    setPageStack([{ type: 'item', item, landInPlace: true }]);
     nav.clearGearItemRequest();
   }, [allItems, data.gearLoading, nav.gearItemRequestId]);
 
@@ -142,18 +157,18 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
     if (!set) {
       if (!data.gearLoading) {
         // The set may be gone; its collection is the closest useful page.
-        setPageStack([{ type: 'setsList' }]);
+        setPageStack([{ type: 'setsList', landInPlace: true }]);
         nav.clearGearSetRequest();
       }
       return;
     }
-    setPageStack([{ type: 'set', set }]);
+    setPageStack([{ type: 'set', set, landInPlace: true }]);
     nav.clearGearSetRequest();
   }, [sets, data.gearLoading, nav.gearSetRequestId]);
 
   useEffect(() => {
     if (!nav.gearPageRequest) return;
-    setPageStack([{ type: nav.gearPageRequest === 'sets' ? 'setsList' : 'itemsList' }]);
+    setPageStack([{ type: nav.gearPageRequest === 'sets' ? 'setsList' : 'itemsList', landInPlace: true }]);
     nav.clearGearPageRequest();
   }, [nav.gearPageRequest]);
 
@@ -171,8 +186,8 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
   const swapInStack = (fromName: string, to: GearItem) =>
     setPageStack((stk) =>
       stk.map((pg) => {
-        if (pg.type === 'item' && pg.item.name === fromName) return { type: 'item', item: to };
-        if (pg.type === 'set' && to.name !== fromName) return { type: 'set', set: { ...pg.set, items: pg.set.items.map((n) => (n === fromName ? to.name : n)) } };
+        if (pg.type === 'item' && pg.item.name === fromName) return { ...pg, type: 'item', item: to };
+        if (pg.type === 'set' && to.name !== fromName) return { ...pg, type: 'set', set: { ...pg.set, items: pg.set.items.map((n) => (n === fromName ? to.name : n)) } };
         return pg;
       })
     );
@@ -326,6 +341,7 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
           {pg.type === 'item' ? (
             <GearItemDetail
               theme={theme}
+              entryVariant={pg.landInPlace ? 'none' : undefined}
               item={pg.item}
               cats={cats}
               weightUnit={weightUnit}
@@ -339,6 +355,7 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
           ) : pg.type === 'set' ? (
             <GearSetDetail
               theme={theme}
+              entryVariant={pg.landInPlace ? 'none' : undefined}
               // Live copy: the assistant can add to the open set from another screen.
               set={sets.find((candidate) => candidate.id === pg.set.id) ?? pg.set}
               allItems={allItems}
@@ -354,6 +371,7 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
           ) : pg.type === 'setsList' ? (
             <GearSetsList
               theme={theme}
+              entryVariant={pg.landInPlace ? 'none' : undefined}
               sets={sets}
               allItems={allItems}
               catMap={catMap}
@@ -372,6 +390,7 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
           ) : (
             <GearItemsList
               theme={theme}
+              entryVariant={pg.landInPlace ? 'none' : undefined}
               items={allItems}
               catMap={catMap}
               weightUnit={weightUnit}

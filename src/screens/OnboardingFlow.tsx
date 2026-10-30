@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import { Camera, ChevronRight, Dices } from 'lucide-react-native';
+import * as Location from 'expo-location';
+import { Camera, Dices, MapPin } from 'lucide-react-native';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -14,7 +15,7 @@ import {
 import { Avatar } from '../components/Avatar';
 import { Press } from '../components/Press';
 import { useData } from '../data/DataContext';
-import { layout, radius, space, type } from '../design-system';
+import { AppChoiceChip, AppFieldCard, AppQuestionHeader, AppTextArea, layout, radius, space, type } from '../design-system';
 import { useI18n } from '../i18n';
 import { MePushPage } from '../components/me/MePushPage';
 import type { Theme } from '../theme/theme';
@@ -35,56 +36,6 @@ const DIETARY_OPTIONS: DietaryOption[] = ['vegetarian', 'noBeef', 'noPork', 'sea
 
 function randomItem(values: readonly string[]) {
   return values[Math.floor(Math.random() * values.length)];
-}
-
-function OptionalField({
-  theme,
-  label,
-  value,
-  unit,
-  error,
-  decimal,
-  onChange,
-  onOpen,
-}: {
-  theme: Theme;
-  label: string;
-  value: string;
-  unit: string;
-  error?: string;
-  decimal?: boolean;
-  onChange: (value: string) => void;
-  onOpen?: () => void;
-}) {
-  if (onOpen) return (
-    <Press accessibilityRole="button" accessibilityLabel={`${label} ${value || '--'} ${unit}`} onPress={onOpen} style={[styles.onboardingField, { backgroundColor: theme.surfaceTop, borderColor: error ? theme.danger : theme.border }]}>
-      <Text style={[styles.onboardingFieldLabel, { color: theme.text }]}>{label}</Text>
-      <View style={styles.onboardingFieldValue}>
-        <Text style={[styles.onboardingFieldNumber, { color: value ? theme.text : theme.text3 }]}>{value || '--'}</Text>
-        <Text style={[styles.onboardingFieldUnit, { color: theme.text2 }]}>{unit}</Text>
-        <ChevronRight size={18} color={theme.text3} />
-      </View>
-    </Press>
-  );
-  return (
-    <View style={{ gap: space.xs }}>
-      <Text style={[type.eyebrow, { color: theme.text2 }]}>{label}</Text>
-      <View style={[styles.field, { backgroundColor: theme.surfaceTop, borderColor: error ? theme.danger : theme.fieldBorder }]}>
-        <TextInput
-          value={value}
-          onChangeText={(text) => onChange(decimal ? text.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1') : text.replace(/\D/g, ''))}
-          keyboardType={decimal ? 'decimal-pad' : 'number-pad'}
-          maxLength={decimal ? 6 : 3}
-          placeholder="--"
-          placeholderTextColor={theme.text3}
-          accessibilityLabel={label}
-          style={[styles.fieldInput, { color: theme.text }]}
-        />
-        <Text style={[type.caption, { color: theme.text2 }]}>{unit}</Text>
-      </View>
-      {error ? <Text style={[type.caption, { color: theme.danger }]}>{error}</Text> : null}
-    </View>
-  );
 }
 
 export function OnboardingGate({ theme, children }: { theme: Theme; children: React.ReactNode }) {
@@ -125,10 +76,13 @@ export function OnboardingGate({ theme, children }: { theme: Theme; children: Re
   return <OnboardingFlow theme={theme} onFinish={finish} />;
 }
 
+type OnboardingStep = 1 | 2 | 3 | 'location';
+const STEP_COUNT = 3;
+
 function OnboardingFlow({ theme, onFinish }: { theme: Theme; onFinish: () => Promise<void> }) {
   const { t, resolved } = useI18n();
   const data = useData();
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<OnboardingStep>(1);
   const [nick, setNick] = useState(data.profile.nick);
   const [avatarUri, setAvatarUri] = useState('');
   const [draft, setDraft] = useState<Draft>({
@@ -179,6 +133,7 @@ function OnboardingFlow({ theme, onFinish }: { theme: Theme; onFinish: () => Pro
     });
   };
 
+  // 「稍后再说」也会保存已经输入的昵称和头像，免得用户填了一半跳过就丢掉。
   const saveIdentity = async () => {
     setSaving(true);
     setMessage('');
@@ -193,34 +148,44 @@ function OnboardingFlow({ theme, onFinish }: { theme: Theme; onFinish: () => Pro
     }
   };
 
-  const finish = async (save: boolean) => {
-    const heightCm = draft.heightCm.trim() ? Number(draft.heightCm) : null;
-    const weightKg = draft.weightKg.trim() ? Number(draft.weightKg) : null;
-    const ageYears = draft.ageYears.trim() ? Number(draft.ageYears) : null;
-    if (save) {
-      const nextErrors: Errors = {};
-      if (heightCm != null && (!Number.isFinite(heightCm) || heightCm < 80 || heightCm > 250)) nextErrors.heightCm = t('planningProfile.heightError');
-      if (weightKg != null && (!Number.isFinite(weightKg) || weightKg < 25 || weightKg > 300)) nextErrors.weightKg = t('planningProfile.weightError');
-      if (ageYears != null && (!Number.isInteger(ageYears) || ageYears < 10 || ageYears > 100)) nextErrors.ageYears = t('planningProfile.ageError');
-      if (Object.keys(nextErrors).length) {
-        setErrors(nextErrors);
-        return;
-      }
+  const parsed = () => ({
+    heightCm: draft.heightCm.trim() ? Number(draft.heightCm) : null,
+    weightKg: draft.weightKg.trim() ? Number(draft.weightKg) : null,
+    ageYears: draft.ageYears.trim() ? Number(draft.ageYears) : null,
+  });
+
+  const validateBody = () => {
+    const { heightCm, weightKg, ageYears } = parsed();
+    const nextErrors: Errors = {};
+    if (heightCm != null && (!Number.isFinite(heightCm) || heightCm < 80 || heightCm > 250)) nextErrors.heightCm = t('planningProfile.heightError');
+    if (weightKg != null && (!Number.isFinite(weightKg) || weightKg < 25 || weightKg > 300)) nextErrors.weightKg = t('planningProfile.weightError');
+    if (ageYears != null && (!Number.isInteger(ageYears) || ageYears < 10 || ageYears > 100)) nextErrors.ageYears = t('planningProfile.ageError');
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  };
+
+  // 定位已授权（或被系统永久拒绝、不能再弹窗）时不必再出说明页。
+  const needsLocationPrimer = async () => {
+    try {
+      const permission = await Location.getForegroundPermissionsAsync();
+      return !permission.granted && permission.canAskAgain;
+    } catch {
+      return false;
     }
+  };
+
+  const finishProfile = async (withDietary: boolean) => {
+    const { heightCm, weightKg, ageYears } = parsed();
     setSaving(true);
     setMessage('');
     try {
-      if (save && (hasPlanningValues || dietary.length > 0 || dietaryCustom.trim())) {
-        const dietaryLabels = dietary.map((option) => t(`onboarding.dietary.${option}` as any));
-        const dietaryText = [...dietaryLabels, dietaryCustom.trim()].filter(Boolean).join('、').slice(0, 200);
-        await data.savePlanningProfile({
-          heightCm,
-          weightKg,
-          ageYears,
-          dietaryRestrictions: dietaryText,
-        });
+      const dietaryLabels = withDietary ? dietary.map((option) => t(`onboarding.dietary.${option}` as any)) : [];
+      const dietaryText = [...dietaryLabels, withDietary ? dietaryCustom.trim() : ''].filter(Boolean).join('、').slice(0, 200);
+      if (hasPlanningValues || dietaryText) {
+        await data.savePlanningProfile({ heightCm, weightKg, ageYears, dietaryRestrictions: dietaryText });
       }
-      await onFinish();
+      if (await needsLocationPrimer()) setStep('location');
+      else await onFinish();
     } catch {
       setMessage(t('onboarding.profileSaveFailed'));
     } finally {
@@ -228,29 +193,82 @@ function OnboardingFlow({ theme, onFinish }: { theme: Theme; onFinish: () => Pro
     }
   };
 
-  const advance = saving ? undefined : step === 1 ? () => void saveIdentity() : () => void finish(true);
-  const goBack = () => { if (!saving) { setMessage(''); setStep(1); } };
+  const finishLocation = async (ask: boolean) => {
+    setSaving(true);
+    try {
+      if (ask) await Location.requestForegroundPermissionsAsync().catch(() => null);
+      await onFinish();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const goBack = () => {
+    if (saving) return;
+    setMessage('');
+    if (step === 2) setStep(1);
+    else if (step === 3) setStep(2);
+  };
+
+  const run = (fn: () => void) => (saving ? undefined : fn);
+  let actionLabel: string;
+  let onAction: (() => void) | undefined;
+  let skipLabel: string;
+  let onSkip: (() => void) | undefined;
+  if (step === 1) {
+    actionLabel = t('onboarding.next');
+    onAction = run(() => void saveIdentity());
+    skipLabel = t('onboarding.later');
+    onSkip = onAction;
+  } else if (step === 2) {
+    actionLabel = t('onboarding.next');
+    onAction = run(() => { if (validateBody()) setStep(3); });
+    skipLabel = t('onboarding.later');
+    onSkip = run(() => { setErrors({}); setStep(3); });
+  } else if (step === 3) {
+    actionLabel = t('onboarding.finish');
+    onAction = run(() => void finishProfile(true));
+    skipLabel = t('onboarding.noDietary');
+    onSkip = run(() => void finishProfile(false));
+  } else {
+    actionLabel = t('onboarding.locationAllow');
+    onAction = run(() => void finishLocation(true));
+    skipLabel = t('onboarding.locationLater');
+    onSkip = run(() => void finishLocation(false));
+  }
+
   const action = (
-    <Press onPress={advance} accessibilityRole="button" style={[styles.footerAction, { backgroundColor: theme.accent, opacity: saving ? 0.65 : 1 }]}>
-      {saving ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.footerActionLabel}>{step === 1 ? t('onboarding.next') : t('onboarding.finish')}</Text>}
+    <Press onPress={onAction} accessibilityRole="button" style={[styles.footerAction, { backgroundColor: theme.accent, opacity: saving ? 0.65 : 1 }]}>
+      {saving ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.footerActionLabel}>{actionLabel}</Text>}
     </Press>
   );
   const skip = (
-    <Press
-      onPress={saving ? undefined : step === 1 ? () => setStep(2) : () => void finish(false)}
-      accessibilityRole="button"
-      style={[styles.footerSkip, { backgroundColor: theme.surfaceTop, borderColor: theme.fieldBorder }]}
-    >
-      <Text style={[type.body, { color: theme.text2, fontWeight: '600' }]}>{step === 1 ? t('onboarding.skip') : t('onboarding.skipProfile')}</Text>
+    <Press onPress={onSkip} accessibilityRole="button" style={[styles.footerSkip, { backgroundColor: theme.surfaceTop, borderColor: theme.fieldBorder }]}>
+      <Text style={[type.body, { color: theme.text2, fontWeight: '600' }]}>{skipLabel}</Text>
     </Press>
   );
 
+  const header = step === 1
+    ? { title: t('onboarding.identityTitle'), sub: t('onboarding.identitySub') }
+    : step === 2
+      ? { title: t('onboarding.bodyTitle'), sub: t('onboarding.bodySub') }
+      : step === 3
+        ? { title: t('onboarding.dietaryTitle'), sub: t('onboarding.dietarySub') }
+        : { title: t('onboarding.locationTitle'), sub: t('onboarding.locationSub') };
+
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.screen}>
-      <MePushPage theme={theme} title="" onBack={goBack} showBack={step === 2} showTitle={false} footer={<><View>{skip}</View><View>{action}</View></>}>
+      <MePushPage theme={theme} title="" onBack={goBack} showBack={step === 2 || step === 3} showTitle={false} center={step !== 'location' ? (
+        <View style={styles.progress} accessible accessibilityLabel={`${step} / ${STEP_COUNT}`}>
+          {Array.from({ length: STEP_COUNT }, (_, index) => (
+            <View key={index} style={[styles.progressSegment, { backgroundColor: index < step ? theme.accent : theme.fieldBorder }]} />
+          ))}
+        </View>
+      ) : undefined} footer={<><View>{skip}</View><View>{action}</View></>}>
         <View style={styles.content}>
-        {step === 1 ? (
-          <>
+          <AppQuestionHeader theme={theme} question={header.title} description={header.sub} />
+
+          {step === 1 ? (
             <View style={styles.formCard}>
               <View style={styles.avatarWrap}>
                 <Press onPress={() => void pickAvatar()} accessibilityRole="button" accessibilityLabel={t('onboarding.chooseAvatar')} style={styles.avatarButton}>
@@ -278,49 +296,43 @@ function OnboardingFlow({ theme, onFinish }: { theme: Theme; onFinish: () => Pro
                   </Press>
                 </View>
               </View>
-
             </View>
-          </>
-        ) : (
-          <View style={styles.outdoorFields}>
-            <OptionalField theme={theme} label={t('planningProfile.height')} value={draft.heightCm} unit="cm" error={errors.heightCm} decimal onChange={(value) => updateNumeric('heightCm', value)} onOpen={() => setEditingMetric('heightCm')} />
-            <OptionalField theme={theme} label={t('planningProfile.weight')} value={draft.weightKg} unit="kg" error={errors.weightKg} decimal onChange={(value) => updateNumeric('weightKg', value)} onOpen={() => setEditingMetric('weightKg')} />
-            <OptionalField theme={theme} label={t('planningProfile.age')} value={draft.ageYears} unit={t('planningProfile.years')} error={errors.ageYears} onChange={(value) => updateNumeric('ageYears', value)} onOpen={() => setEditingMetric('ageYears')} />
+          ) : step === 2 ? (
+            <View style={styles.outdoorFields}>
+              <AppFieldCard theme={theme} label={t('planningProfile.height')} description={t('planningProfile.heightHint')} value={draft.heightCm} unit="cm" error={errors.heightCm} decimal onChange={(value) => updateNumeric('heightCm', value)} onOpen={() => setEditingMetric('heightCm')} />
+              <AppFieldCard theme={theme} label={t('planningProfile.weight')} description={t('planningProfile.weightHint')} value={draft.weightKg} unit="kg" error={errors.weightKg} decimal onChange={(value) => updateNumeric('weightKg', value)} onOpen={() => setEditingMetric('weightKg')} />
+              <AppFieldCard theme={theme} label={t('planningProfile.age')} description={t('planningProfile.ageHint')} value={draft.ageYears} unit={t('planningProfile.years')} error={errors.ageYears} onChange={(value) => updateNumeric('ageYears', value)} onOpen={() => setEditingMetric('ageYears')} />
+            </View>
+          ) : step === 3 ? (
             <View style={styles.dietarySection}>
-              <Text style={[type.eyebrow, { color: theme.text2 }]}>{t('onboarding.dietaryLabel')}</Text>
               <View style={styles.dietaryOptions}>
-                {DIETARY_OPTIONS.map((option) => {
-                  const selected = dietary.includes(option);
-                  return (
-                    <Press
-                      key={option}
-                      onPress={() => toggleDietary(option)}
-                      accessibilityRole="checkbox"
-                      accessibilityState={{ checked: selected }}
-                      style={[styles.dietaryChip, { backgroundColor: selected ? theme.accent : theme.surfaceTop, borderColor: selected ? theme.accent : theme.fieldBorder }]}
-                    >
-                      <Text style={[type.body, { color: selected ? '#FFFFFF' : theme.text2, fontWeight: selected ? '700' : '500' }]}>{t(`onboarding.dietary.${option}` as any)}</Text>
-                    </Press>
-                  );
-                })}
+                {DIETARY_OPTIONS.map((option) => (
+                  <AppChoiceChip key={option} theme={theme} label={t(`onboarding.dietary.${option}` as any)} selected={dietary.includes(option)} onPress={() => toggleDietary(option)} />
+                ))}
               </View>
-              <TextInput
+              <AppTextArea
+                theme={theme}
                 value={dietaryCustom}
                 onChangeText={(value) => setDietaryCustom(value.slice(0, 200))}
                 placeholder={t('onboarding.dietaryPlaceholder')}
-                placeholderTextColor={theme.text3}
                 maxLength={200}
-                multiline
-                textAlignVertical="top"
-                style={[styles.dietaryInput, { backgroundColor: theme.surfaceTop, borderColor: theme.fieldBorder, color: theme.text }]}
               />
             </View>
-          </View>
-        )}
-        {message ? <Text accessibilityRole="alert" style={[type.caption, styles.message, { color: theme.danger }]}>{message}</Text> : null}
+          ) : (
+            <View style={styles.permissionRow}>
+              <View style={[styles.permissionIcon, { backgroundColor: theme.accentSoft }]}>
+                <MapPin size={20} color={theme.accent} strokeWidth={2.2} />
+              </View>
+              <View style={{ flex: 1, minWidth: 0, gap: space.xxs }}>
+                <Text style={[type.body, { color: theme.text, fontWeight: '700' }]}>{t('onboarding.locationItem')}</Text>
+                <Text style={[type.caption, { color: theme.text2 }]}>{t('onboarding.locationDetail')}</Text>
+              </View>
+            </View>
+          )}
+          {message ? <Text accessibilityRole="alert" style={[type.caption, styles.message, { color: theme.danger }]}>{message}</Text> : null}
         </View>
       </MePushPage>
-      {editingMetric === 'weightKg' ? <PlanningWeightPage theme={theme} value={draft.weightKg} onBack={(value) => { updateNumeric('weightKg', value); setEditingMetric(null); }} /> : editingMetric ? <PlanningMetricPage theme={theme} metric={editingMetric} value={draft[editingMetric]} onBack={(value) => { updateNumeric(editingMetric, value); setEditingMetric(null); }} /> : null}
+      {editingMetric === 'weightKg' ? <PlanningWeightPage theme={theme} value={draft.weightKg} onBack={(value) => { updateNumeric('weightKg', value); setEditingMetric(null); }} /> : editingMetric ? <PlanningMetricPage key={editingMetric} theme={theme} metric={editingMetric} value={draft[editingMetric]} onBack={(value) => { updateNumeric(editingMetric, value); setEditingMetric(null); }} /> : null}
     </KeyboardAvoidingView>
   );
 }
@@ -328,13 +340,15 @@ function OnboardingFlow({ theme, onFinish }: { theme: Theme; onFinish: () => Pro
 const styles = StyleSheet.create({
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   screen: { flex: 1 },
-  content: { paddingHorizontal: layout.pagePadding, gap: space.md },
+  content: { paddingHorizontal: layout.pagePadding, gap: space.xxl },
+  progress: { flexDirection: 'row', gap: 5 },
+  progressSegment: { width: 18, height: 4, borderRadius: radius.pill },
+  permissionRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  permissionIcon: { width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   formCard: { gap: space.xl },
-  outdoorFields: { gap: space.xxl, paddingTop: space.md },
-  dietarySection: { gap: space.sm, paddingTop: space.xs },
+  outdoorFields: { gap: space.md },
+  dietarySection: { gap: space.lg },
   dietaryOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
-  dietaryChip: { minHeight: 40, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
-  dietaryInput: { minHeight: 96, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, fontSize: 16 },
   avatarWrap: { alignItems: 'center', paddingVertical: space.md },
   avatarButton: { width: 104, height: 104, alignItems: 'center', justifyContent: 'center' },
   cameraBadge: { position: 'absolute', right: 0, bottom: 2, width: 27, height: 27, borderRadius: 14, borderWidth: 2.5, alignItems: 'center', justifyContent: 'center' },
@@ -342,13 +356,6 @@ const styles = StyleSheet.create({
   nickField: { minHeight: 58, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', paddingLeft: space.md, paddingRight: space.xs, gap: space.xs },
   nickInput: { flex: 1, minWidth: 0, minHeight: 56, paddingVertical: 0, fontSize: 17 },
   randomButton: { width: 42, height: 42, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
-  field: { minHeight: 58, paddingHorizontal: space.md, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center' },
-  fieldInput: { flex: 1, minWidth: 0, minHeight: 56, paddingVertical: 0, fontSize: 17 },
-  onboardingField: { minHeight: 72, paddingHorizontal: space.lg, borderRadius: radius.showcase, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  onboardingFieldLabel: { fontSize: 17, fontWeight: '600' },
-  onboardingFieldValue: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  onboardingFieldNumber: { fontSize: 21, fontWeight: '600', fontVariant: ['tabular-nums'] },
-  onboardingFieldUnit: { fontSize: 16, fontWeight: '600' },
   message: { textAlign: 'center', lineHeight: 18 },
   footerSkip: { minHeight: 44, minWidth: 92, paddingHorizontal: space.lg, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   footerAction: { minWidth: 104, minHeight: 44, paddingHorizontal: space.lg, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },

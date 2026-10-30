@@ -2,9 +2,11 @@ import { StyleSheet, Text, View } from 'react-native';
 import { radius, space } from '../../design-system';
 import type { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
+import type { TrackWaypoint } from '../../data/pois';
 import { clusterWaypoints, projectWaypointPixels, type WaypointCluster } from '../maps/waypointClusters';
 import { trackWorldSpan } from '../maps/extent';
 import { measureTrack, positionAtDistance } from '../../lib/routeSegments';
+import { elevationAtKm } from '../../lib/routePreview';
 import type { MapCoordinate, NativeMapMarker } from '../maps/types';
 import type { MarkDetailItem } from '../trail/MarkDetail';
 
@@ -43,7 +45,7 @@ function projectRouteWaypoints(
 
 /** A waypoint as a track's library stores it: where it was marked when that is
  *  known, otherwise its distance along the line. */
-export type WaypointSource = { name: string; km: number; lng?: number; lat?: number; ele?: number; photo?: string; at?: string };
+export type WaypointSource = TrackWaypoint;
 
 /** One line's waypoints, on the geometry as the map draws it. */
 export interface WaypointLayerLine {
@@ -84,19 +86,6 @@ function placeWaypoints(
   });
 }
 
-/** Height at a distance along the line, from its km/ele profile. */
-function elevationAtKm(profile: { km: number; ele: number }[] | undefined, km: number): number | null {
-  if (!profile?.length) return null;
-  if (km <= profile[0].km) return profile[0].ele;
-  for (let i = 1; i < profile.length; i += 1) {
-    const b = profile[i];
-    if (km > b.km) continue;
-    const a = profile[i - 1];
-    return b.km === a.km ? b.ele : a.ele + ((b.ele - a.ele) * (km - a.km)) / (b.km - a.km);
-  }
-  return profile[profile.length - 1].ele;
-}
-
 /** Place several lines' waypoints as one layer: the markers the map draws, and
  *  the detail sheet's items for the same taps. */
 export function buildWaypointLayer(lines: WaypointLayerLine[]): WaypointLayer {
@@ -118,6 +107,7 @@ export function buildWaypointLayer(lines: WaypointLayerLine[]): WaypointLayer {
         lat: marker.coord[1],
         ele: waypoint.ele ?? elevationAtKm(line.elevation, waypoint.km),
         source: line.source,
+        highlight: waypoint.highlight,
       });
     });
     if (list.length > start) placed.push({ start, end: list.length });
@@ -198,12 +188,21 @@ export function waypointOrder(details: { alongM?: number }[]): number[] {
     .reduce<number[]>((numbers, entry, rank) => { numbers[entry.index] = rank + 1; return numbers; }, []);
 }
 
-/** The range text a numbered cluster shows: `3–5` when its members sit next to
- *  each other in the walking order, otherwise just how many they are. */
-function clusterRangeText(numbers: number[]): string {
+/** The range text a numbered cluster shows and the snapshot-key tail for it:
+ *  `3–5` when its members sit next to each other in the walking order,
+ *  otherwise a localized count (`2 处`), because a bare count reads as one
+ *  waypoint's number. The tail keeps a range apart from a count (`r` vs `c`:
+ *  `2–5` and 25 spots would otherwise share `25`) and folds in the drawn
+ *  text, so a language switch never reuses a stale Android snapshot. */
+function numberedClusterText(numbers: number[], spotsLabel?: (n: number) => string): { text: string; key: string } {
   const sorted = [...numbers].sort((a, b) => a - b);
-  const consecutive = sorted.every((value, position) => value === sorted[0] + position);
-  return consecutive && sorted.length > 1 ? `${sorted[0]}–${sorted[sorted.length - 1]}` : `${sorted.length}`;
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  if (sorted.length > 1 && sorted.every((value, position) => value === first + position)) {
+    return { text: `${first}–${last}`, key: `r${first}_${last}` };
+  }
+  const text = spotsLabel?.(sorted.length) ?? `${sorted.length}`;
+  return { text, key: `c${sorted.length}_${idToken(text)}` };
 }
 
 /** Marker ids end up in Android's content snapshot cache, so anything that
@@ -222,6 +221,8 @@ export function buildRouteWaypointMarkers({
   idPrefix = 'route-wp',
   variant = 'labelled',
   numbers,
+  hideIndex,
+  clusterSpotsLabel,
 }: {
   theme: Theme;
   waypoints: ProjectedRouteWaypoint[];
@@ -231,39 +232,75 @@ export function buildRouteWaypointMarkers({
   /** Keeps ids apart when another layer of the same markers is on the map. */
   idPrefix?: string;
   /** `labelled` draws the white dot with a name pill; `numbered` draws a
-   *  solid accent circle with the walking-order index and no names. */
-  variant?: 'labelled' | 'numbered';
+   *  solid accent circle with the walking-order index and no names, and a
+   *  stacked hollow pill for a cluster; `plain` draws the dots only — a route
+   *  preview keeps the spots but drops the badges and the cluster counts, so
+   *  the line is not covered in discs. */
+  variant?: 'labelled' | 'numbered' | 'plain';
   /** Per-waypoint numbers for `numbered`, index for index with `waypoints`
    *  (see `waypointOrder`). Falls back to list position plus one. */
   numbers?: number[];
+  /** The waypoint a drop pin already stands on: its own dot goes, so the pin
+   *  replaces it instead of shading it. A cluster keeps its badge — the pin
+   *  sits above it by z-order, and hiding the group would hide its members. */
+  hideIndex?: number | null;
+  /** Labels a non-consecutive `numbered` cluster's count ("2 处" / "2 spots"),
+   *  so it can't be mistaken for one waypoint's number. Falls back to the
+   *  bare count when the caller has no translation to pass. */
+  clusterSpotsLabel?: (n: number) => string;
 }): NativeMapMarker[] {
   if (!waypoints.length) return [];
   const groups = clusterWaypoints(waypoints.map((waypoint) => waypoint.coord), zoom);
+  const plain = variant === 'plain';
   const numbered = variant === 'numbered';
-  const labelled = numbered ? null : placeWaypointLabels(waypoints, groups, zoom);
+  const labelled = numbered || plain ? null : placeWaypointLabels(waypoints, groups, zoom);
   const values: NativeMapMarker[] = [];
   groups.forEach((group) => {
     const index = group.indices[0];
     const waypoint = waypoints[index];
+    if (group.indices.length === 1 && hideIndex === index) return;
     if (group.indices.length > 1) {
-      const clusterText = numbered ? clusterRangeText(group.indices.map((member) => numbers?.[member] ?? member + 1)) : `${group.indices.length}`;
-      if (numbered) {
+      if (plain) {
         values.push({
-          // The pill shows the range, so the range is the snapshot key.
-          id: `${idPrefix}-cluster-n-${group.indices[0]}-${idToken(clusterText)}`,
+          id: `${idPrefix}-cluster-plain-${group.indices[0]}-${group.indices.length}`,
           coordinate: group.coordinate,
-          // The pill reads as one big numbered circle: centred on the group.
+          anchor: { x: 0.5, y: 1 },
+          centerOffset: { x: 0, y: -8 },
+          zIndex: 1,
+          onPress: () => onClusterPress(group.indices.map((member) => waypoints[member].coord)),
+          content: (
+            <View style={[styles.waypointMarker, { borderColor: waypoint.color ?? theme.accent, width: 14, height: 14, borderRadius: 7 }]} />
+          ),
+        });
+        return;
+      }
+      if (numbered) {
+        const cluster = numberedClusterText(group.indices.map((member) => numbers?.[member] ?? member + 1), clusterSpotsLabel);
+        values.push({
+          // Android snapshots marker content by id, so the look, the range or
+          // count, and the drawn text all live in it.
+          id: `${idPrefix}-cluster-s-${group.indices[0]}-${cluster.key}`,
+          coordinate: group.coordinate,
+          // A hollow pill with a second one peeking up-right: it reads as a
+          // stack, which a single numbered circle never can. The wrapper pads
+          // 3pt on every side, so the offset back pill is inside the snapshot
+          // bounds (Android crops to the drawn views) and the front pill —
+          // the visual subject — sits exactly centred on the group coordinate.
           anchor: { x: 0.5, y: 0.5 },
           zIndex: 2,
           onPress: () => onClusterPress(group.indices.map((member) => waypoints[member].coord)),
           content: (
-            <View style={[styles.numberedCluster, { backgroundColor: theme.accent }]}>
-              <Text style={styles.numberedText}>{clusterText}</Text>
+            <View style={styles.numberedClusterWrap}>
+              <View style={[styles.numberedClusterBack, { backgroundColor: theme.controlSurface, borderColor: theme.accent }]} />
+              <View style={[styles.numberedClusterFront, { backgroundColor: theme.controlSurface, borderColor: theme.accent }]}>
+                <Text style={[styles.numberedClusterText, { color: theme.accent }]}>{cluster.text}</Text>
+              </View>
             </View>
           ),
         });
         return;
       }
+      const clusterText = `${group.indices.length}`;
       values.push({
         // Android snapshots marker content by id, so the count lives in it.
         id: `${idPrefix}-cluster-${group.indices[0]}-${group.indices.length}`,
@@ -276,10 +313,26 @@ export function buildRouteWaypointMarkers({
         content: (
           <View style={styles.clusterAnchor}>
             <View style={[styles.clusterBadge, { backgroundColor: theme.surfaceTop, borderColor: theme.hairline }]}>
-              <Text style={{ fontFamily: MONO, fontSize: 10, fontWeight: '700', color: theme.text }}>{clusterText}</Text>
+              <Text style={{ fontFamily: MONO, fontSize: 11, fontWeight: '700', color: theme.text }}>{clusterText}</Text>
             </View>
             <View style={[styles.clusterStem, { backgroundColor: theme.text3 }]} />
           </View>
+        ),
+      });
+      return;
+    }
+    if (plain) {
+      values.push({
+        // Android snapshots marker content by id, so the photo fill is in it too.
+        id: `${idPrefix}-plain-${index}${waypoint.photo ? '-photo' : ''}`,
+        coordinate: waypoint.coord,
+        anchor: { x: 0.5, y: 1 },
+        centerOffset: { x: 0, y: -6 },
+        zIndex: 1,
+        title: waypoint.name,
+        onPress: () => onWaypointPress(index),
+        content: (
+          <View style={[styles.waypointMarker, { borderColor: waypoint.color ?? theme.accent }, waypoint.photo && { backgroundColor: waypoint.color ?? theme.accent }]} />
         ),
       });
       return;
@@ -293,7 +346,7 @@ export function buildRouteWaypointMarkers({
         // A bottom anchor with the circle's radius lifted back down puts the
         // circle's centre exactly on the point (iOS offsets by the anchor).
         anchor: { x: 0.5, y: 1 },
-        centerOffset: { x: 0, y: -8.5 },
+        centerOffset: { x: 0, y: -10.5 },
         zIndex: 1,
         title: waypoint.name,
         onPress: () => onWaypointPress(index),
@@ -317,7 +370,7 @@ export function buildRouteWaypointMarkers({
       // Bottom anchor keeps the dot itself at the waypoint's position whatever
       // the label length.
       anchor: { x: 0.5, y: 1 },
-      centerOffset: { x: 0, y: -4 },
+      centerOffset: { x: 0, y: -6 },
       zIndex: 1,
       title: waypoint.name,
       onPress: () => onWaypointPress(index),
@@ -328,7 +381,7 @@ export function buildRouteWaypointMarkers({
               <Text numberOfLines={1} style={{ fontSize: 11, fontWeight: '700', color: theme.text }}>{waypoint.name}</Text>
             </View>
           ) : null}
-          <View style={[styles.waypointMarker, { borderColor: waypoint.color ?? theme.accent }, waypoint.photo && { backgroundColor: waypoint.color ?? theme.accent, borderColor: '#FFFFFF', width: 11, height: 11, borderRadius: 5.5 }]} />
+          <View style={[styles.waypointMarker, { borderColor: waypoint.color ?? theme.accent }, waypoint.photo && { backgroundColor: waypoint.color ?? theme.accent, borderColor: '#FFFFFF', width: 14, height: 14, borderRadius: 7 }]} />
         </View>
       ),
     });
@@ -338,12 +391,19 @@ export function buildRouteWaypointMarkers({
 
 const styles = StyleSheet.create({
   clusterAnchor: { alignItems: 'center' },
-  clusterBadge: { minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  clusterBadge: { minWidth: 22, height: 22, paddingHorizontal: 5, borderRadius: 11, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   clusterStem: { width: 1, height: 4 },
-  waypointMarker: { width: 9, height: 9, borderRadius: 4.5, backgroundColor: '#FFFFFF', borderWidth: 2 },
-  numberedMarker: { width: 17, height: 17, borderRadius: 8.5, borderWidth: 1.5, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
-  numberedCluster: { minHeight: 17, minWidth: 17, paddingHorizontal: space.xs, borderRadius: radius.pill, borderWidth: 1.5, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
-  numberedText: { fontSize: 10, fontWeight: '700', color: '#FFFFFF' },
+  waypointMarker: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#FFFFFF', borderWidth: 2 },
+  numberedMarker: { width: 21, height: 21, borderRadius: 10.5, borderWidth: 1.5, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  numberedText: { fontSize: 11.5, fontWeight: '700', color: '#FFFFFF' },
+  // Hollow stacked cluster pill (numbered variant): the 3pt padding on every
+  // side keeps the offset back pill inside Android's snapshot crop and the
+  // front pill centred in the box. controlSurface is opaque in both themes —
+  // surfaceTop is translucent in dark, which ghosts the map through it.
+  numberedClusterWrap: { padding: 3 },
+  numberedClusterBack: { position: 'absolute', left: 5, top: 0, right: 0, bottom: 5, borderRadius: radius.pill, borderWidth: 1.5, opacity: 0.9 },
+  numberedClusterFront: { minWidth: 22, height: 22, paddingHorizontal: 5, borderRadius: radius.pill, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', shadowColor: '#000000', shadowOpacity: 0.16, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
+  numberedClusterText: { fontSize: 11.5, fontWeight: '700' },
   waypointPillWrap: { alignItems: 'center' },
   waypointLabel: { maxWidth: 150, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 9, marginBottom: 3, borderWidth: StyleSheet.hairlineWidth },
 });

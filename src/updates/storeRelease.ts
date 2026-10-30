@@ -1,3 +1,5 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 const BUNDLE_ID = 'com.hitosea.letsgo';
@@ -40,4 +42,23 @@ export async function lookupStoreRelease(): Promise<StoreRelease | null> {
     return validVersion(match?.[1]) ? { version: match[1], url: PLAY_URL } : null;
   }
   return null;
+}
+
+const PROMPTED_KEY = 'kaipa.storeRelease.prompted.v1';
+
+/**
+ * Launch-time App Store check. Resolves to a newer release only the first time
+ * it is seen, recording its version so each store version prompts at most once.
+ * Android is left to the manual check in 关于: scraping the Play page is too
+ * fragile to run on every launch.
+ */
+export async function unpromptedStoreRelease(): Promise<StoreRelease | null> {
+  if (Platform.OS !== 'ios' || __DEV__) return null;
+  const installed = Constants.expoConfig?.version;
+  if (!validVersion(installed)) return null;
+  const release = await lookupStoreRelease();
+  if (!release || !isNewerRelease(release.version, installed)) return null;
+  if (await AsyncStorage.getItem(PROMPTED_KEY) === release.version) return null;
+  await AsyncStorage.setItem(PROMPTED_KEY, release.version);
+  return release;
 }

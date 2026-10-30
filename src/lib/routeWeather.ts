@@ -30,6 +30,9 @@ export interface RouteWeatherDay {
   hours: RouteWeatherHour[];
 }
 export interface RouteWeatherForecast { days: RouteWeatherDay[]; fetchedAt: string; }
+/** How many days ahead Open-Meteo answers for — the horizon a planner can show
+ *  weather inside. Screens that promise weather have to count days with it. */
+export const ROUTE_WEATHER_FORECAST_DAYS = 15;
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 export function parseRouteWeather(input: unknown, fetchedAt = new Date().toISOString()): RouteWeatherForecast {
   const daily = (input as { daily?: Record<string, unknown> } | null)?.daily;
@@ -104,5 +107,5 @@ export function weatherDescription(code: number, lang: 'zh' | 'en') {
 }
 export function routeWeatherUrl(lng: number, lat: number) {
   if (!finite(lng) || !finite(lat) || lng < -180 || lng > 180 || lat < -90 || lat > 90) throw new Error('Invalid route coordinates');
-  return `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,wind_speed_10m_max,sunrise,sunset&hourly=weather_code,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,cloud_base,precipitation_probability,temperature_2m,wind_speed_10m,dew_point_2m,cape,showers,wind_gusts_10m&wind_speed_unit=kmh&timezone=auto&forecast_days=15`;
+  return `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,wind_speed_10m_max,sunrise,sunset&hourly=weather_code,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,cloud_base,precipitation_probability,temperature_2m,wind_speed_10m,dew_point_2m,cape,showers,wind_gusts_10m&wind_speed_unit=kmh&timezone=auto&forecast_days=${ROUTE_WEATHER_FORECAST_DAYS}`;
 }

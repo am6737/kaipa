@@ -19,7 +19,7 @@ the bottom of an otherwise full-screen map. Two rules that are easy to break:
   by dumping the content mid-view, so `MapGlobe` trades the *top* padding down
   first (`MAP_FRAME_MIN_BAND`) and the strip above the card stays the target.
 
-## First-load place pins
+## The place-pin entrance
 
 The iOS visibility rail starts annotations at opacity zero. Visibility must be
 replayed when the map registers its API and when new annotations mount: route
@@ -29,10 +29,49 @@ renders, so the caller can send visibility while the map still has no pins.
 handoffs without rebuilding the pin array on mode switches. Replay the pending
 stagger option as well as the visible keys; an empty catalog must not consume
 the first entrance. Otherwise the first route batch appears all at once.
+
+**When the cascade plays.** Pins *arrive* on the first paint and when a region
+swaps in, and pins get *edited* by a chip filter, an open route card or a
+refetch. Only arriving cascades: `syncPinVisibility` sets `stagger` on the first
+apply that carries visible keys and again whenever `dataRegion` — not
+`adminRegion`, which is two frames ahead of the pins and starts the camera fit
+first — differs from the region of the previous apply. Both the keys and the
+region are read from one ref snapshot, so the pending cascade is spent by the
+apply that really holds the new region's keys.
+
+**How it is spread.** `staggerRevealPlan` in `src/lib/pinVisibility.ts` schedules
+the newly revealed pins: the step between them is
+`min(STAGGER_STEP_MS, STAGGER_MAX_DELAY_MS / count)`, so twelve pins keep the
+shared 55ms rhythm and 全国's ~150 sweep in 4.4ms gaps instead of the old
+behaviour, which capped the *index* and dropped every pin past the twelfth at the
+660ms cap in one burst. Each pin still fades over `ENTRANCE_REVEAL_MS` on the
+native driver, and they come out nearest-first from the centroid of the group
+(planar distance with longitude squeezed by the latitude cosine), so a region
+reads as one arrival rather than a scatter. The mount-time entrance for callers
+without the rail (`staggerPins`) uses the same compressed step. Reduced motion
+(`AccessibilityInfo`, watched by `MapGlobe`) never staggers: pins are shown at
+once.
+
 Regression cases
 live in `scripts/test-map-marker-rebuild.cjs` (catalog before map mount, and pins
-after the visibility command); they use a mocked map, so cold launch still needs
-device verification.
+after the visibility command) and `scripts/test-pin-visibility.cjs` (who triggers
+the cascade, and the schedule itself); they use a mocked map, so cold launch still
+needs device verification.
+
+**Android has no cascade.** AMap snapshots a marker's children into a bitmap, so
+an opacity or scale animated in JS is baked in before it could play — which is
+why the rail above is iOS-only and the pins pass `staticRender` with no
+`entranceDelayMs`. What Android can do is ask the marker itself: `grow` on a
+`NativeMapMarker` becomes `growAnimation`, a native 500ms alpha 0→1 plus 0.8→1
+scale that plays once when the marker is first shown. `MapGlobe` sets it only for
+pins whose key was not on screen at the previous build *and* only while
+`pinEntranceKey` (the 发现 region) is unspent, so the first paint and a region
+switch fade in while a chip filter, the selected pin, `muted` (its marker id
+carries the suffix, so the marker is remounted) or an opening card never replay
+it. Reduced motion skips it, like the rail. Every new pin arrives together — all
+markers animate on their own, so there are no per-pin delays. A real cascade here
+means mounting the pins in batches, which is extra JS-thread work in exactly the
+window the region fit is running; measure it on device before trying.
 
 ## Recorded-track polyline flickers during camera moves (MapKit limitation)
 
@@ -113,7 +152,14 @@ wide (AMap's convention). `NativeMap.ios.tsx` converts MapKit spans to and from
 that using the view's size (`region`, `zoomForSpan`), so clustering radii and
 zoom thresholds hold on iOS too.
 Each badge uses an actual member coordinate and sits above the line, keeping the
-polyline visible. Only annotations are grouped; track geometry and stored
+polyline visible. The route card and track detail draw the `numbered` variant
+instead, where a cluster is a hollow stacked pill (opaque `controlSurface`, 2pt
+`accent` ring and text, a second pill offset 3pt up-right behind the front one)
+showing the members' range (`3–5`) or a localized count (`2 处` / `2 spots`), so
+it can never be mistaken for a single numbered waypoint; its content padding
+keeps the offset pill inside Android's snapshot crop, and the id carries the
+shape, numbers and drawn text (`…-cluster-s-<first>-r3_5` / `c2_2spots`).
+Only annotations are grouped; track geometry and stored
 waypoint distances remain intact. Groups update at half-zoom steps to avoid
 rebuilding native annotations on every pinch frame. Check with
 `node --test scripts/test-waypoint-clusters.cjs`.
@@ -240,7 +286,7 @@ bounds' origin. That needs a native rebuild. 2.3.1 has the same renderer. Other
 children markers with transparent spacers (e.g. `distanceMarkerSideWrap`) may
 hit the same crop.
 
-The companion live-location pin (`CompanionLocationPin` in `DiscoverScreen`)
+The companion live-location pin (`DropPin` in `src/components/maps/DropPin.tsx`, also used for the selected waypoint)
 hit it too: react-native-svg's views are ViewGroups with no background, so they
 never count toward the bounds. Only the 43px avatar `Image` did, which cut the
 avatar's right and bottom edges and dropped the needle and ground dot. It uses

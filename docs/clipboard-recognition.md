@@ -1,6 +1,6 @@
 # 剪贴板商品识别 · 设计与真机验证
 
-从淘宝 / 京东 / 得物复制一条商品链接,回到 Kaipa,装备页会弹出一张识别卡片。
+从淘宝 / 京东 / 得物 / 抖音商城复制一条商品链接,回到 Kaipa,装备页会弹出一张识别卡片。
 难点不在识别,而在 iOS:从后台恢复时**读一次剪贴板文本,本身就会弹系统的「允许粘贴」**。
 所以整个设计的目标是——把「读」压到最后一步,只在最可能命中的时候读。
 
@@ -11,7 +11,7 @@
 `src/lib/clipboardProduct.ts`
 
 - 文案里**包含**一个链接即可(分享文案通常是「数字 + 标题 + 短链 + 引导语」)。
-- 链接的 host 必须在白名单里:`taobao.com` `tmall.com` `tb.cn` `jd.com` `3.cn` `jd.hk` `dewu.com` `dw4.co`(含其子域)。
+- 链接的 host 必须在白名单里:`taobao.com` `tmall.com` `tb.cn` `jd.com` `3.cn` `jd.hk` `dewu.com` `dw4.co` `douyin.com`(含其子域)。
 - 每段文本按 FNV-1a 指纹记进 AsyncStorage 的 seen 列表(上限 20 条):弹出过、被关掉、或者抓取失败的文本**都不再出现**。
 
 命中后交给 `fetchGearLinkPreview()` 取商品标题、价格、图片,再由 `ClipboardProductCard` 展示。

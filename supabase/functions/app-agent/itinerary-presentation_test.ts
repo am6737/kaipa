@@ -12,9 +12,9 @@ Deno.test('brief daily summaries stay unchanged without duplicated provider rece
     location: { name: '南宁东', longitude: 108.4, latitude: 22.8 } });
   const result = presentItinerary([row, itineraryItem.parse({ day: 'Day 1', title: '抵达成都东 · G123', location: { name: '成都东' } })],
     [{ day: 'Day 1', note: '从南宁东乘高铁到成都东，抵达后住宿，为次日进山做准备。' }]);
-  assert(result.items[0].title === '南宁东 · G123');
+  assert(result.items[0].title === '南宁东 G123');
   assert(result.groupNotes[0].note === '从南宁东乘高铁到成都东，抵达后住宿，为次日进山做准备。');
-  assert(result.items[1].title === '成都东 · G123');
+  assert(result.items[1].title === '成都东 G123');
   assert(result.items[0].timeEnd === '18:00' && result.items[0].location?.longitude === 108.4);
   assert(JSON.stringify(presentItinerary(result.items, result.groupNotes)) === JSON.stringify(result));
 });
@@ -89,7 +89,7 @@ Deno.test('overnight service keeps a validator marker through repeated presentat
   const departure = itineraryItem.parse({ day: 'Day 12', kind: 'custom', title: '航班 CZ3242 天府机场→吴圩机场 · 次日2026-10-27 00:30到达 · 查询',
     timeStart: '23:20', timeEnd: '00:30', location: { name: '天府机场' } });
   const first = presentItinerary([departure]);
-  assert(first.items[0].title === '天府机场 · CZ3242（次日到达）');
+  assert(first.items[0].title === '天府机场 CZ3242（次日到达）');
   assert(validateItineraryItems(first.items, 12).length === 0);
   const second = presentItinerary(first.items, first.groupNotes);
   const third = presentItinerary(second.items, second.groupNotes);
@@ -107,4 +107,30 @@ Deno.test('arrival beyond the final day is removed before daily starts are carri
   assert(filtered.length === 1 && carryDailyStarts(filtered).every(item => item.day === 'Day 12'));
   assert(presentItinerary([departure, arrival], [], 12).items.length === 1);
   assert(removeOutOfRangeArrivals([departure, arrival], 13).length === 2 && presentItinerary([departure, arrival], [], 13).items.length === 2);
+});
+
+Deno.test('a bare town marker after arriving in that town is not repeated', () => {
+  const result = presentItinerary([
+    itineraryItem.parse({ day: 'Day 1', kind: 'custom', title: '新乡 · G1234', timeStart: '09:00', location: { name: '新乡', incomingMode: 'rail' } }),
+    itineraryItem.parse({ day: 'Day 1', title: '新乡', location: { name: '新乡' } }),
+    itineraryItem.parse({ day: 'Day 2', title: '新乡', location: { name: '新乡' } }),
+    itineraryItem.parse({ day: 'Day 3', title: '新乡', location: { name: '新乡' } }),
+    itineraryItem.parse({ day: 'Day 3', kind: 'custom', title: '新乡 · G4321', timeStart: '08:00', location: { name: '新乡' } }),
+  ]);
+  assert(result.items.map(item => `${item.day} ${item.title}`).join('|') === 'Day 1 新乡 G1234|Day 2 新乡|Day 3 新乡 G4321');
+});
+
+Deno.test('template notes preserve paragraphs and list lines', () => {
+  const note = '线路名 | 三天两晚\n全程约 27.7 km，累计爬升约 730 m\n\n徒步约 9 km，爬升约 300 m\n\n交通：\n- 拼车：约 60 元/人，约 1.5 小时，提前预约\n\n住宿：\n- 张沟（民宿，海拔 1060 m）：约 80 元/人\n\n补给：村口可补水\n下撤：原路返回';
+  const result = presentItinerary([itineraryItem.parse({ day: 'Day 1', title: '张沟', location: { name: '张沟' } })], [{ day: 'Day 1', note }]);
+  assert(result.groupNotes[0].note === note);
+});
+
+Deno.test('overlong notes drop whole trailing sections without throwing', () => {
+  const note = ['徒步约 10 km，爬升约 500 m', '当天沿山脊行进。', '交通：\n- ' + '车'.repeat(400), '住宿：\n- ' + '营地'.repeat(400)].join('\n\n');
+  const result = presentItinerary([itineraryItem.parse({ day: 'Day 1', title: '起点', location: { name: '起点' } })], [{ day: 'Day 1', note }]);
+  assert(result.groupNotes[0].note.length <= 1000);
+  assert(result.groupNotes[0].note.includes('当天沿山脊行进。'));
+  assert(!result.groupNotes[0].note.includes('住宿：'));
+  assert(result.groupNotes[0].note.includes('车'.repeat(400)));
 });

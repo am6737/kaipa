@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import type { FactDraft } from '@/features/route-facts/fact-schema'
+import { parseWaypoints } from './route-waypoints'
+import { isAcceptedPhotoType } from './waypoint-photo'
 
 const rawUrl = import.meta.env.VITE_SUPABASE_URL || import.meta.env.EXPO_PUBLIC_SUPABASE_URL
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
@@ -70,6 +72,27 @@ export async function uploadAdminTrack(file: File) {
   if (error) throw error
   const { data } = supabase.storage.from('kaipa').getPublicUrl(path)
   return { url: data.publicUrl, path, name: file.name, format: extension, size: file.size }
+}
+
+export async function uploadAdminImage(file: File) {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('后台登录会话已失效，请重新登录')
+  const mime = file.type || 'image/jpeg'
+  if (!isAcceptedPhotoType(mime)) throw new Error('只支持 JPG、PNG、WebP 图片')
+  const ticket = await membershipApi<{path:string;bucket:string}>({action:'upload_prepare',purpose:'media',scope:session.user.id,bytes:file.size,mime})
+  const { error } = await supabase.storage.from('kaipa').upload(ticket.path, file, { contentType: mime, upsert: false })
+  if (error) throw error
+  const { data } = supabase.storage.from('kaipa').getPublicUrl(ticket.path)
+  return { url: data.publicUrl, path: ticket.path, size: file.size }
+}
+
+// The routes list omits the heavy jsonb columns, so the waypoint editor reads
+// the stored array for one route. Routes are selectable by any signed-in user.
+export async function fetchRouteWaypoints(id: string) {
+  const { data, error } = await supabase.from('routes').select('name,track_waypoints').eq('id', id).maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!data) throw new Error('未找到该路线')
+  return { name: String(data.name ?? ''), waypoints: parseWaypoints(data.track_waypoints) }
 }
 
 export async function membershipApi<T>(body: Record<string, unknown>): Promise<T> {

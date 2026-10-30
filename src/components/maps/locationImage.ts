@@ -29,7 +29,7 @@ export function platformLocationImage(accent: string, withHeading = true): { uri
   const source = Image.resolveAssetSource(images[accent.toLowerCase()] ?? images['#0a84ff']);
   // A dev build serves it from Metro (http), a release names the drawable,
   // an OTA update hands a file:// path; AMap's image loader takes all three.
-  return source?.uri ? { uri: source.uri, size: 52 } : undefined;
+  return source?.uri ? { uri: source.uri, size: 40 } : undefined;
 }
 
 // MapKit's own user-location dot, drawn for AMap, so the Android map matches
@@ -40,5 +40,5 @@ const SYSTEM_DOT_IMAGE = require('../../../assets/trail/location-system-dot.png'
 export function systemLocationImage(withHeading = true): { uri: string; size: number } | undefined {
   if (Platform.OS !== 'android') return undefined;
   const source = Image.resolveAssetSource(withHeading ? SYSTEM_IMAGE : SYSTEM_DOT_IMAGE);
-  return source?.uri ? { uri: source.uri, size: 96 } : undefined;
+  return source?.uri ? { uri: source.uri, size: 74 } : undefined;
 }

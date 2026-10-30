@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, Easing, Dimensions, Keyboard, KeyboardAvoidingView, Modal, Platform, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import type { GearCarryStatus, GearCat, GearItem, GearSet, WeightUnit } from '../../data/gear';
-import { fmtWeight, itemStatus, splitWeight } from '../../data/gear';
+import { itemStatus, splitItemWeight, splitWeight } from '../../data/gear';
 import type { JourneyPackingItem, JourneyPackingItemInput } from '../../data/journeyPacking';
 import type { Poi } from '../../data/pois';
 import { useData } from '../../data/DataContext';
-import { AppIconButton, AppProgressBar, layout, motion, radius, space, type } from '../../design-system';
+import { AppIconButton, layout, motion, radius, space, type } from '../../design-system';
 import { refetchJourneyPacking, useJourneyPacking, type JourneyPackingController } from '../../hooks/useJourneyPacking';
 import { supabase } from '../../lib/supabase';
 import * as Crypto from 'expo-crypto';
@@ -21,7 +21,6 @@ import { GearItemsList } from '../gear/GearItemsList';
 import { GearSetsList } from '../gear/GearSetsList';
 import { usePinnedSets } from '../gear/usePinnedSets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Package } from 'lucide-react-native';
 
 export type JourneyChecklistFilterMenuOption = {
   key: string;
@@ -218,21 +217,26 @@ function JourneyChecklistTabComponent({
     };
   }, [filterActionRef, onFilterMenuOpenChange]);
 
-  const displayItems = useMemo<PackingDisplayItem[]>(
-    () =>
-      (activeView?.items ?? [])
-        .map((item) => {
-          const linkedGearItem = findGearItem(item);
-          return {
-            ...item,
-            weightKg: item.weightKg ?? linkedGearItem?.w,
-            carryStatus: item.carryStatus ?? (linkedGearItem ? itemStatus(linkedGearItem) : 'packed'),
-            inGearLibrary: linkedGearItem != null,
-          };
-        })
-        .sort((a, b) => a.sortOrder - b.sortOrder),
-    [activeView?.items, gearItemsById, gearItemsByName],
-  );
+  const decorateItems = (items: JourneyPackingItem[]): PackingDisplayItem[] =>
+    items
+      .map((item) => {
+        const linkedGearItem = findGearItem(item);
+        return {
+          ...item,
+          weightKg: item.weightKg ?? linkedGearItem?.w,
+          carryStatus: item.carryStatus ?? (linkedGearItem ? itemStatus(linkedGearItem) : 'packed'),
+        };
+      })
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+
+  const displayItems = useMemo<PackingDisplayItem[]>(() => decorateItems(activeView?.items ?? []), [activeView?.items, gearItemsById, gearItemsByName]);
+
+  const sharedRows = useMemo<PackingDisplayItem[]>(() => {
+    if (!isMine) return [];
+    const sharedView = controller.views.find((view) => view.kind === 'shared');
+    if (!sharedView) return [];
+    return decorateItems(sharedView.items.filter((item) => item.carrierCompanionId === controller.currentCompanionId));
+  }, [controller.currentCompanionId, controller.views, gearItemsById, gearItemsByName, isMine]);
 
   if (controller.loading || !activeView) {
     return (
@@ -264,12 +268,11 @@ function JourneyChecklistTabComponent({
             <Text style={[type.body, { color: theme.danger, fontWeight: '700' }]}>{t('journey.packing.localMode')}</Text>
           </View>
         ) : null}
-        <PackingWeightOverviewCard
+        <PackingOverview
           theme={theme}
           items={displayItems}
           weightUnit={weightUnit}
           title={scopeLabel}
-          avatarUrl={activeView.companion?.avatarUrl}
           listPickerOpen={filterMenuOpen}
           pickerProgress={pickerProgress}
           onSelectList={onFilterMenuOpenChange && !selectionMode ? () => onFilterMenuOpenChange(true) : undefined}
@@ -283,10 +286,8 @@ function JourneyChecklistTabComponent({
           </View>
         ) : null}
         {!canEdit ? <Text style={[type.caption, { color: theme.text2, marginTop: space.sm }]}>{t('journey.packing.viewOnly')}</Text> : null}
-        {displayItems.length ? (
-          <View style={{ marginTop: layout.sectionGap }}>
-            <PackingGroups theme={theme} items={displayItems} weightUnit={weightUnit} isShared={isShared} canCheck={canCheck} canEdit={canEdit} currentCompanionId={controller.currentCompanionId} companions={controller.companions} onToggle={(item) => void controller.updateItem(item.id, { packed: !item.packed })} onSetPacked={(itemIds, packed) => void controller.setItemsPacked(itemIds, packed)} onOpen={openItem} selectionMode={selectionMode} selectedItemIds={selectedItemIds} onSelectedItemIdsChange={onSelectedItemIdsChange} />
-          </View>
+        {displayItems.length || sharedRows.length ? (
+          <PackingGroups theme={theme} items={displayItems} sharedRows={sharedRows} weightUnit={weightUnit} canCheck={canCheck} onToggle={(item) => void controller.updateItem(item.id, { packed: !item.packed })} onOpen={openItem} selectionMode={selectionMode} selectedItemIds={selectedItemIds} onSelectedItemIdsChange={onSelectedItemIdsChange} />
         ) : null}
 
         {!readOnly && !isMine && !isShared && activeView.pendingCount > 0 ? (
@@ -454,6 +455,8 @@ export function JourneyChecklistPickerSheet({ theme, controller, visible, onClos
   );
 }
 
+const CHECKLIST_SEARCH_THRESHOLD = 10;
+
 function JourneyChecklistPickerContent({ theme, controller, onClose, onDismissStart }: {
   theme: Theme;
   controller: JourneyChecklistFilterMenuController;
@@ -462,26 +465,30 @@ function JourneyChecklistPickerContent({ theme, controller, onClose, onDismissSt
 }) {
   const { t } = useI18n();
   const [query, setQuery] = useState('');
-  const search = query.trim().toLocaleLowerCase();
+  // Past this many entries scrolling alone gets slow, so the search box appears.
+  const showSearch = controller.options.length > CHECKLIST_SEARCH_THRESHOLD;
+  const search = showSearch ? query.trim().toLocaleLowerCase() : '';
   const options = controller.options.filter((option) => option.label.toLocaleLowerCase().includes(search));
   return (
     <SheetFrame theme={theme} onClose={onClose} onDismissStart={onDismissStart} keyboardAvoiding edgeToEdge contentPadding={space.lg}>
       <Text style={[type.sectionTitle, { color: theme.text }]}>{t('journey.packing.selectChecklist')}</Text>
-      <View style={{ minHeight: layout.fieldHeight, marginTop: space.md, marginBottom: space.sm, paddingHorizontal: space.sm, borderRadius: radius.control, backgroundColor: theme.fieldSurface, flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-        <Icon name="search" color={theme.text2} size={18} />
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder={t('journey.packing.searchMembers')}
-          placeholderTextColor={theme.text2}
-          accessibilityLabel={t('journey.packing.searchMembers')}
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="search"
-          style={[type.body, { flex: 1, minWidth: 0, height: layout.fieldHeight, color: theme.text, padding: 0, lineHeight: undefined, textAlignVertical: 'center', includeFontPadding: false }]}
-        />
-        {query ? <AppIconButton theme={theme} name="close" size={32} noShadow onPress={() => setQuery('')} accessibilityLabel={t('search.clear')} /> : null}
-      </View>
+      {showSearch ? (
+        <View style={{ minHeight: layout.fieldHeight, marginTop: space.md, marginBottom: space.sm, paddingHorizontal: space.sm, borderRadius: radius.control, backgroundColor: theme.fieldSurface, flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+          <Icon name="search" color={theme.text2} size={18} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder={t('journey.packing.searchMembers')}
+            placeholderTextColor={theme.text2}
+            accessibilityLabel={t('journey.packing.searchMembers')}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+            style={[type.body, { flex: 1, minWidth: 0, height: layout.fieldHeight, color: theme.text, padding: 0, lineHeight: undefined, textAlignVertical: 'center', includeFontPadding: false }]}
+          />
+          {query ? <AppIconButton theme={theme} name="close" size={32} noShadow onPress={() => setQuery('')} accessibilityLabel={t('search.clear')} /> : null}
+        </View>
+      ) : <View style={{ height: space.sm }} />}
       <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ flexShrink: 1 }}>
         {options.map((option) => {
           const selected = option.key === controller.activeKey;
@@ -517,7 +524,6 @@ function JourneyChecklistPickerContent({ theme, controller, onClose, onDismissSt
 
 type PackingDisplayItem = JourneyPackingItem & {
   carryStatus: GearCarryStatus;
-  inGearLibrary: boolean;
 };
 
 type PackingWeightStats = {
@@ -561,12 +567,11 @@ function buildPackingWeightStats(items: PackingDisplayItem[]): PackingWeightStat
   };
 }
 
-function PackingWeightOverviewCard({ theme, items, weightUnit, title, avatarUrl, onSelectList, listPickerOpen = false, pickerProgress: controlledPickerProgress, emptyBody }: {
+function PackingOverview({ theme, items, weightUnit, title, onSelectList, listPickerOpen = false, pickerProgress: controlledPickerProgress, emptyBody }: {
   theme: Theme;
   items: PackingDisplayItem[];
   weightUnit: WeightUnit;
   title: string;
-  avatarUrl?: string;
   onSelectList?: () => void;
   listPickerOpen?: boolean;
   pickerProgress?: Animated.Value;
@@ -575,8 +580,7 @@ function PackingWeightOverviewCard({ theme, items, weightUnit, title, avatarUrl,
   const { t } = useI18n();
   const stats = buildPackingWeightStats(items);
   const readyCount = Math.max(0, stats.itemCount - stats.pendingCount);
-  const readyPercent = stats.itemCount ? (readyCount / stats.itemCount) * 100 : 0;
-  const packWeight = splitWeight(stats.packWeight, weightUnit);
+  const packWeight = splitWeight(stats.packWeight, weightUnit, true);
   const localPickerProgress = useRef(new Animated.Value(listPickerOpen ? 1 : 0)).current;
   const pickerProgress = controlledPickerProgress ?? localPickerProgress;
 
@@ -594,396 +598,174 @@ function PackingWeightOverviewCard({ theme, items, weightUnit, title, avatarUrl,
   }, [controlledPickerProgress, listPickerOpen, pickerProgress]);
 
   return (
-    <View style={{ marginTop: space.sm, paddingHorizontal: space.lg, paddingVertical: space.md, borderRadius: radius.feature, backgroundColor: theme.surface }}>
-      <Press
-        onPress={onSelectList}
-        disabled={!onSelectList}
-        scaleTo={1}
-        accessibilityRole="button"
-        accessibilityLabel={`${t('journey.packing.selectChecklist')}，${title}`}
-        accessibilityState={{ disabled: !onSelectList, expanded: listPickerOpen }}
-        style={{ minHeight: layout.iconButton, flexDirection: 'row', alignItems: 'center', gap: space.sm }}
-      >
-        <ParticipantAvatar theme={theme} uri={avatarUrl} size={34} />
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={[type.cardTitle, { color: theme.text, letterSpacing: 0 }]}>{title}</Text>
-          <Text style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>
-            {stats.itemCount ? t('journey.packing.progress', { ready: readyCount, total: stats.itemCount }) : t('journey.packing.noItems')}
+    <View style={{ marginTop: onSelectList ? 0 : space.md }}>
+      {onSelectList ? (
+        <Press
+          onPress={onSelectList}
+          scaleTo={1}
+          accessibilityRole="button"
+          accessibilityLabel={`${t('journey.packing.selectChecklist')}，${title}`}
+          accessibilityState={{ expanded: listPickerOpen }}
+          style={{ minHeight: layout.iconButton, flexDirection: 'row', alignItems: 'center', gap: space.xs }}
+        >
+          <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 15, fontWeight: '600', color: theme.text }}>{title}</Text>
+          <Animated.View style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: pickerProgress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
+            <Icon name="chevronDown" color={theme.text3} size={16} />
+          </Animated.View>
+        </Press>
+      ) : null}
+      <View style={{ flexDirection: 'row', gap: 32, marginTop: onSelectList ? space.xs : 0 }}>
+        <View>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+            <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 24, lineHeight: 28, fontWeight: '800', letterSpacing: -0.5, color: theme.text }}>{readyCount}</Text>
+            <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '600', marginLeft: 3, color: theme.text2 }}>/ {stats.itemCount}</Text>
+          </View>
+          <Text style={{ fontSize: 12.5, color: theme.text2, marginTop: 3 }}>{t('journey.packing.statReady')}</Text>
+        </View>
+        <View>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+            <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 24, lineHeight: 28, fontWeight: '800', letterSpacing: -0.5, color: theme.text }}>{packWeight.value}</Text>
+            <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '600', marginLeft: 3, color: theme.text2 }}>{packWeight.unit}</Text>
+          </View>
+          <Text style={{ fontSize: 12.5, color: theme.text2, marginTop: 3 }}>
+            {t('gear.pack.pack')}<Text style={{ color: theme.text3 }}>  {t('gear.pack.base')} + {t('gear.pack.consumable')}</Text>
           </Text>
         </View>
-        <Text style={[type.metric, { fontSize: 20, color: theme.text, letterSpacing: 0 }]}>{Math.round(readyPercent)}%</Text>
-        {onSelectList ? (
-          <Animated.View style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: pickerProgress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
-            <Icon name="chevronDown" color={theme.text2} size={16} />
-          </Animated.View>
-        ) : null}
-      </Press>
-      <View style={{ marginTop: space.sm }}>
-        <AppProgressBar theme={theme} value={readyPercent} height={6} />
       </View>
-      <View style={{ marginTop: space.lg }}>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', columnGap: space.sm, rowGap: space.xxs }}>
-          <Text style={[type.caption, { color: theme.text2, fontWeight: '600' }]}>{t('gear.pack.pack')}</Text>
-          <Text style={[type.caption, { color: theme.text2 }]}>{t('gear.pack.base')} + {t('gear.pack.consumable')}</Text>
+      {items.length ? (
+        // 包重 = 基础 + 消耗; 穿戴 is on the body, not in the pack.
+        <View style={{ flexDirection: 'row', gap: 32, marginTop: space.md }}>
+          <PackingWeightFigure theme={theme} label={t('gear.pack.base')} kg={stats.baseWeight} weightUnit={weightUnit} />
+          <PackingWeightFigure theme={theme} label={t('gear.pack.consumable')} kg={stats.consumableWeight} weightUnit={weightUnit} />
+          <PackingWeightFigure theme={theme} label={t('gear.pack.worn')} kg={stats.wornWeight} weightUnit={weightUnit} />
         </View>
-        <Text
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.72}
-          style={{ marginTop: space.xs, fontFamily: MONO, fontSize: 30, lineHeight: 38, fontWeight: '800', letterSpacing: 0, color: theme.text }}
-        >
-          {packWeight.value}<Text style={{ fontSize: 14, fontWeight: '500', color: theme.text2 }}> {packWeight.unit}</Text>
-        </Text>
-        <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.xl }}>
-          <PackingWeightMetric theme={theme} label={t('gear.pack.base')} value={fmtWeight(stats.baseWeight, weightUnit)} />
-          <PackingWeightMetric theme={theme} label={t('gear.pack.consumable')} value={fmtWeight(stats.consumableWeight, weightUnit)} />
-          <PackingWeightMetric theme={theme} label={t('gear.pack.worn')} value={fmtWeight(stats.wornWeight, weightUnit)} />
-        </View>
-      </View>
-      {!items.length ? <Text style={[type.caption, { color: theme.text2, lineHeight: 18, marginTop: space.md }]}>{emptyBody}</Text> : null}
+      ) : null}
+      {!items.length ? <Text style={{ fontSize: 12.5, color: theme.text2, lineHeight: 18, marginTop: space.md }}>{emptyBody}</Text> : null}
     </View>
   );
 }
 
-function PackingWeightMetric({ theme, label, value }: { theme: Theme; label: string; value: string }) {
+function PackingWeightFigure({ theme, label, kg, weightUnit }: { theme: Theme; label: string; kg: number; weightUnit: WeightUnit }) {
+  const weight = splitWeight(kg, weightUnit, true);
   return (
-    <View style={{ flex: 1, minWidth: 0 }}>
-      <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>{label}</Text>
-      <Text
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.68}
-        style={[type.metric, { marginTop: space.xs, fontSize: 15, lineHeight: 20, letterSpacing: 0, color: theme.text }]}
-      >
-        {value}
+    <View>
+      <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 15, lineHeight: 20, fontWeight: '700', color: theme.text }}>
+        {weight.value}<Text style={{ fontSize: 12, fontWeight: '500', color: theme.text2 }}> {weight.unit}</Text>
       </Text>
+      <Text style={{ fontSize: 12.5, color: theme.text2, marginTop: 2 }}>{label}</Text>
     </View>
   );
 }
 
-function PackingCheckCircle({ theme, checked, mixed = false, accent = false, dotted = false }: { theme: Theme; checked: boolean; mixed?: boolean; accent?: boolean; dotted?: boolean }) {
-  const activeColor = accent ? theme.accent : theme.text2;
+function PackingCheckCircle({ theme, checked }: { theme: Theme; checked: boolean }) {
   return (
     <View
       style={{
-        width: 22,
-        height: 22,
+        width: 20,
+        height: 20,
         borderRadius: radius.pill,
-        borderWidth: checked ? 0 : 1.7,
-        borderStyle: dotted && !checked && !mixed ? 'dotted' : 'solid',
-        borderColor: mixed ? activeColor : accent ? theme.accent : theme.text3,
-        backgroundColor: checked ? activeColor : mixed ? (accent ? theme.accentSoft : theme.fieldSurface) : 'transparent',
+        borderWidth: checked ? 0 : 1.5,
+        borderColor: theme.text3,
+        backgroundColor: checked ? theme.accent : 'transparent',
         alignItems: 'center',
         justifyContent: 'center',
       }}
     >
-      {checked ? (
-        <Icon name="check" color="#FFF" size={13} strokeWidth={2.5} />
-      ) : mixed ? (
-        <Text
-          style={{
-            color: activeColor,
-            fontSize: 15,
-            lineHeight: 15,
-            fontWeight: '800',
-          }}
-        >
-          −
-        </Text>
-      ) : null}
+      {checked ? <Icon name="check" color="#FFF" size={12} strokeWidth={2.5} /> : null}
     </View>
   );
 }
 
-function PackingGroupChevron({ theme, collapsed }: { theme: Theme; collapsed: boolean }) {
-  const progress = useRef(new Animated.Value(collapsed ? 0 : 1)).current;
-
-  useEffect(() => {
-    Animated.timing(progress, {
-      toValue: collapsed ? 0 : 1,
-      duration: motion.standard,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [collapsed, progress]);
-
-  const rotate = progress.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '180deg'],
-  });
-
-  return (
-    <Animated.View
-      style={{
-        width: 32,
-        height: 32,
-        marginLeft: space.xxs,
-        alignItems: 'center',
-        justifyContent: 'center',
-        transform: [{ rotate }],
-      }}
-    >
-      <Icon name="chevronDown" color={theme.text3} size={16} />
-    </Animated.View>
-  );
-}
-
-function PackingGroups({ theme, items, weightUnit, isShared, canCheck, canEdit, currentCompanionId, companions, onToggle, onSetPacked, onOpen, selectionMode, selectedItemIds, onSelectedItemIdsChange }: { theme: Theme; items: PackingDisplayItem[]; weightUnit: WeightUnit; isShared: boolean; canCheck: boolean; canEdit: boolean; currentCompanionId: number; companions: JourneyPackingController['companions']; onToggle: (item: JourneyPackingItem) => void; onSetPacked: (itemIds: string[], packed: boolean) => void; onOpen: (item: JourneyPackingItem) => void; selectionMode: boolean; selectedItemIds: Set<string>; onSelectedItemIdsChange: (ids: Set<string>) => void }) {
+function PackingGroups({ theme, items, sharedRows, weightUnit, canCheck, onToggle, onOpen, selectionMode, selectedItemIds, onSelectedItemIdsChange }: { theme: Theme; items: PackingDisplayItem[]; sharedRows: PackingDisplayItem[]; weightUnit: WeightUnit; canCheck: boolean; onToggle: (item: JourneyPackingItem) => void; onOpen: (item: JourneyPackingItem) => void; selectionMode: boolean; selectedItemIds: Set<string>; onSelectedItemIdsChange: (ids: Set<string>) => void }) {
   const { t } = useI18n();
   const groups = useMemo(() => {
-    const map = new Map<string, PackingDisplayItem[]>();
+    // One list, grouped by category in list order. Ticking an item checks it in
+    // place; nothing moves between groups.
+    const result: { key: string; label: string; rows: PackingDisplayItem[]; showWeight: boolean }[] = [];
+    if (sharedRows.length) result.push({ key: 'sharedYours', label: t('journey.packing.groupSharedYours'), rows: sharedRows, showWeight: false });
+    const byCategory = new Map<string, PackingDisplayItem[]>();
     items.forEach((item) => {
       const key = item.categoryName || '';
-      map.set(key, [...(map.get(key) ?? []), item]);
+      byCategory.set(key, [...(byCategory.get(key) ?? []), item]);
     });
-    return [...map.entries()];
-  }, [items]);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-
-  const toggleCollapsed = (groupKey: string) => {
-    setCollapsedGroups((current) => {
-      const next = new Set(current);
-      if (next.has(groupKey)) next.delete(groupKey);
-      else next.add(groupKey);
-      return next;
+    [...byCategory.entries()].forEach(([category, rows]) => {
+      result.push({ key: category ? `category:${category}` : 'category:uncategorized', label: category || t('gear.uncategorized'), rows, showWeight: true });
     });
-  };
+    return result;
+  }, [items, sharedRows, t]);
 
   return (
     <View>
-      {groups.map(([category, rows], groupIndex) => {
-        const groupKey = category ? `category:${category}` : 'category:uncategorized';
-        const collapsed = collapsedGroups.has(groupKey);
-        const categoryLabel = category || t('gear.uncategorized');
-        const hasGroupWeight = rows.some((item) => item.weightKg != null && item.weightKg > 0);
-        const groupWeight = rows.reduce((total, item) => total + packingItemTotalWeight(item), 0);
-        const checkableRows = rows.filter((item) => !isShared || canEdit || item.carrierCompanionId === currentCompanionId);
-        const completedCount = selectionMode ? rows.filter((item) => selectedItemIds.has(item.id)).length : rows.filter((item) => item.packed).length;
-        const allChecked = rows.length > 0 && completedCount === rows.length;
-        const partiallyChecked = completedCount > 0 && !allChecked;
-        const allCheckablePacked = checkableRows.length > 0 && checkableRows.every((item) => item.packed);
-        const groupDisabled = selectionMode ? rows.length === 0 : !canCheck || checkableRows.length === 0;
-        const toggleGroup = () => {
-          if (selectionMode) {
-            const next = new Set(selectedItemIds);
-            rows.forEach((item) => {
-              if (allChecked) next.delete(item.id);
-              else next.add(item.id);
-            });
-            onSelectedItemIdsChange(next);
-            return;
-          }
-          onSetPacked(
-            checkableRows.map((item) => item.id),
-            !allCheckablePacked,
-          );
-        };
-        return (
-          <View key={groupKey} style={{ marginTop: groupIndex ? space.xxs : 0 }}>
-            <View
-              style={{
-                minHeight: 28,
-                paddingHorizontal: space.xxs,
-                flexDirection: 'row',
-                alignItems: 'center',
-              }}
-            >
-              <Press
-                disabled={groupDisabled}
-                onPress={toggleGroup}
-                accessibilityRole="checkbox"
-                accessibilityState={{
-                  checked: partiallyChecked ? 'mixed' : allChecked,
-                  disabled: groupDisabled,
-                }}
-                style={{
-                  width: 42,
-                  alignSelf: 'stretch',
-                  alignItems: 'flex-start',
-                  justifyContent: 'center',
-                  opacity: groupDisabled ? 0.4 : 1,
-                }}
-              >
-                <PackingCheckCircle theme={theme} checked={allChecked} mixed={partiallyChecked} accent={selectionMode} dotted />
-              </Press>
-              <Pressable
-                onPress={() => toggleCollapsed(groupKey)}
-                accessibilityRole="button"
-                accessibilityLabel={categoryLabel}
-                accessibilityState={{ expanded: !collapsed }}
-                style={{
-                  flex: 1,
-                  minHeight: 44,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                }}
-              >
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    type.cardTitle,
-                    {
-                      flex: 1,
-                      fontSize: 13,
-                      color: allChecked && !selectionMode ? theme.text2 : theme.text,
-                    },
-                  ]}
-                >
-                  {categoryLabel}
-                </Text>
-                <View
-                  style={{
-                    marginLeft: space.sm,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: space.sm,
-                  }}
-                >
-                  {hasGroupWeight ? <Text style={[type.caption, { color: theme.text2 }]}>{fmtWeight(groupWeight, weightUnit, true)}</Text> : null}
-                  <Text style={[type.caption, { color: theme.text3 }]}>
-                    {completedCount}/{rows.length}
-                  </Text>
-                </View>
-                <PackingGroupChevron theme={theme} collapsed={collapsed} />
-              </Pressable>
-            </View>
-            {collapsed ? null : (
-              <View style={{ paddingLeft: space.xxxl, paddingRight: space.xxs }}>
-                {rows.map((item) => (
-                  <PackingRow
-                    key={item.id}
-                    theme={theme}
-                    item={item}
-                    weightUnit={weightUnit}
-                    isShared={isShared}
-                    canCheck={canCheck && (!isShared || canEdit || item.carrierCompanionId === currentCompanionId)}
-                    companions={companions}
-                    onToggle={() => onToggle(item)}
-                    onOpen={() => onOpen(item)}
-                    selectionMode={selectionMode}
-                    selected={selectedItemIds.has(item.id)}
-                    onToggleSelection={() => {
-                      const next = new Set(selectedItemIds);
-                      if (next.has(item.id)) next.delete(item.id);
-                      else next.add(item.id);
-                      onSelectedItemIdsChange(next);
-                    }}
-                  />
-                ))}
-              </View>
-            )}
+      {groups.map((group, index) => (
+        <View key={group.key}>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: index === 0 ? space.lg : 26 }}>
+            <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 13, fontWeight: '600', color: theme.text3 }}>{group.label}</Text>
+            {group.showWeight ? <PackingGroupWeight theme={theme} rows={group.rows} weightUnit={weightUnit} /> : null}
           </View>
-        );
-      })}
+          <View style={{ marginTop: space.xs }}>
+            {group.rows.map((item) => (
+              <PackingRow
+                key={item.id}
+                theme={theme}
+                item={item}
+                weightUnit={weightUnit}
+                canCheck={canCheck}
+                onToggle={() => onToggle(item)}
+                onOpen={() => onOpen(item)}
+                selectionMode={selectionMode}
+                selected={selectedItemIds.has(item.id)}
+                onToggleSelection={() => {
+                  const next = new Set(selectedItemIds);
+                  if (next.has(item.id)) next.delete(item.id);
+                  else next.add(item.id);
+                  onSelectedItemIdsChange(next);
+                }}
+              />
+            ))}
+          </View>
+        </View>
+      ))}
     </View>
   );
 }
 
-function PackingRow({ theme, item, weightUnit, isShared, canCheck, companions, onToggle, onOpen, selectionMode, selected, onToggleSelection }: { theme: Theme; item: PackingDisplayItem; weightUnit: WeightUnit; isShared: boolean; canCheck: boolean; companions: JourneyPackingController['companions']; onToggle: () => void; onOpen: () => void; selectionMode: boolean; selected: boolean; onToggleSelection: () => void }) {
+// Same basis as the overview's pack weight (base + consumable; worn and
+// optional excluded), so the category subtotals add up to the headline figure.
+function PackingGroupWeight({ theme, rows, weightUnit }: { theme: Theme; rows: PackingDisplayItem[]; weightUnit: WeightUnit }) {
   const { t } = useI18n();
-  const carrier = companions.find((companion, index) => (companion.id ?? -(index + 1)) === item.carrierCompanionId);
-  const checked = selectionMode ? selected : item.packed;
+  const stats = buildPackingWeightStats(rows);
+  const missing = rows.filter((item) => item.weightKg == null && item.carryStatus !== 'optional').length;
+  if (stats.packWeight <= 0 && !missing) return null;
+  const weight = splitWeight(stats.packWeight, weightUnit, true);
   return (
-    <Press onPress={selectionMode ? onToggleSelection : onOpen} scaleTo={1} accessibilityRole={selectionMode ? 'checkbox' : 'button'} accessibilityState={selectionMode ? { checked: selected } : undefined} style={{ minHeight: 58, flexDirection: 'row', alignItems: 'center' }}>
-      <Press
-        disabled={!selectionMode && !canCheck}
-        scaleTo={1}
-        onPress={(event) => {
-          event.stopPropagation();
-          if (selectionMode) onToggleSelection();
-          else onToggle();
-        }}
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked, disabled: !selectionMode && !canCheck }}
-        style={{
-          width: 42,
-          alignSelf: 'stretch',
-          alignItems: 'flex-start',
-          justifyContent: 'center',
-        }}
-      >
-        <PackingCheckCircle theme={theme} checked={checked} accent={selectionMode} dotted />
-      </Press>
-      <View
-        style={{
-          flex: 1,
-          minWidth: 0,
-          alignSelf: 'stretch',
-          paddingVertical: space.xxs,
-          justifyContent: 'center',
-        }}
-      >
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.xs }}>
-          <Text
-            numberOfLines={2}
-            style={{
-              flexShrink: 1,
-              minWidth: 0,
-              fontSize: 12.5,
-              lineHeight: 18,
-              fontWeight: '600',
-              color: item.packed ? theme.text2 : theme.text,
-            }}
-          >
-            {item.name}
-          </Text>
-          {item.carryStatus === 'consumable' ? (
-            <View style={{ maxWidth: '100%', paddingHorizontal: space.xs, paddingVertical: space.xxs, borderRadius: radius.pill, backgroundColor: theme.fieldSurface }}>
-              <Text style={[type.caption, { fontSize: 10, lineHeight: 14, color: theme.text2 }]}>{t('gear.status.consumable')}</Text>
-            </View>
-          ) : null}
-        </View>
-        <View
-          style={{
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            gap: space.sm,
-            marginTop: space.xs,
-          }}
-        >
-          <Text style={[type.caption, { color: theme.text2 }]}>{item.quantity > 1 ? `×${item.quantity}` : t('journey.packing.oneItem')}</Text>
-          {item.attrs?.slice(0, 2).map(([key, value]) => (
-            <Text key={`${key}:${value}`} numberOfLines={1} style={[type.caption, { maxWidth: 140, color: theme.text2 }]}>{`${key} ${value}`}</Text>
-          ))}
-          {item.weightKg != null ? <Text style={[type.caption, { color: theme.text2 }]}>{fmtWeight(item.weightKg * item.quantity, weightUnit, true)}</Text> : null}
-          {isShared && carrier ? (
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: space.xxs,
-              }}
-            >
-              <ParticipantAvatar theme={theme} uri={carrier.avatarUrl} size={16} />
-              <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>
-                {carrier.name}
-              </Text>
-            </View>
-          ) : null}
-          {isShared && !carrier ? <Text style={[type.caption, { color: theme.text3 }]}>{t('journey.packing.noCarrier')}</Text> : null}
-        </View>
-      </View>
-      {!item.inGearLibrary && item.carryStatus !== 'consumable' ? (
-        <View
-          accessibilityLabel={t('journey.packing.notInGearLibrary')}
-          style={{
-            minHeight: 20,
-            marginLeft: space.sm,
-            paddingHorizontal: space.xs,
-            borderRadius: radius.pill,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: space.xxs,
-            backgroundColor: theme.dangerSoft,
-          }}
-        >
-          <Package color={theme.danger} size={12} strokeWidth={1.9} />
-          <Text style={[type.caption, { color: theme.danger, fontWeight: '700' }]}>
-            {t('journey.packing.notInGearLibrary')}
-          </Text>
-        </View>
-      ) : null}
+    <Text numberOfLines={1} style={{ marginLeft: space.sm, fontSize: 12, fontWeight: '500', color: theme.text3 }}>
+      {missing ? `${t('journey.packing.groupWeightMissing', { count: missing })} ` : ''}
+      {stats.packWeight > 0 ? `${weight.value} ${weight.unit}` : ''}
+    </Text>
+  );
+}
+
+function PackingRow({ theme, item, weightUnit, canCheck, onToggle, onOpen, selectionMode, selected, onToggleSelection }: { theme: Theme; item: PackingDisplayItem; weightUnit: WeightUnit; canCheck: boolean; onToggle: () => void; onOpen: () => void; selectionMode: boolean; selected: boolean; onToggleSelection: () => void }) {
+  const checked = selectionMode ? selected : item.packed;
+  const quantity = Math.max(1, item.quantity);
+  const weight = item.weightKg != null ? splitItemWeight(packingItemTotalWeight(item), weightUnit, true) : null;
+  return (
+    // Tapping the row ticks the item; its details open on long press. Without
+    // check permission the tap opens the details instead.
+    <Press
+      onPress={selectionMode ? onToggleSelection : canCheck ? onToggle : onOpen}
+      onLongPress={selectionMode ? undefined : onOpen}
+      scaleTo={1}
+      accessibilityRole={selectionMode || canCheck ? 'checkbox' : 'button'}
+      accessibilityLabel={item.name}
+      accessibilityState={selectionMode || canCheck ? { checked } : undefined}
+      style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+    >
+      <PackingCheckCircle theme={theme} checked={checked} />
+      <Text numberOfLines={2} style={{ flex: 1, minWidth: 0, fontSize: 15, color: theme.text }}>
+        {item.name}{quantity > 1 ? <Text style={{ color: theme.text3 }}> ×{quantity}</Text> : null}
+      </Text>
+      {weight ? <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 12.5, color: theme.text3 }}>{weight.value} {weight.unit}</Text> : null}
     </Press>
   );
 }
@@ -1938,7 +1720,7 @@ function PackingItemSheet({ theme, item, gearItem, categories, isShared, editabl
   const [note, setNote] = useState(item.note ?? '');
   const carrier = companions.find((companion, index) => (companion.id ?? -(index + 1)) === item.carrierCompanionId);
   const parsedTotalWeight = totalWeight.trim() && Number.isFinite(Number(totalWeight)) ? Math.max(0, Number(totalWeight)) : undefined;
-  const displayWeight = parsedTotalWeight == null ? undefined : splitWeight(parsedTotalWeight, weightUnit, true);
+  const displayWeight = parsedTotalWeight == null ? undefined : splitItemWeight(parsedTotalWeight, weightUnit, true);
   const onSaveRef = useRef(onSave);
   onSaveRef.current = onSave;
   const lastSavedSignatureRef = useRef(

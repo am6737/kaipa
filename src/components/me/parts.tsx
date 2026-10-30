@@ -1,6 +1,6 @@
 // Shared settings primitives used by the pushed pages under 设置.
 import React from 'react';
-import { View, Text, StyleSheet, Switch, ViewStyle, StyleProp, type DimensionValue } from 'react-native';
+import { View, Text, StyleSheet, Switch, ViewStyle, StyleProp, type DimensionValue, type GestureResponderEvent } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { Icon, IconName } from '../Icon';
 import { Press } from '../Press';
@@ -91,7 +91,7 @@ export function MeRow({
   detailMaxWidth?: DimensionValue;
   trailing?: React.ReactNode;
   leading?: React.ReactNode;
-  onPress?: () => void;
+  onPress?: (event: GestureResponderEvent) => void;
   danger?: boolean;
   last?: boolean;
   showChevron?: boolean;

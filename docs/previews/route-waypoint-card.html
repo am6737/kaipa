@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>途经点卡片预览</title>
+<style>
+  :root { --accent:#0A84FF; --bg:#F2F2F7; --text:#1C1C1E; --text2:rgba(60,60,67,.62); --text3:rgba(60,60,67,.32); --field:rgba(118,118,128,.12); }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif; background:#d9d9de; display:flex; gap:32px; justify-content:center; padding:24px; flex-wrap:wrap; color:var(--text); }
+  .col { display:flex; flex-direction:column; align-items:center; gap:12px; }
+  .cap { font-size:13px; color:#555; }
+  .phone { width:375px; height:812px; border-radius:44px; background:#fff; position:relative; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.25); }
+  /* The route detail page underneath */
+  .page { position:absolute; inset:0; background:#fff; padding:96px 16px 0; }
+  .chrome { position:absolute; top:54px; left:12px; right:12px; display:flex; justify-content:space-between; }
+  .halo { width:44px; height:44px; display:grid; place-items:center; }
+  .halo svg { filter:drop-shadow(0 1px 3px rgba(0,0,0,.25)); }
+  h1 { font-size:24px; font-weight:700; }
+  .meta { color:var(--text2); font-size:14px; margin-top:6px; }
+  .sec { font-size:20px; font-weight:700; margin:30px 0 12px; }
+  .row { display:flex; align-items:center; gap:12px; min-height:44px; }
+  .badge { width:32px; height:32px; border-radius:16px; color:#fff; font-weight:700; display:grid; place-items:center; font-size:16px; }
+  .strip { display:flex; gap:8px; margin:12px -16px; padding:0 16px; overflow:hidden; }
+  .wcard { flex:0 0 240px; }
+  .wphoto { height:150px; border-radius:16px; position:relative; overflow:hidden; cursor:pointer; }
+  .wphoto .n { position:absolute; top:8px; left:10px; color:#fff; font-weight:700; text-shadow:0 1px 3px rgba(0,0,0,.5); }
+  .wname { font-weight:600; margin-top:8px; font-size:15px; }
+  .wkm { color:var(--text2); font-size:13px; margin-top:2px; }
+  .bar { position:absolute; left:0; right:0; bottom:0; padding:16px 16px 34px; display:flex; gap:8px; }
+  .pill { height:44px; border-radius:999px; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:15px; }
+  /* Scrim + card */
+  .scrim { position:absolute; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .22s; }
+  .open .scrim { opacity:1; pointer-events:auto; }
+  .sheet { position:absolute; left:16px; right:16px; top:50%; transform:translate(0,-46%) scale(.96); opacity:0; pointer-events:none; transition:all .24s cubic-bezier(.2,.8,.2,1); background:#fff; border-radius:24px; overflow:hidden; }
+  .open .sheet { opacity:1; transform:translate(0,-50%) scale(1); pointer-events:auto; }
+  .track { display:flex; transition:transform .28s cubic-bezier(.2,.8,.2,1); touch-action:pan-y; }
+  .slide { flex:0 0 100%; }
+  .hero { height:230px; position:relative; }
+  .hero .n { position:absolute; top:16px; left:16px; color:#fff; font-weight:700; font-size:17px; text-shadow:0 1px 4px rgba(0,0,0,.5); }
+  .glass { position:absolute; top:12px; width:36px; height:36px; border-radius:18px; background:rgba(255,255,255,.82); backdrop-filter:blur(10px); display:grid; place-items:center; cursor:pointer; }
+  .body { padding:16px 20px 8px; min-height:118px; }
+  .body h2 { font-size:20px; font-weight:700; }
+  .body .m { color:var(--text2); font-size:14px; margin-top:6px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  .tag { display:inline-flex; align-items:center; gap:4px; height:24px; padding:0 10px; border-radius:999px; background:rgba(255,159,10,.14); color:#C77700; font-size:12px; font-weight:600; }
+  .ll { display:flex; align-items:center; justify-content:space-between; margin-top:12px; min-height:44px; }
+  .lk { font-size:12px; color:var(--text2); }
+  .lv { font-family:ui-monospace,Menlo,monospace; font-size:14px; font-weight:600; margin-top:2px; }
+  .cp { width:44px; height:44px; display:grid; place-items:center; cursor:pointer; margin-right:-12px; }
+  .dots { display:flex; gap:6px; justify-content:center; padding:8px 0 20px; }
+  .dot { width:6px; height:6px; border-radius:3px; background:var(--text3); transition:all .2s; }
+  .dot.on { width:18px; background:var(--accent); }
+  .hint { position:absolute; bottom:120px; left:0; right:0; text-align:center; font-size:12px; color:var(--text2); }
+  .ph { background:linear-gradient(135deg,#7aa37a,#3f6b55 55%,#2d4d43); }
+</style>
+</head>
+<body>
+<div class="col">
+  <div class="phone" id="phone">
+    <div class="page">
+      <h1>九龙瀑布环线</h1>
+      <div class="meta">云南 曲靖  12.4 km  爬升 620 m</div>
+      <div class="sec">途经点</div>
+      <div class="row"><div class="badge" style="background:#34C759">起</div><div><div style="font-weight:600">起点</div><div class="meta" style="margin:0;font-size:13px">距你 38 km</div></div></div>
+      <div class="strip" id="strip"></div>
+      <div class="row"><div class="badge" style="background:#FF3B30">终</div><div><div style="font-weight:600">终点</div><div class="meta" style="margin:0;font-size:13px">全程 12.4 km</div></div></div>
+      <div class="hint">点途经点卡片，打开浮层卡片</div>
+    </div>
+    <div class="chrome">
+      <div class="halo"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></div>
+      <div style="display:flex">
+        <div class="halo"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 8l5-5 5 5M5 14v5h14v-5"/></svg></div>
+        <div class="halo"><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></div>
+      </div>
+    </div>
+    <div class="bar">
+      <div class="pill" style="flex:1;background:var(--accent);color:#fff">规划旅程</div>
+      <div class="pill" style="width:44px;background:#fff;border:1px solid rgba(0,0,0,.08)">♡</div>
+      <div class="pill" style="width:44px;background:#fff;border:1px solid rgba(0,0,0,.08)">➤</div>
+    </div>
+    <div class="scrim" id="scrim"></div>
+    <div class="sheet" id="sheet">
+      <div class="track" id="track"></div>
+      <div class="dots" id="dots"></div>
+    </div>
+  </div>
+  <div class="cap">点卡片打开，左右滑动或点圆点切换，点背景关闭</div>
+</div>
+
+<script>
+const wps = [
+  { n:1, name:'一级瀑布观景台', ll:'25.38142, 103.91207', km:'2.1', ele:'1,486', hl:false, bg:'linear-gradient(160deg,#9cc9d9,#4f8fa8 50%,#2f5d6e)' },
+  { n:2, name:'情人谷', ll:'25.37620, 103.92455', km:'4.6', ele:'1,552', hl:false, bg:null },
+  { n:3, name:'神龙瀑布', ll:'25.36893, 103.93318', km:'7.3', ele:'1,618', hl:true, bg:'linear-gradient(170deg,#d7e8f0,#86b3c4 40%,#3b6b5e 75%,#26443a)' },
+  { n:4, name:'彩虹桥', km:'10.2', ele:'1,501', hl:false, bg:'linear-gradient(150deg,#f3c98b,#c98b5a 50%,#6d4b3a)' },
+];
+const strip = document.getElementById('strip'), track = document.getElementById('track'), dots = document.getElementById('dots');
+const mapIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1C1C1E" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg>';
+const xIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1C1C1E" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+const copyIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(60,60,67,.62)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
+const checkIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0A84FF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>';
+const star = '<svg width="12" height="12" viewBox="0 0 24 24" fill="#C77700"><path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6L2.5 9.4l6.6-.8z"/></svg>';
+wps.forEach((w, i) => {
+  const bg = w.bg ? `background:${w.bg}` : '';
+  strip.insertAdjacentHTML('beforeend', `<div class="wcard"><div class="wphoto ${w.bg ? '' : 'ph'}" style="${bg}" data-i="${i}"><span class="n">#${w.n}</span></div><div class="wname">${w.name}</div><div class="wkm">第 ${w.km} km  ${w.ele} m</div></div>`);
+  track.insertAdjacentHTML('beforeend', `<div class="slide">
+    <div class="hero ${w.bg ? '' : 'ph'}" style="${bg}">
+      <span class="n">#${w.n}</span>
+      <div class="glass" style="right:56px" title="在地图上查看">${mapIcon}</div>
+      <div class="glass close" style="right:12px">${xIcon}</div>
+    </div>
+    <div class="body"><h2>${w.name}</h2>
+      <div class="m"><span>第 ${w.km} km</span><span>海拔 ${w.ele} m</span>${w.hl ? `<span class="tag">${star}亮点</span>` : ''}</div>
+      ${w.ll ? `<div class="ll"><div><div class="lk">坐标</div><div class="lv">${w.ll}</div></div><div class="cp" title="复制坐标">${copyIcon}</div></div>` : ''}
+    </div></div>`);
+  dots.insertAdjacentHTML('beforeend', `<div class="dot"></div>`);
+});
+const phone = document.getElementById('phone');
+let cur = 0;
+function go(i) { cur = Math.max(0, Math.min(wps.length - 1, i)); track.style.transform = `translateX(${-cur * 100}%)`; [...dots.children].forEach((d, j) => d.classList.toggle('on', j === cur)); }
+strip.addEventListener('click', e => { const p = e.target.closest('.wphoto'); if (!p) return; go(+p.dataset.i); phone.classList.add('open'); });
+document.getElementById('scrim').onclick = () => phone.classList.remove('open');
+track.addEventListener('click', e => { if (e.target.closest('.close')) phone.classList.remove('open'); const c = e.target.closest('.cp'); if (c) { c.innerHTML = checkIcon; setTimeout(() => c.innerHTML = copyIcon, 1500); } });
+[...dots.children].forEach((d, j) => d.onclick = () => go(j));
+let sx = null;
+track.addEventListener('pointerdown', e => sx = e.clientX);
+track.addEventListener('pointerup', e => { if (sx == null) return; const dx = e.clientX - sx; if (Math.abs(dx) > 40) go(cur + (dx < 0 ? 1 : -1)); sx = null; });
+go(2); phone.classList.add('open');
+</script>
+</body>
+</html>

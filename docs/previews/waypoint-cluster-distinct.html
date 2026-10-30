@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>聚合点与途经点区分</title>
+<style>
+  :root { --accent:#0A84FF; --danger:#FF3B30; --start:#34C759; }
+  * { box-sizing:border-box; margin:0; }
+  body { font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif; background:#ececf0; color:#1C1C1E; padding:24px 16px 40px; display:flex; flex-direction:column; align-items:center; gap:28px; }
+  h1 { font-size:20px; font-weight:700; }
+  .sub { font-size:13px; color:rgba(60,60,67,.62); margin-top:4px; text-align:center; max-width:640px; line-height:1.5; }
+  .row { display:flex; gap:18px; flex-wrap:wrap; justify-content:center; }
+  .col { display:flex; flex-direction:column; gap:8px; align-items:center; }
+  .tag { font-size:13px; font-weight:700; padding:4px 12px; border-radius:999px; background:#fff; }
+  .tag.new { background:var(--accent); color:#fff; }
+  .map { position:relative; width:300px; height:400px; border-radius:22px; overflow:hidden; box-shadow:0 6px 20px rgba(0,0,0,.12); }
+  .map.light { background:
+      radial-gradient(circle at 20% 30%, #dfe9d3 0 18%, transparent 19%),
+      radial-gradient(circle at 75% 70%, #d7e5cc 0 22%, transparent 23%),
+      radial-gradient(circle at 80% 15%, #cfe1ef 0 12%, transparent 13%),
+      #eef0e8; }
+  .map.dark { background:
+      radial-gradient(circle at 20% 30%, #23302a 0 18%, transparent 19%),
+      radial-gradient(circle at 75% 70%, #1f2b25 0 22%, transparent 23%),
+      radial-gradient(circle at 80% 15%, #1b2633 0 12%, transparent 13%),
+      #191b1d; }
+  .map svg { position:absolute; inset:0; }
+  .mk { position:absolute; transform:translate(-50%,-50%); }
+
+  /* Single waypoint: unchanged in both versions. */
+  .num { width:24px; height:24px; border-radius:12px; background:var(--accent); border:1.5px solid #fff; color:#fff; font-size:13px; font-weight:700; display:grid; place-items:center; box-shadow:0 1px 3px rgba(0,0,0,.25); }
+
+  /* Current cluster: the same solid accent shape. */
+  .clu-old { min-width:24px; height:24px; padding:0 8px; border-radius:999px; background:var(--accent); border:1.5px solid #fff; color:#fff; font-size:13px; font-weight:700; display:grid; place-items:center; box-shadow:0 1px 3px rgba(0,0,0,.25); white-space:nowrap; }
+
+  /* Proposed cluster: hollow, accent ring and text, with a stacked edge. */
+  .clu { position:relative; }
+  .clu .back { position:absolute; inset:0; transform:translate(3px,-3px); border-radius:999px; border:2px solid var(--accent); background:var(--surf); opacity:.9; }
+  .clu .front { position:relative; min-width:26px; height:26px; padding:0 8px; border-radius:999px; background:var(--surf); border:2px solid var(--accent); color:var(--accent); font-size:13px; font-weight:700; display:grid; place-items:center; box-shadow:0 1px 4px rgba(0,0,0,.22); white-space:nowrap; }
+  .light { --surf:#FFFFFF; }
+  .dark { --surf:#28282C; }
+
+  .end { width:26px; height:26px; border-radius:13px; border:2px solid #fff; color:#fff; font-size:12px; font-weight:700; display:grid; place-items:center; box-shadow:0 1px 3px rgba(0,0,0,.25); }
+
+  .callout { position:absolute; font-size:11px; font-weight:600; padding:3px 8px; border-radius:8px; background:rgba(255,59,48,.95); color:#fff; white-space:nowrap; }
+  .dark .callout { background:rgba(255,69,58,.95); }
+
+  .legend { background:#fff; border-radius:18px; padding:16px 18px; width:min(640px,100%); display:grid; grid-template-columns:auto 1fr; gap:14px 16px; align-items:center; font-size:14px; line-height:1.45; }
+  .legend .k { display:flex; justify-content:center; min-width:60px; }
+  .legend b { font-weight:700; }
+  .legend .d { color:rgba(60,60,67,.62); font-size:13px; }
+</style>
+</head>
+<body>
+  <div>
+    <h1>聚合点和途经点怎么区分</h1>
+    <p class="sub">同一段往返线路：1 号和 7 号是单个途经点，3–5 号挤在一起，2 号和 9 号在往返路上重叠。左边是现在的样子，右边是建议的样子。</p>
+  </div>
+
+  <div class="row" id="maps"></div>
+
+  <div class="legend">
+    <div class="k"><div class="num">7</div></div>
+    <div><b>单个途经点（不变）</b><div class="d">实心主题色圆，白色编号。</div></div>
+    <div class="k"><div class="clu light" style="--surf:#fff"><div class="back"></div><div class="front">3–5</div></div></div>
+    <div><b>聚合点：编号连续</b><div class="d">白底、主题色描边和文字，后面错开一层，看上去像一叠，表示“这里有好几个”。</div></div>
+    <div class="k"><div class="clu light" style="--surf:#fff"><div class="back"></div><div class="front">2 处</div></div></div>
+    <div><b>聚合点：编号不连续</b><div class="d">显示“2 处”（英文为 2 spots），不再用裸数字，不会和 2 号途经点撞上。</div></div>
+    <div class="k" style="font-size:22px">👆</div>
+    <div><b>点击行为不变</b><div class="d">点聚合点会放大地图，把成员展开；点单个途经点打开途经点卡片。</div></div>
+  </div>
+
+<script>
+  // Track: out-and-back, so the way back passes 2 again where 9 sits.
+  const track = 'M60 340 C 90 300, 70 250, 110 220 S 170 170, 160 130 S 200 70, 240 60';
+  const back = 'M240 60 C 250 100, 215 150, 175 190 S 120 250, 128 300';
+  const scenes = (mode, proposed) => {
+    const clusterA = proposed
+      ? '<div class="clu"><div class="back"></div><div class="front">3–5</div></div>'
+      : '<div class="clu-old">3–5</div>';
+    const clusterB = proposed
+      ? '<div class="clu"><div class="back"></div><div class="front">2 处</div></div>'
+      : '<div class="clu-old">2</div>';
+    const confuse = proposed ? '' : '<div class="callout" style="left:150px;top:268px">是 2 号？还是 2 个？</div>';
+    return `
+      <div class="col">
+        <div class="tag ${proposed ? 'new' : ''}">${proposed ? '建议' : '现在'}${mode === 'dark' ? '（深色）' : '（浅色）'}</div>
+        <div class="map ${mode}">
+          <svg viewBox="0 0 300 400">
+            <path d="${track}" fill="none" stroke="#0A84FF" stroke-width="4" stroke-linecap="round"/>
+            <path d="${back}" fill="none" stroke="#0A84FF" stroke-width="4" stroke-linecap="round" opacity=".55"/>
+          </svg>
+          <div class="mk" style="left:60px;top:340px"><div class="end" style="background:var(--start)">起</div></div>
+          <div class="mk" style="left:128px;top:300px"><div class="end" style="background:var(--danger)">终</div></div>
+          <div class="mk" style="left:82px;top:268px"><div class="num">1</div></div>
+          <div class="mk" style="left:118px;top:240px">${clusterB}</div>
+          <div class="mk" style="left:165px;top:150px">${clusterA}</div>
+          <div class="mk" style="left:226px;top:72px"><div class="num">6</div></div>
+          <div class="mk" style="left:205px;top:150px"><div class="num">7</div></div>
+          <div class="mk" style="left:180px;top:192px"><div class="num">8</div></div>
+          ${confuse}
+        </div>
+      </div>`;
+  };
+  document.getElementById('maps').innerHTML =
+    scenes('light', false) + scenes('light', true) + scenes('dark', false) + scenes('dark', true);
+</script>
+</body>
+</html>

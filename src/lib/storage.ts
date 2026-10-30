@@ -3,6 +3,7 @@ import { File as FSFile, Paths, UploadType } from 'expo-file-system';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Platform } from 'react-native';
 import { fitImage } from './imageFit';
+import { GEAR_PHOTO_LIMIT } from '../data/gear';
 import { resourceRequest, resourceUsageChanged } from './resourceClient';
 import { supabase, supabaseAnonKey, supabaseUrl } from './supabase';
 
@@ -513,7 +514,7 @@ export async function compressGearImage(uri: string): Promise<string> {
 }
 export async function ensureCloudGearMedia(uris: string[] | undefined, userId: string, scope: string, existing: string[] = []): Promise<string[] | undefined> {
   if (!uris) return undefined;
-  if (uris.length>5 && uris.length>existing.length) throw new Error('每件装备最多上传 5 张图片');
+  if (uris.length>GEAR_PHOTO_LIMIT && uris.length>existing.length) throw new Error(`每件装备最多上传 ${GEAR_PHOTO_LIMIT} 张图片`);
   const uploaded: string[] = [];
   try {
     const output: string[] = [];

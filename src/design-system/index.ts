@@ -18,4 +18,5 @@ export { AppPropertyRow } from './components/AppPropertyRow';
 export { AppSectionHeader } from './components/AppSectionHeader';
 export { AppHeaderSearch } from './patterns/AppHeaderSearch';
 export { DetailPage, useDetailPageScroll } from './patterns/DetailPage';
+export type { DetailEntryVariant } from './patterns/DetailPage';
 export { layout, motion, radius, space, type } from './tokens';

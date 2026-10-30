@@ -2,7 +2,6 @@ import React from 'react';
 import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { radius, space, type } from '../../design-system';
-import { Icon } from '../Icon';
 import { Press } from '../Press';
 
 type Props = {
@@ -95,25 +94,24 @@ export function GearDeleteDialog({
           <Text style={[type.pageTitle, { color: theme.text, lineHeight: 31 }]}>{title}</Text>
           <Text style={[type.body, { marginTop: space.sm, color: theme.text2, lineHeight: 22 }]}>{message}</Text>
 
-          <View style={{ marginTop: space.xl, gap: space.sm }}>
-            <Press
-              accessibilityRole="button"
-              accessibilityLabel={confirmLabel}
-              onPress={onConfirm}
-              opacityTo={1}
-              style={{ height: 52, borderRadius: radius.card, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, backgroundColor: theme.danger }}
-            >
-              <Icon name="trash" color="#FFFFFF" size={18} strokeWidth={2.1} />
-              <Text style={{ fontSize: 16, fontWeight: '800', color: '#FFFFFF' }}>{confirmLabel}</Text>
-            </Press>
+          <View style={{ marginTop: space.xl, flexDirection: 'row', gap: space.sm }}>
             <Press
               accessibilityRole="button"
               accessibilityLabel={cancelLabel}
               onPress={onCancel}
               opacityTo={1}
-              style={{ height: 50, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
+              style={{ flex: 1, height: 50, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
             >
               <Text style={{ fontSize: 15.5, fontWeight: '700', color: theme.text }}>{cancelLabel}</Text>
+            </Press>
+            <Press
+              accessibilityRole="button"
+              accessibilityLabel={confirmLabel}
+              onPress={onConfirm}
+              opacityTo={1}
+              style={{ flex: 1, height: 50, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.danger }}
+            >
+              <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: '#FFFFFF' }}>{confirmLabel}</Text>
             </Press>
           </View>
         </Animated.View>

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>轨迹详情 标注点列表弹层预览</title>
+<style>
+  :root { --accent: #0A84FF; }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", "Helvetica Neue", sans-serif;
+    background: #ECECF1; color: #1C1C1E; padding: 36px 24px 56px;
+  }
+  h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+  .sub { font-size: 13.5px; color: rgba(60,60,67,0.62); margin: 8px 0 6px; line-height: 1.55; max-width: 780px; }
+  .sub b { color: #1C1C1E; }
+  .stage { display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; margin-top: 8px; }
+  .col-title { font-size: 13px; font-weight: 600; color: rgba(60,60,67,0.55); margin: 26px 0 12px; }
+
+  .phone { width: 375px; height: 760px; border-radius: 40px; overflow: hidden; position: relative; flex-shrink: 0;
+           box-shadow: 0 24px 64px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.10); background: #DDE6D6; }
+  .map { position: absolute; inset: 0; background:
+      radial-gradient(circle at 20% 18%, #CFE0C4 0 18%, transparent 19%),
+      radial-gradient(circle at 78% 30%, #D8E6CC 0 22%, transparent 23%),
+      linear-gradient(160deg, #E4ECD9, #D3DFC8); }
+  .map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .pin { position: absolute; width: 22px; height: 22px; border-radius: 50%; background: #fff; color: #1C1C1E;
+         font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+         box-shadow: 0 1px 4px rgba(0,0,0,0.3); transform: translate(-50%, -50%); }
+  .pin.sel { background: var(--accent); color: #fff; width: 28px; height: 28px; font-size: 13px; outline: 3px solid rgba(10,132,255,0.28); }
+
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; background: #fff; border-radius: 28px 28px 0 0;
+           box-shadow: 0 -2px 16px rgba(0,0,0,0.10); display: flex; flex-direction: column; }
+  .grab { width: 36px; height: 5px; border-radius: 3px; background: rgba(60,60,67,0.22); margin: 8px auto 0; }
+  .head { padding: 14px 20px 0; }
+  .head .name { font-size: 20px; font-weight: 700; }
+  .head .meta { font-size: 13px; color: rgba(60,60,67,0.62); margin-top: 4px; }
+
+  .list-head { display: flex; align-items: center; gap: 10px; padding: 12px 20px 0; }
+  .list-head .t { font-size: 17px; font-weight: 700; flex: 1; }
+  .close { width: 30px; height: 30px; border-radius: 50%; background: rgba(0,0,0,0.05); display: flex; align-items: center; justify-content: center; }
+  .close svg { width: 14px; height: 14px; stroke: rgba(60,60,67,0.7); }
+  .search { margin: 12px 20px 4px; height: 40px; border-radius: 12px; background: #F2F2F7; display: flex; align-items: center; gap: 8px;
+            padding: 0 12px; color: rgba(60,60,67,0.45); font-size: 15px; }
+  .search svg { width: 16px; height: 16px; stroke: rgba(60,60,67,0.5); }
+
+  .rows { padding: 4px 20px 0; overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 12px; min-height: 58px; }
+  .row.sel { background: rgba(10,132,255,0.07); margin: 0 -12px; padding: 0 12px; border-radius: 14px; }
+  .num { width: 28px; height: 28px; border-radius: 50%; background: #F2F2F7; font-size: 13px; font-weight: 700;
+         display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .row.sel .num { background: var(--accent); color: #fff; }
+  .row .body { flex: 1; min-width: 0; }
+  .row .nm { font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .sb { font-size: 12.5px; color: rgba(60,60,67,0.55); margin-top: 2px; display: flex; gap: 10px; }
+  .thumb { width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, #B7C9A8, #8FA882); flex-shrink: 0; }
+  .chev { width: 14px; height: 14px; stroke: rgba(60,60,67,0.32); flex-shrink: 0; }
+
+  .footer { display: flex; gap: 8px; padding: 8px 20px 26px; background: #fff; }
+  .btn { flex: 1; height: 48px; border-radius: 24px; background: #F2F2F7; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+  .btn.p { flex: 1.45; background: #1C1C1E; color: #fff; }
+
+  /* MarkDetail card */
+  .mark { position: absolute; left: 12px; right: 12px; bottom: 14px; background: #fff; border-radius: 24px; padding: 16px;
+          box-shadow: 0 8px 28px rgba(0,0,0,0.18); }
+  .mark .top { display: flex; align-items: center; gap: 10px; }
+  .mark .top .t { flex: 1; font-size: 18px; font-weight: 700; }
+  .mark .ph { margin-top: 12px; height: 150px; border-radius: 16px; background: linear-gradient(135deg, #B7C9A8, #7E9873); }
+  .mark .stats { margin-top: 12px; display: flex; gap: 22px; font-size: 13px; color: rgba(60,60,67,0.62); }
+  .mark .stats b { display: block; font-size: 16px; color: #1C1C1E; margin-top: 2px; }
+  .mark .nav { margin-top: 14px; display: flex; gap: 8px; }
+  .mark .nav .btn { height: 42px; font-size: 15px; }
+  .note { font-size: 12.5px; color: rgba(60,60,67,0.6); margin-top: 12px; max-width: 375px; line-height: 1.55; }
+</style>
+</head>
+<body>
+<h1>轨迹详情 标注点列表弹层</h1>
+<p class="sub">在最大档点"<b>标注点 12</b>"，不再直接打开第 1 个点，而是弹出<b>标注点列表</b>。点某一行，弹层收起，地图定位到该点，并打开现有的标注点详情卡。</p>
+
+<div class="stage">
+  <div>
+    <div class="col-title">① 点"标注点 12"后，列表弹层</div>
+    <div class="phone">
+      <div class="map">
+        <svg viewBox="0 0 375 760"><path d="M60 120 C 120 60, 200 140, 250 100 S 330 190, 280 270 S 120 300, 150 380" fill="none" stroke="#E8590C" stroke-width="4" stroke-linecap="round"/></svg>
+        <div class="pin" style="left:60px;top:120px">1</div>
+        <div class="pin" style="left:170px;top:92px">2</div>
+        <div class="pin" style="left:250px;top:104px">3</div>
+        <div class="pin" style="left:300px;top:200px">4</div>
+        <div class="pin" style="left:230px;top:290px">5</div>
+      </div>
+      <div class="sheet" style="top:150px">
+        <div class="grab"></div>
+        <div class="list-head">
+          <div class="t">标注点 12</div>
+          <div class="close"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+        </div>
+        <div class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+          搜索标注点
+        </div>
+        <div class="rows">
+          <div class="row"><div class="num">1</div><div class="body"><div class="nm">起点 登山口</div><div class="sb"><span>0.0 km</span><span>海拔 1,820 m</span></div></div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M9 5l7 7-7 7"/></svg></div>
+          <div class="row"><div class="num">2</div><div class="body"><div class="nm">第一处水源</div><div class="sb"><span>2.4 km</span><span>海拔 2,040 m</span></div></div><div class="thumb"></div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M9 5l7 7-7 7"/></svg></div>
+          <div class="row sel"><div class="num">3</div><div class="body"><div class="nm">垭口 风很大</div><div class="sb"><span>5.1 km</span><span>海拔 2,460 m</span></div></div><div class="thumb"></div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M9 5l7 7-7 7"/></svg></div>
+          <div class="row"><div class="num">4</div><div class="body"><div class="nm">营地 平坦草甸</div><div class="sb"><span>7.8 km</span><span>海拔 2,310 m</span></div></div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M9 5l7 7-7 7"/></svg></div>
+          <div class="row"><div class="num">5</div><div class="body"><div class="nm">碎石坡 注意落石</div><div class="sb"><span>9.3 km</span><span>海拔 2,590 m</span></div></div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M9 5l7 7-7 7"/></svg></div>
+          <div class="row"><div class="num">6</div><div class="body"><div class="nm">山脊观景点</div><div class="sb"><span>11.0 km</span><span>海拔 2,720 m</span></div></div><div class="thumb"></div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M9 5l7 7-7 7"/></svg></div>
+          <div class="row"><div class="num">7</div><div class="body"><div class="nm">下撤岔路口</div><div class="sb"><span>12.6 km</span><span>海拔 2,500 m</span></div></div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M9 5l7 7-7 7"/></svg></div>
+        </div>
+        <div style="height:24px"></div>
+      </div>
+    </div>
+    <p class="note">列表按距起点排序，当前在地图上选中的点高亮。点数多时可滚动，带搜索框。有照片的点右侧显示缩略图。</p>
+  </div>
+
+  <div>
+    <div class="col-title">② 点第 3 行后，地图定位并打开详情卡</div>
+    <div class="phone">
+      <div class="map">
+        <svg viewBox="0 0 375 760"><path d="M-20 300 C 80 240, 160 330, 230 280 S 330 200, 400 260" fill="none" stroke="#E8590C" stroke-width="5" stroke-linecap="round"/></svg>
+        <div class="pin" style="left:120px;top:288px">2</div>
+        <div class="pin sel" style="left:188px;top:300px">3</div>
+        <div class="pin" style="left:268px;top:262px">4</div>
+      </div>
+      <div class="mark">
+        <div class="top"><div class="num" style="background:var(--accent);color:#fff">3</div><div class="t">垭口 风很大</div>
+          <div class="close"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></div></div>
+        <div class="ph"></div>
+        <div class="stats"><div>距起点<b>5.1 km</b></div><div>海拔<b>2,460 m</b></div><div>坡度<b>9%</b></div></div>
+        <div class="nav"><div class="btn">上一个</div><div class="btn">下一个</div></div>
+      </div>
+    </div>
+    <p class="note">这一步就是现有的 MarkDetail，改名、删除、上一个、下一个都不用重做。关闭详情卡后回到中档，列表可以再次打开。</p>
+  </div>
+</div>
+</body>
+</html>

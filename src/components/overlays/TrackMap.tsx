@@ -1,15 +1,19 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useI18n } from '../../i18n';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { clusterWaypoints as groupWaypoints } from '../maps/waypointClusters';
 import { buildRouteWaypointMarkers } from '../discover/routeWaypointMarkers';
+import { useDropPinPhoto, waypointDropPinMarker } from '../maps/DropPin';
 import { EndpointBadge } from '../discover/routeEndpointMarkers';
 import { isLoopTrack } from '../../lib/routeDirection';
 import { trackWorldSpan } from '../maps/extent';
 import { DistanceMarker, DistancePill, distanceStepForLength } from '../maps/distanceMarkers';
 import { measureTrack, positionAtDistance } from '../../lib/routeSegments';
+import { useCompassHeading } from '../../lib/compassHeading';
+import { platformLocationImage } from '../maps/locationImage';
+import { withColorAlpha } from '../maps/types';
 import {
   NativeMap,
   type NativeMapHandle,
@@ -27,6 +31,8 @@ export type TrackMapPressedWaypoint = TrackMapWaypoint & { index?: number };
 
 export interface TrackMapHandle {
   fitRoute: () => void;
+  /** Pulls back until `coordinate` (the reader's position) is in frame with the track. */
+  fitRouteWith: (coordinate: [number, number]) => void;
   resetNorth: () => void;
   focusPoint: (coordinate: [number, number]) => void;
   takeSnapshot: (marks?: [number, number][]) => Promise<MapSnapshot>;
@@ -59,6 +65,9 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   showDistanceMarkers?: boolean;
   /** A parent owns selection: that mark gets the filled badge and its plain one goes. */
   selectedWaypointIndex?: number | null;
+  /** The photo the selected mark has, for the drop pin's disc. The pin stands in
+     for `selectedWaypointIndex`'s badge; without a photo it wears its number. */
+  selectedWaypointPhoto?: string;
   /** a tap on the map itself, in WGS-84 — preserves the requested location */
   onMapPress?: (coordinate: [number, number]) => void;
   onPoiPress?: (poi: NativeMapPoi) => void;
@@ -73,6 +82,10 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   /** Mark the ends with the route page's 起/终 badges instead of plain dots. */
   endpointBadges?: boolean;
   onReady?: () => void;
+  /** The reader's own position, drawn as the shared location dot. */
+  userLocation?: { lng: number; lat: number; accuracy?: number } | null;
+  /** A pan, pinch or twist by the reader, not a programmatic move. */
+  onGestureStart?: () => void;
 }>(function TrackMap({
   coords,
   theme,
@@ -102,6 +115,9 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   showEndpoints = true,
   endpointBadges = false,
   onReady,
+  selectedWaypointPhoto,
+  userLocation,
+  onGestureStart,
 }, ref) {
   const { t } = useI18n();
   const window = useWindowDimensions();
@@ -124,6 +140,13 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   const mapRef = useRef<NativeMapHandle>(null);
   const cameraRef = useRef<NativeMapCamera>({ center: coords[0] ?? [0, 0], zoom: 11 });
   const [selectedWaypoint, setSelectedWaypoint] = useState<TrackMapWaypoint | null>(null);
+  // The pin's own photo state, taken apart rather than passed around as the
+  // hook's object: a fresh object every render would rebuild every marker.
+  const {
+    photoReady: pinPhotoReady,
+    photoRevision: pinPhotoRevision,
+    onPhotoLoad: pinPhotoLoad,
+  } = useDropPinPhoto(selectedWaypointIndex != null ? selectedWaypointPhoto : undefined);
   // A marker tap also arrives as a map-background tap a beat later, which used to
   // dismiss whatever the marker just chose.
   const markerPressAt = useRef(0);
@@ -131,6 +154,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   useEffect(() => setSelectedWaypoint(null), [coords, showWaypoints]);
   useImperativeHandle(ref, () => ({
     fitRoute: () => mapRef.current?.fitCoordinates(coords, routePadding, 600),
+    fitRouteWith: (coordinate) => mapRef.current?.fitCoordinates([...coords, coordinate], routePadding, 600),
     resetNorth: () => mapRef.current?.resetNorth(),
     focusPoint: (coordinate) => mapRef.current?.moveCamera(coordinate, Math.max(cameraRef.current.zoom, 13), 360, { edgePadding: routePadding }),
     takeSnapshot: (marks) => mapRef.current?.takeSnapshot(marks) ?? Promise.reject(new Error('map not mounted')),
@@ -198,10 +222,14 @@ export const TrackMap = forwardRef<TrackMapHandle, {
     if (showWaypoints && routeStyleWaypoints && waypoints?.length) {
       values.push(...buildRouteWaypointMarkers({
         theme,
-        waypoints,
+        // A picker's waypoint can be a bare place on the line with no mileage;
+        // the layer's numbering only ever uses the list order here.
+        waypoints: waypoints.map((waypoint) => ({ ...waypoint, km: waypoint.km ?? 0 })),
         zoom: clusterZoom,
         idPrefix: 'track-wp',
         variant: 'numbered',
+        // The drop pin stands on the selected mark, so its circle goes.
+        hideIndex: selectedWaypointIndex,
         onWaypointPress: (index) => {
           markerPressAt.current = Date.now();
           onWaypointPress?.({ ...waypoints[index], index }, index);
@@ -210,6 +238,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
           markerPressAt.current = Date.now();
           mapRef.current?.fitCoordinates(coordinates, routePadding, 600);
         },
+        clusterSpotsLabel: (n) => t('journey.map.clusterSpots', { n }),
       }));
     } else if (showWaypoints) {
       waypointGroups.forEach((group) => {
@@ -220,7 +249,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
             id: `track-cluster-${group.indices[0]}`,
             coordinate: group.coordinate,
             anchor: { x: 0.5, y: 1 },
-            centerOffset: { x: 0, y: -18 },
+            centerOffset: { x: 0, y: -15.5 },
             zIndex: 2,
             onPress: () => {
               markerPressAt.current = Date.now();
@@ -230,7 +259,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
             content: (
               <View style={styles.clusterAnchor}>
                 <View style={[styles.clusterBadge, { backgroundColor: theme.surfaceTop, borderColor: theme.hairline }]}>
-                  <Text style={{ fontFamily: MONO, fontSize: 12, fontWeight: '700', color: theme.text }}>{group.indices.length}</Text>
+                  <Text style={{ fontFamily: MONO, fontSize: 11, fontWeight: '700', color: theme.text }}>{group.indices.length}</Text>
                 </View>
                 <View style={[styles.clusterStem, { backgroundColor: theme.text3 }]} />
               </View>
@@ -251,7 +280,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
           },
           content: numberWaypoints ? (
             <View style={[styles.numberedWaypoint, { borderColor: theme.hairline }]}>
-              <Text style={{ fontFamily: MONO, fontSize: 11, fontWeight: '700', color: theme.text2 }}>{index + 1}</Text>
+              <Text style={{ fontFamily: MONO, fontSize: 10, fontWeight: '700', color: theme.text2 }}>{index + 1}</Text>
             </View>
           ) : <View style={[styles.waypointMarker, { borderColor: accent }]} />,
         });
@@ -260,22 +289,25 @@ export const TrackMap = forwardRef<TrackMapHandle, {
     if (showWaypoints && numberWaypoints && selectedWaypointIndex != null) {
       const waypoint = waypoints?.[selectedWaypointIndex];
       if (waypoint) {
-        values.push({
-          // Android snapshots marker views by id, so the number is part of it.
-          id: `track-selected-waypoint-badge-${selectedWaypointIndex}`,
+        // The card is reading this mark, so it gets the drop pin the route page
+        // and the walk use — the same white droplet a companion wears, with the
+        // mark's photo in its disc or its number on the accent fill.
+        values.push(waypointDropPinMarker({
+          theme,
+          pinKey: `track-waypoint-${selectedWaypointIndex}`,
           coordinate: waypoint.coord,
-          anchor: { x: 0.5, y: 0.5 },
+          number: selectedWaypointIndex + 1,
+          photo: selectedWaypointPhoto,
+          photoReady: pinPhotoReady,
+          photoRevision: pinPhotoRevision,
+          onPhotoLoad: pinPhotoLoad,
           zIndex: 12,
+          title: waypoint.name,
           onPress: () => {
             markerPressAt.current = Date.now();
             onWaypointPress?.({ ...waypoint, index: selectedWaypointIndex }, selectedWaypointIndex);
           },
-          content: (
-            <View style={[routeStyleWaypoints ? styles.selectedRouteWaypoint : styles.selectedWaypoint, { backgroundColor: accent, borderColor: theme.featureSurface }]}>
-              <Text style={{ fontFamily: MONO, fontSize: routeStyleWaypoints ? 11 : 12, fontWeight: '800', color: '#FFFFFF' }}>{selectedWaypointIndex + 1}</Text>
-            </View>
-          ),
-        });
+        }));
       }
     }
     if (selectedWaypoint) {
@@ -296,7 +328,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
       });
     }
     return values;
-  }, [accent, clusterZoom, coords, endpointBadges, numberWaypoints, showEndpoints, t, onWaypointPress, routePadding, routeStyleWaypoints, scrubLabel, scrubPt, selectedWaypoint, selectedWaypointIndex, showWaypointCallout, showWaypoints, theme, waypointGroups, waypoints]);
+  }, [accent, clusterZoom, coords, endpointBadges, numberWaypoints, pinPhotoLoad, pinPhotoReady, pinPhotoRevision, selectedWaypointIndex, selectedWaypointPhoto, showEndpoints, t, onWaypointPress, routePadding, routeStyleWaypoints, scrubLabel, scrubPt, selectedWaypoint, showWaypointCallout, showWaypoints, theme, waypointGroups, waypoints]);
 
   // Kept out of `markers`, so a mark tap or a scrub doesn't rebuild every label.
   const distanceMarkers = useMemo<NativeMapMarker[]>(() => {
@@ -324,7 +356,37 @@ export const TrackMap = forwardRef<TrackMapHandle, {
     return values;
   }, [coords, showDistanceMarkers, theme]);
 
-  const allMarkers = useMemo(() => (distanceMarkers.length ? [...distanceMarkers, ...markers] : markers), [distanceMarkers, markers]);
+  // As MapGlobe draws it: MapKit's own dot on iOS, the shared marker image on
+  // Android, where AMap's arrow and snapshotted custom views are unreliable.
+  const userLng = userLocation?.lng;
+  const userLat = userLocation?.lat;
+  const showsLocationMarker = Platform.OS === 'android' && userLng != null && userLat != null;
+  const compassHeading = useCompassHeading(showsLocationMarker);
+  const locationImage = useMemo(() => platformLocationImage(theme.accent, compassHeading != null), [theme.accent, compassHeading != null]);
+  const locationMarker = useMemo<NativeMapMarker | null>(() => (
+    showsLocationMarker && locationImage
+      ? {
+        id: 'current-location',
+        coordinate: [userLng!, userLat!],
+        anchor: { x: 0.5, y: 0.5 },
+        zIndex: 20,
+        image: locationImage,
+        ...(compassHeading != null ? { rotation: compassHeading } : {}),
+      }
+      : null
+  ), [showsLocationMarker, locationImage, userLng, userLat, compassHeading]);
+  const userAccuracy = userLocation?.accuracy;
+  const accuracyCircle = useMemo(() => (
+    showsLocationMarker && userAccuracy != null && userAccuracy > 0
+      ? { coordinate: [userLng!, userLat!] as [number, number], radius: userAccuracy, fillColor: withColorAlpha(theme.accent, 0.12), strokeColor: withColorAlpha(theme.accent, 0.28) }
+      : undefined
+  ), [showsLocationMarker, userLng, userLat, userAccuracy, theme.accent]);
+
+  const allMarkers = useMemo(() => [
+    ...distanceMarkers,
+    ...markers,
+    ...(locationMarker ? [locationMarker] : []),
+  ], [distanceMarkers, markers, locationMarker]);
 
   const polylines = useMemo<NativeMapPolyline[]>(() => coords.length >= 2 ? [
     { id: 'track-line', coordinates: coords, color: accent, width: 3.5 },
@@ -355,6 +417,10 @@ export const TrackMap = forwardRef<TrackMapHandle, {
         interactive={interactive}
         markers={allMarkers}
         polylines={polylines}
+        showUserLocation={!!userLocation}
+        trackUserLocation={Platform.OS === 'android' && !!userLocation}
+        accuracyCircle={accuracyCircle}
+        onGestureStart={onGestureStart}
         onPress={interactive ? (coordinate) => {
           if (Date.now() - markerPressAt.current < 400) return;
           setSelectedWaypoint(null);
@@ -389,18 +455,15 @@ export const TrackMap = forwardRef<TrackMapHandle, {
 
 const styles = StyleSheet.create({
   clusterAnchor: { alignItems: 'center' },
-  clusterBadge: { minWidth: 30, height: 30, paddingHorizontal: 7, borderRadius: 15, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  clusterBadge: { minWidth: 25, height: 25, paddingHorizontal: 6, borderRadius: 12.5, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   clusterStem: { width: 1, height: 6 },
   startMarker: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#34C759', borderWidth: 2.5, borderColor: '#FFFFFF' },
   endMarker: { width: 14, height: 14, borderRadius: 7, borderWidth: 2.5, borderColor: '#FFFFFF' },
   scrubMarker: { width: 18, height: 18, borderRadius: 9, borderWidth: 2.5, borderColor: '#FFFFFF', opacity: 0.9 },
   pickedLabel: { maxWidth: 180, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 11, borderWidth: StyleSheet.hairlineWidth },
   pickedMarker: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, opacity: 1 },
-  numberedWaypoint: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#FFFFFF', borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  // One step up from the route page's 17 pt circle, so the picked one stands out.
-  selectedRouteWaypoint: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  selectedWaypoint: { width: 30, height: 30, borderRadius: 15, borderWidth: 2.5, alignItems: 'center', justifyContent: 'center' },
-  waypointMarker: { width: 13, height: 13, borderRadius: 7, backgroundColor: '#FFFFFF', borderWidth: 3 },
+  numberedWaypoint: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#FFFFFF', borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  waypointMarker: { width: 11, height: 11, borderRadius: 5.5, backgroundColor: '#FFFFFF', borderWidth: 2.5 },
   callout: { maxWidth: 220, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   legend: { position: 'absolute', left: 12, bottom: 10, flexDirection: 'row', gap: 12 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },

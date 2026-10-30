@@ -37,7 +37,7 @@ export function buildRouteEndpointMarkers({
     anchor: { x: 0.5, y: 0.5 },
     zIndex: 3,
     ...(loop ? { onPress: onEndpointPress } : {}),
-    content: <EndpointBadge color="#34C759" label={labels.start} />,
+    content: <EndpointBadge color={ROUTE_START_COLOR} label={labels.start} />,
   }];
   if (!loop) {
     values.push({
@@ -70,17 +70,32 @@ export function buildRouteEndpointMarkers({
   return values;
 }
 
-export function EndpointBadge({ color, label }: { color: string; label: string }) {
+/** The 起 pin's green: a trailhead reads as "go" on any map style. The
+ *  finish uses the theme's danger red. */
+export const ROUTE_START_COLOR = '#34C759';
+
+/** The 起/终 pin. On the map it wears a white ring and a shadow to stand off
+ *  the tiles. `size` draws it larger and flat for lists that echo the map:
+ *  on a plain surface the ring and shadow are only noise. */
+export function EndpointBadge({ color, label, size }: { color: string; label: string; size?: number }) {
+  const flat = size ? {
+    width: size,
+    height: size,
+    borderRadius: size / 2,
+    borderWidth: 0,
+    shadowOpacity: 0,
+    elevation: 0,
+  } : null;
   return (
-    <View style={[styles.badge, { backgroundColor: color }]}>
-      <Text style={styles.badgeText}>{label}</Text>
+    <View style={[styles.badge, flat, { backgroundColor: color }]}>
+      <Text style={[styles.badgeText, size ? { fontSize: size / 2, lineHeight: Math.round(size * 0.62) } : null]}>{label}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  badge: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', shadowColor: '#000000', shadowOpacity: 0.16, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
-  badgeText: { fontSize: 9, lineHeight: 11, fontWeight: '800', color: '#FFFFFF' },
+  badge: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', shadowColor: '#000000', shadowOpacity: 0.16, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
+  badgeText: { fontSize: 13, lineHeight: 16, fontWeight: '800', color: '#FFFFFF' },
   // The waypoint bubble's shape, a little taller because this one is a button.
   callout: { minHeight: 36, paddingHorizontal: 12, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
 });

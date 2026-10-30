@@ -6,7 +6,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../../../theme/theme';
 import { AppChoiceChip, layout, motion, radius, space, type } from '../../../design-system';
 import { Icon } from '../../Icon';
@@ -31,7 +30,6 @@ type Candidate = {
   date?: { y: number; m: number; d: number };
 };
 
-const THUMB = 52;
 const VISIBILITIES: { value: Visibility; key: TKey }[] = [
   { value: 'private', key: 'profile.visPrivate' },
   { value: 'followers', key: 'profile.visFollowers' },
@@ -182,7 +180,23 @@ export function OutingImportSheet({ theme, files, onClose, onImported }: {
 
           <ScrollView contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.md }} showsVerticalScrollIndicator={false}>
             <Text style={[type.pageTitle, { color: theme.text, marginTop: space.lg }]}>{t('profile.importTitle')}</Text>
-            <Text style={[type.lead, { color: theme.text2, marginTop: space.xs }]}>{t('profile.importLead')}</Text>
+
+            {ready.length ? (
+              <>
+                <Text style={[type.eyebrow, { color: theme.text2, marginTop: space.lg, marginBottom: space.xs }]}>{t('profile.importVisibility')}</Text>
+                <View style={{ flexDirection: 'row', gap: space.xs }}>
+                  {VISIBILITIES.map((option) => (
+                    <AppChoiceChip
+                      key={option.value}
+                      theme={theme}
+                      label={t(option.key)}
+                      selected={visibility === option.value}
+                      onPress={() => setVisibility(option.value)}
+                    />
+                  ))}
+                </View>
+              </>
+            ) : null}
 
             {ready.length ? (
               <Text style={[type.eyebrow, { color: theme.text2, marginTop: space.xl }]}>{t('profile.importGroupReady', { count: ready.length })}</Text>
@@ -220,23 +234,6 @@ export function OutingImportSheet({ theme, files, onClose, onImported }: {
             {skipped.map((candidate) => (
               <CandidateRow key={candidate.key} theme={theme} candidate={candidate} disabled />
             ))}
-
-            {ready.length ? (
-              <>
-                <Text style={[type.eyebrow, { color: theme.text2, marginTop: space.xl, marginBottom: space.xs }]}>{t('profile.importVisibility')}</Text>
-                <View style={{ flexDirection: 'row', gap: space.xs }}>
-                  {VISIBILITIES.map((option) => (
-                    <AppChoiceChip
-                      key={option.value}
-                      theme={theme}
-                      label={t(option.key)}
-                      selected={visibility === option.value}
-                      onPress={() => setVisibility(option.value)}
-                    />
-                  ))}
-                </View>
-              </>
-            ) : null}
           </ScrollView>
 
           <View style={{ paddingHorizontal: space.lg, paddingTop: space.sm }}>
@@ -310,7 +307,6 @@ function CandidateRow({ theme, candidate, disabled, onToggle, onPickDate }: {
       }}>
         {candidate.checked ? <Icon name="check" color="#FFFFFF" size={13} strokeWidth={3} /> : null}
       </View>
-      <TrackThumb theme={theme} parsed={parsed} />
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{parsed?.name ?? candidate.file.name}</Text>
         {facts ? <Text numberOfLines={1} style={[type.meta, { color: theme.text2, fontVariant: ['tabular-nums'] }]}>{facts}</Text> : null}
@@ -355,34 +351,6 @@ function DatePickerBlock({ theme, value, onChange, onDone }: {
       <Press onPress={onDone} accessibilityRole="button" style={{ alignSelf: 'center', marginTop: space.xs, paddingVertical: space.xs, paddingHorizontal: space.lg }}>
         <Text style={[type.chip, { color: theme.accent }]}>{t('profile.importDateDone')}</Text>
       </Press>
-    </View>
-  );
-}
-
-// 坐标是 [lon, lat]，按纬度缩放经度，和时间线卡片的缩略图一个画法。
-function TrackThumb({ theme, parsed }: { theme: Theme; parsed?: ParsedTrackFile }) {
-  const d = useMemo(() => {
-    const points = parsed?.stats.points;
-    if (!points || points.length < 2) return null;
-    const step = Math.max(1, Math.floor(points.length / 80));
-    const sample = points.filter((_, index) => index % step === 0 || index === points.length - 1);
-    const kx = Math.cos((((parsed.stats.bbox.minLat + parsed.stats.bbox.maxLat) / 2) * Math.PI) / 180);
-    const xs = sample.map((p) => p.lon * kx);
-    const ys = sample.map((p) => -p.lat);
-    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-    const pad = 8;
-    const scale = Math.min((THUMB - pad * 2) / Math.max(maxX - minX, 1e-9), (THUMB - pad * 2) / Math.max(maxY - minY, 1e-9));
-    const offX = (THUMB - (maxX - minX) * scale) / 2;
-    const offY = (THUMB - (maxY - minY) * scale) / 2;
-    return xs.map((x, index) => `${index ? 'L' : 'M'}${(offX + (x - minX) * scale).toFixed(1)},${(offY + (ys[index] - minY) * scale).toFixed(1)}`).join(' ');
-  }, [parsed]);
-  return (
-    <View style={{ width: THUMB, height: THUMB, borderRadius: 10, overflow: 'hidden', backgroundColor: theme.fieldSurface }}>
-      {d ? (
-        <Svg width={THUMB} height={THUMB}>
-          <Path d={d} stroke={theme.accent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        </Svg>
-      ) : null}
     </View>
   );
 }

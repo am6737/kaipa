@@ -11,6 +11,7 @@ import * as Sharing from 'expo-sharing';
 import { strToU8, zipSync } from 'fflate';
 import type { Poi } from '../data/pois';
 import { trackFormatFromName, type Track, type TrackFormat } from '../data/tracks';
+import { routeDistanceParts } from './routePreview';
 import { trackToGpx } from './trackParser';
 
 const MIME: Record<TrackFormat, string> = {
@@ -150,6 +151,25 @@ export async function exportTracks(tracks: Track[]): Promise<void> {
   await saveBytes(trackArchiveName(), zipSync(entries));
 }
 
+/** The card says a distance in km ("13.0 km", "6,2 公里"); only a walk too short
+ *  for one kilometre is written in metres ("800 m"). */
+function distanceMeters(label: string | undefined): number | undefined {
+  const parts = routeDistanceParts(label);
+  if (!parts) return undefined;
+  const value = Number.parseFloat(parts.value);
+  if (!Number.isFinite(value)) return undefined;
+  const unit = parts.unit.toLowerCase();
+  return unit === 'm' || unit === '米' ? value : value * 1000;
+}
+
+/** Climb figures are whole metres with thousands separators ("+1,240 m"), so the
+ *  separators go before the number is read. */
+function climbMeters(label: string | undefined): number | undefined {
+  const match = label?.replace(/,/g, '').match(/\d+(?:\.\d+)?/);
+  const value = match ? Number.parseFloat(match[0]) : NaN;
+  return Number.isFinite(value) ? value : undefined;
+}
+
 /** A catalog route carries its geometry and stored file the same way a library track does. */
 export function routeAsTrack(route: Poi): Track {
   return {
@@ -161,6 +181,12 @@ export function routeAsTrack(route: Poi): Track {
     coords: route.trackCoords,
     elevation: route.trackElevation,
     waypoints: route.trackWaypoints,
+    // The card keeps its numbers as display text; read back into metres they drive
+    // the page's headline tiles, which then agree with the profile underneath.
+    distM: distanceMeters(route.dist),
+    ascM: climbMeters(route.asc),
+    pointCount: route.trackCoords?.length,
+    durationMs: route.trackDurationMs,
   };
 }
 

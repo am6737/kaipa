@@ -9,8 +9,11 @@ import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { NJBottomSheet } from '../overlays/NewJourneyParts';
 
-export function JourneyGroupNote({ theme, label, note = '', onSave }: {
+export function JourneyGroupNote({ theme, label, note = '', onSave, inline = false }: {
   theme: Theme; label: string; note?: string; onSave?: (note: string) => Promise<void>;
+  /** Sits under a 行程 day heading: full width, the heading's quieter type, shown in full
+   *  (the 行程 page is where a note is read and edited; 总览 is the one that shortens it). */
+  inline?: boolean;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -36,16 +39,17 @@ export function JourneyGroupNote({ theme, label, note = '', onSave }: {
     }
   };
   const openEditor = () => { setDraft(note); setOpen(true); };
-  return <View style={{ flex: 1, minWidth: 0, marginLeft: space.sm }}>
+  return <View style={inline ? { marginTop: space.xxs } : { flex: 1, minWidth: 0, marginLeft: space.sm }}>
     {note || onSave ? (
       <Press
         accessibilityRole="button"
         accessibilityLabel={note ? onSave ? `${t('journey.timeline.editGroupNote')}: ${note}` : note : t('journey.timeline.addGroupNote')}
         onPress={openEditor}
-        style={{ minHeight: 36, justifyContent: 'center' }}
+        style={inline ? { alignSelf: 'flex-start', justifyContent: 'center' } : { minHeight: 36, justifyContent: 'center' }}
+        hitSlop={inline ? { top: 6, bottom: 6 } : undefined}
       >
-        <Text numberOfLines={1} ellipsizeMode="tail" style={[type.body, { color: theme.text3, fontSize: 14, lineHeight: 24 }]}>
-          {note ? note.replace(/\s*\n\s*/g, ' ') : t('journey.timeline.addGroupNote')}
+        <Text numberOfLines={inline ? undefined : 1} ellipsizeMode="tail" style={inline ? [type.small, { color: note ? theme.text2 : theme.text3 }] : [type.body, { color: theme.text3, fontSize: 14, lineHeight: 24 }]}>
+          {note ? inline ? note.trim() : note.replace(/\s*\n\s*/g, ' ') : t('journey.timeline.addGroupNote')}
         </Text>
       </Press>
     ) : null}

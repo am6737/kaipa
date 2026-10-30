@@ -17,7 +17,7 @@ import { Icon } from '../Icon';
 import type { IconName } from '../Icon';
 import { Press } from '../Press';
 import { Glass } from '../Glass';
-import { AppHeaderSearch, DetailPage, layout, radius, space, type } from '../../design-system';
+import { AppHeaderSearch, DetailPage, layout, radius, space, type, type DetailEntryVariant } from '../../design-system';
 import { usePersistedSort } from './usePersistedSort';
 import { GearMenuTransition } from './GearMenuTransition';
 import { GearEmptyState } from './GearEmptyState';
@@ -45,6 +45,7 @@ function setItems(set: GearSet, allItems: GearItem[]) {
 
 export function GearSetsList({
   theme,
+  entryVariant,
   sets,
   allItems,
   catMap,
@@ -59,6 +60,7 @@ export function GearSetsList({
   picker,
 }: {
   theme: Theme;
+  entryVariant?: DetailEntryVariant;
   sets: GearSet[];
   allItems: GearItem[];
   catMap?: Record<string, GearCat>;
@@ -119,9 +121,11 @@ export function GearSetsList({
 
   const [visibleRowCount, setVisibleRowCount] = useState(INITIAL_RENDER_COUNT);
   const [loadingCards, setLoadingCards] = useState(true);
+  // Any gear edit rebuilds `rows` (its totals read live items); keep what is
+  // already rendered so the list does not collapse back to its first screen.
   React.useEffect(() => {
-    setVisibleRowCount(Math.min(INITIAL_RENDER_COUNT, rows.length));
-  }, [rows]);
+    setVisibleRowCount((count) => Math.max(INITIAL_RENDER_COUNT, Math.min(count, rows.length)));
+  }, [rows.length]);
   React.useEffect(() => {
     if (visibleRowCount >= rows.length) return;
     const task = InteractionManager.runAfterInteractions(() => {
@@ -212,6 +216,7 @@ export function GearSetsList({
   return (
     <DetailPage
       theme={theme}
+      entryVariant={entryVariant}
       onBack={picker ? finishPicker : selectMode ? exitSelect : onBack}
       backgroundColor={theme.featureSurface}
       flatChrome

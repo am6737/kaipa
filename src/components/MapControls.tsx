@@ -78,7 +78,7 @@ export function MapControlButton({
 // sits under it, so a column stacks these in flex order — positioning one
 // absolutely over a plate's bottom double-counts the margin and drops it onto
 // the plate.
-export function MapRoundButton({ theme, heading, icon, element, onPress, accessibilityLabel }: {
+export function MapRoundButton({ theme, heading, icon, element, onPress, accessibilityLabel, style }: {
   theme: Theme;
   /** When set, the button shows the live compass needle instead of an icon. */
   heading?: Animated.Value;
@@ -87,13 +87,15 @@ export function MapRoundButton({ theme, heading, icon, element, onPress, accessi
   element?: ReactNode;
   onPress: () => void;
   accessibilityLabel: string;
+  /** For a control that sits on its own rather than in a bottom-anchored column. */
+  style?: StyleProp<ViewStyle>;
 }) {
   return (
     <Press
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      style={{
+      style={[{
         width: MAP_CONTROL_SIZE,
         height: MAP_CONTROL_SIZE,
         borderRadius: MAP_CONTROL_SIZE / 2,
@@ -103,7 +105,7 @@ export function MapRoundButton({ theme, heading, icon, element, onPress, accessi
         backgroundColor: theme.controlSurface,
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.fieldBorder,
-      }}
+      }, style]}
     >
       {heading ? <MapCompassGlyph heading={heading} color={theme.text} /> : null}
       {!heading && element}

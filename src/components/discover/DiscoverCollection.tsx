@@ -1,5 +1,5 @@
-import React, { memo, useEffect, useState } from 'react';
-import { InteractionManager, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import React, { memo, useState } from 'react';
+import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Svg, { Circle, Polyline } from 'react-native-svg';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
@@ -144,32 +144,35 @@ function routeDurationMinutes(poi: Poi): number | undefined {
   return Math.round((Math.max(flat, up) + Math.min(flat, up) / 2) * 60);
 }
 
-// Cards a list renders on its first frame; the rest mount a batch per idle frame
-// so opening the list or switching a filter doesn't build every photo at once.
+// Cards a list renders on its first frame; the next page mounts only when the
+// reader scrolls near the end. Mounting the rest in the background meant 全国's
+// 88 cards built four at a time for two seconds, 50-100ms of JS each, right over
+// the camera's zoom-out - and InteractionManager no longer waits for anything.
 const FIRST_BATCH = 4;
 const NEXT_BATCH = 4;
 
 /**
  * The Discover route list. `onOpen` may change identity on every parent render;
- * cards only re-render when their route or the theme changes.
+ * cards only re-render when their route or the theme changes. Each change of
+ * `pageRequest` mounts the next batch.
  */
-export function DiscoverRouteList({ theme, routes, onOpen, staggered }: { theme: Theme; routes: Poi[]; onOpen: (route: Poi) => void; staggered: boolean }) {
+export function DiscoverRouteList({ theme, routes, onOpen, staggered, pageRequest }: { theme: Theme; routes: Poi[]; onOpen: (route: Poi) => void; staggered: boolean; pageRequest: number }) {
   const openRef = React.useRef(onOpen);
   openRef.current = onOpen;
   const open = React.useCallback((route: Poi) => openRef.current(route), []);
   const [count, setCount] = useState(FIRST_BATCH);
   const [batchedRoutes, setBatchedRoutes] = useState(routes);
+  const [servedRequest, setServedRequest] = useState(pageRequest);
   if (batchedRoutes !== routes) {
     setBatchedRoutes(routes);
     setCount(FIRST_BATCH);
+    setServedRequest(pageRequest);
+  } else if (servedRequest !== pageRequest) {
+    setServedRequest(pageRequest);
+    if (count < routes.length) {
+      setCount(count + NEXT_BATCH);
+    }
   }
-  useEffect(() => {
-    if (count >= routes.length) return;
-    const task = InteractionManager.runAfterInteractions(() => {
-      requestAnimationFrame(() => setCount((current) => current + NEXT_BATCH));
-    });
-    return () => task.cancel();
-  }, [count, routes.length]);
   return (
     <View style={{ gap: space.xl, paddingTop: space.xxs }}>
       {routes.slice(0, count).map((route, index) => (

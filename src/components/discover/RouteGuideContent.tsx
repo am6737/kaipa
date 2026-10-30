@@ -1,6 +1,6 @@
 import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { ChevronRight, CloudSun, Heart } from 'lucide-react-native';
+import { ChevronRight, Heart } from 'lucide-react-native';
 import type { Theme } from '../../theme/theme';
 import { radius, space, type } from '../../design-system';
 import { useI18n } from '../../i18n';
@@ -12,6 +12,7 @@ import { Press } from '../Press';
 import { Avatar } from '../Avatar';
 import { routeGuideCopy } from './routeGuideCopy';
 import { GuideEquipmentColumns } from './GuideEquipmentColumns';
+import { WeatherIcon, weatherColor } from './RouteWeatherDetails';
 
 export function RouteGuideSectionHeader({ theme, title, action, onAction, tight = false }: { theme: Theme; title: string; action?: string; onAction?: () => void; tight?: boolean }) {
   return <View style={[styles.sectionHeader, tight && styles.tightSectionHeader]}>
@@ -118,16 +119,38 @@ function isGenericDayLabel(value: string, index: number) {
   return value.trim().toLowerCase() === `day ${day}` || value.trim() === `第${day}天` || value.trim() === `第 ${day} 天` || value.trim() === `第${day}日`;
 }
 
-export function RouteWeatherCard({ theme, lng, lat, onPress }: { theme: Theme; lng: number; lat: number; onPress: () => void }) {
+export function RouteWeatherCard({ theme, lng, lat, header, onPress }: { theme: Theme; lng: number; lat: number; header: React.ReactNode; onPress: () => void }) {
   const { resolved } = useI18n();
   const c = routeGuideCopy[resolved];
   const { forecast, loading, retry } = useRouteWeather(lng, lat);
   const today = forecast?.days[0];
-  return <View style={[styles.weather, { backgroundColor: theme.groupedBg }]}>
-    {loading ? <View style={styles.weatherLine}><ActivityIndicator color={theme.text2} size="small" /><Text style={[type.small, { color: theme.text2 }]}>{c.weather}</Text></View> : today ? <Press onPress={onPress} accessibilityRole="button" style={styles.weatherLine}>
-      <CloudSun color={theme.text2} size={25} /><View style={{ flex: 1 }}><Text style={[type.planRowTitle, { color: theme.text }]}>{c.weather} · {weatherDescription(today.code, resolved)}</Text><Text style={[styles.caption, { color: theme.text2, marginTop: space.xxs }]}>{Math.round(today.min)}–{Math.round(today.max)}°{today.rain != null ? ` · ${c.rain} ${today.rain}%` : ''}</Text></View><ChevronRight color={theme.text3} size={15} />
-    </Press> : <View style={styles.weatherLine}><CloudSun color={theme.text3} size={25} /><Text style={[type.small, { flex: 1, color: theme.text2 }]}>{c.weatherUnavailable}</Text><Press onPress={retry} style={{ paddingVertical: space.sm, paddingHorizontal: space.xs }}><Text style={[type.note, { color: theme.accent }]}>{c.retry}</Text></Press></View>}
-  </View>;
+  const blue = theme.dark ? '#8CCDF6' : '#337DAC';
+  const weekday = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString(resolved === 'zh' ? 'zh-CN' : 'en-US', { weekday: 'short' });
+  return <Press onPress={onPress} accessibilityRole="button" accessibilityLabel={c.weatherDetail}>
+    {header}
+    {loading ? <View style={styles.weatherState}><ActivityIndicator size="small" color={theme.text2} /><Text style={[type.small, { color: theme.text2 }]}>{c.weatherLoading}</Text></View> : today && forecast ? <>
+      <View style={styles.weatherToday}>
+        <WeatherIcon code={today.code} size={40} color={weatherColor(today.code, theme.dark)} />
+        <View style={{ flex: 1, gap: 2 }}>
+          <View style={styles.weatherTemps}>
+            <Text style={[type.statValue, { color: theme.text }]}>{Math.round(today.min)}–{Math.round(today.max)}</Text>
+            <Text style={[type.liveUnit, { color: theme.text2, lineHeight: 28 }]}> °C</Text>
+          </View>
+          <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{weatherDescription(today.code, resolved)}{today.rain != null && today.rain > 0 ? <Text style={[type.small, { color: theme.text2 }]}>  {c.rain} {today.rain}%</Text> : null}</Text>
+        </View>
+      </View>
+      <View style={styles.weatherDays}>{forecast.days.slice(0, 5).map((day, index) => <View key={day.date} style={styles.weatherDay}>
+        <Text style={[styles.dayWeekday, { color: index === 0 ? theme.text : theme.text2, fontWeight: index === 0 ? '700' : '600' }]}>{index === 0 ? c.today : weekday(day.date)}</Text>
+        <WeatherIcon code={day.code} size={24} color={weatherColor(day.code, theme.dark)} />
+        <Text style={[styles.dayRain, { color: blue }]}>{day.rain != null && day.rain > 0 ? `${day.rain}%` : ''}</Text>
+        <Text style={[styles.dayMax, { color: theme.text }]}>{Math.round(day.max)}°</Text>
+        <Text style={[styles.dayMin, { color: theme.text2 }]}>{Math.round(day.min)}°</Text>
+      </View>)}</View>
+    </> : <View style={styles.weatherState}>
+      <Text style={[type.small, { color: theme.text2 }]}>{c.weatherUnavailable}</Text>
+      <Press onPress={retry} accessibilityRole="button" hitSlop={8} style={{ paddingVertical: space.xs, paddingHorizontal: space.xs }}><Text style={[type.small, { color: theme.accent, fontWeight: '600' }]}>{c.retry}</Text></Press>
+    </View>}
+  </Press>;
 }
 
 export { RouteWeatherDetails } from './RouteWeatherDetails';
@@ -149,7 +172,14 @@ const styles = StyleSheet.create({
   weightStats: { flexDirection: 'row', gap: space.xs, marginTop: 0, marginBottom: space.xxl },
   weightStat: { flex: 1, gap: 3 },
   detailDay: { paddingVertical: space.xl }, firstDetailDay: { paddingTop: 0 }, dayLabel: { marginBottom: space.sm, ...type.dayLabel },
-  weather: { borderRadius: radius.card, paddingHorizontal: space.md },
-  weatherLine: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 84, paddingVertical: space.md },
+  weatherToday: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: space.md },
+  weatherTemps: { flexDirection: 'row', alignItems: 'baseline', gap: 2 },
+  weatherDays: { flexDirection: 'row', gap: space.xs, marginTop: space.xl },
+  weatherDay: { flex: 1, alignItems: 'center', gap: 6 },
+  dayWeekday: { ...type.note },
+  dayRain: { height: 14, fontSize: 11, lineHeight: 14, fontWeight: '600', textAlign: 'center', fontVariant: ['tabular-nums'] },
+  dayMax: { fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  dayMin: { fontSize: 12, fontVariant: ['tabular-nums'] },
+  weatherState: { height: 156, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs },
   meBadge: { minHeight: 20, justifyContent: 'center', flexShrink: 0 }, meBadgeInner: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.pill }, meBadgeText: { fontSize: 9.5, lineHeight: 12, fontWeight: '700' },
 });

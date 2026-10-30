@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Switch, Text, useWindowDimensions, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { layout, radius, space, type } from '../design-system';
 import { Theme } from '../theme/theme';
@@ -17,63 +17,59 @@ export interface MapDisplayOption {
   onChange: (value: boolean) => void;
 }
 
-/** One recorded track of a journey, drawn as an on/off switch. */
-export interface MapRouteOption {
+/** One recorded track, drawn as an on/off switch. */
+export interface MapTrackOption {
   id: string;
   label: string;
   distance?: string;
   color: string;
   visible: boolean;
+  onChange: (visible: boolean) => void;
 }
+
+export interface MapDisplaySection {
+  id: string;
+  title: string;
+  options: MapDisplayOption[];
+}
+
+/** The share of the window the panel may take before its body starts scrolling. */
+const SHEET_BODY_MAX = 0.6;
 
 export function MapStylePickerSheet({
   theme,
   title,
   closeLabel,
-  options,
+  styleOptions,
   value,
-  routesTitle,
-  routesDescription,
-  routes,
-  onRouteToggle,
-  detailsTitle,
-  details = [],
-  detailSections = [],
+  tracks,
+  sections,
   bottomInset,
-  fixedHeight,
   onChange,
   onClose,
 }: {
   theme: Theme;
   title: string;
   closeLabel: string;
-  options: { id: MapPresentationStyle; label: string }[];
+  styleOptions: { id: MapPresentationStyle; label: string }[];
   value: MapPresentationStyle;
-  routesTitle?: string;
-  routesDescription?: string;
-  /** Each recorded track is its own show/hide switch; the section appears as
-   *  soon as there is one track, so a single-track journey can still be hidden. */
-  routes?: MapRouteOption[];
-  onRouteToggle?: (id: string, visible: boolean) => void;
-  detailsTitle?: string;
-  details?: MapDisplayOption[];
-  detailSections?: { id: string; title?: string; description?: string; options: MapDisplayOption[] }[];
+  /** The journey's recorded tracks, listed above the display groups. */
+  tracks?: { title: string; options: MapTrackOption[] };
+  sections: MapDisplaySection[];
   bottomInset: number;
-  /** When set, the panel is this exact height and its body scrolls, so the card
-   *  keeps a stable size regardless of how many routes/toggles it holds instead
-   *  of growing to the sheet's 92% cap and clipping. */
-  fixedHeight?: number;
   onChange: (value: MapPresentationStyle) => void;
   onClose: () => void;
 }) {
+  const windowHeight = useWindowDimensions().height;
   const sheetPaddingBottom = Math.max(bottomInset, space.sm);
   const header = (
     <View
       style={{
         minHeight: layout.iconButton,
+        flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: space.lg,
+        justifyContent: 'space-between',
+        marginBottom: space.md,
       }}
     >
       <Text style={[type.navTitle, { color: theme.text }]}>{title}</Text>
@@ -83,8 +79,6 @@ export function MapStylePickerSheet({
         accessibilityLabel={closeLabel}
         hitSlop={8}
         style={{
-          position: 'absolute',
-          right: 0,
           width: layout.iconButton,
           height: layout.iconButton,
           borderRadius: layout.iconButton / 2,
@@ -98,7 +92,7 @@ export function MapStylePickerSheet({
   );
   const styleRow = (
     <View style={{ flexDirection: 'row', gap: space.sm }}>
-      {options.map((option) => {
+      {styleOptions.map((option) => {
         const selected = value === option.id;
         return (
           <Press
@@ -108,27 +102,12 @@ export function MapStylePickerSheet({
             opacityTo={1}
             accessibilityRole="radio"
             accessibilityState={{ selected }}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              padding: space.xxs,
-              paddingBottom: space.xs,
-              borderRadius: radius.feature,
-              alignItems: 'center',
-            }}
+            style={{ flex: 1, minWidth: 0, alignItems: 'center', gap: space.xs }}
           >
-            <MapStylePreview theme={theme} styleId={option.id} selected={selected} />
+            <MapStyleThumb theme={theme} styleId={option.id} selected={selected} />
             <Text
               numberOfLines={1}
-              style={[
-                type.cardTitle,
-                {
-                  marginTop: space.xs,
-                  fontSize: 13,
-                  color: theme.text,
-                  fontWeight: '700',
-                },
-              ]}
+              style={[type.labelStrong, { color: selected ? theme.accent : theme.text }]}
             >
               {option.label}
             </Text>
@@ -137,110 +116,84 @@ export function MapStylePickerSheet({
       })}
     </View>
   );
-  // Only the switches scroll. The two shadowed, multi-path SVG previews stay
-  // pinned: compositing their shadows/clip masks on every scroll frame is the
-  // thing that dropped frames, and the style tiles are the primary control
-  // anyway — they should not scroll out of view.
   const body = (
     <>
-      {routes && routes.length > 0 ? (
-        <View style={{ marginTop: space.xxl }}>
-          {routesTitle ? <Text style={[type.sectionTitle, { color: theme.text, marginBottom: space.sm }]}>{routesTitle}</Text> : null}
-          {routesDescription ? <Text style={[type.caption, { color: theme.text2, marginBottom: space.sm }]}>{routesDescription}</Text> : null}
-          <View>
-            {routes.map((route) => (
+      {tracks && tracks.options.length > 0 ? (
+        <View style={{ marginTop: space.xl }}>
+          <GroupLabel theme={theme} title={tracks.title} />
+          {tracks.options.map((route) => (
+            <View
+              key={route.id}
+              style={{
+                minHeight: 52,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: space.sm,
+              }}
+            >
               <View
-                key={route.id}
                 style={{
-                  minHeight: 58,
-                  paddingHorizontal: space.md,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: space.sm,
+                  width: 10,
+                  height: 10,
+                  borderRadius: 5,
+                  backgroundColor: route.color,
                 }}
-              >
-                <View
-                  style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: 5,
-                    backgroundColor: route.color,
-                  }}
-                />
-                <View style={{ flex: 1, minWidth: 0, paddingVertical: space.xs }}>
-                  <Text numberOfLines={1} style={[type.cardTitle, { lineHeight: 20, color: theme.text }]}>{route.label}</Text>
-                  {route.distance ? <Text style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>{route.distance}</Text> : null}
-                </View>
-                <View
-                  style={{
-                    width: 52,
-                    height: 32,
-                    alignItems: 'flex-end',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Switch
-                    accessibilityLabel={route.label}
-                    value={route.visible}
-                    onValueChange={(next) => onRouteToggle?.(route.id, next)}
-                    trackColor={{
-                      false: theme.progressTrack,
-                      true: theme.accent,
-                    }}
-                    thumbColor="#FFFFFF"
-                    ios_backgroundColor={theme.progressTrack}
-                    style={{ alignSelf: 'center' }}
-                  />
-                </View>
+              />
+              <View style={{ flex: 1, minWidth: 0, paddingVertical: space.xs }}>
+                <Text numberOfLines={1} style={[type.cardTitle, { lineHeight: 20, color: theme.text }]}>{route.label}</Text>
+                {route.distance ? <Text style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>{route.distance}</Text> : null}
               </View>
-            ))}
-          </View>
+              <SwitchBox>
+                <Switch
+                  accessibilityLabel={route.label}
+                  value={route.visible}
+                  onValueChange={route.onChange}
+                  trackColor={{
+                    false: theme.progressTrack,
+                    true: theme.accent,
+                  }}
+                  thumbColor="#FFFFFF"
+                  ios_backgroundColor={theme.progressTrack}
+                  style={{ alignSelf: 'center' }}
+                />
+              </SwitchBox>
+            </View>
+          ))}
         </View>
       ) : null}
 
-      {[...(details.length ? [{ id: 'details', title: detailsTitle, description: undefined, options: details }] : []), ...detailSections].filter((section) => section.options.length > 0).map((section) => (
-        <View key={section.id} style={{ marginTop: space.xxl }}>
-          {section.title ? <Text style={[type.sectionTitle, { color: theme.text, marginBottom: space.sm }]}>{section.title}</Text> : null}
-          {section.description ? <Text style={[type.caption, { color: theme.text2, marginBottom: space.sm }]}>{section.description}</Text> : null}
-          <View>
-            {section.options.map((detail) => (
-              <View
-                key={detail.id}
-                style={{
-                  minHeight: 58,
-                  paddingHorizontal: space.md,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: space.sm,
-                  opacity: detail.disabled ? 0.42 : 1,
-                }}
-              >
-                <Text style={[type.cardTitle, { flex: 1, lineHeight: 20, color: theme.text }]}>{detail.label}</Text>
-                <View
-                  style={{
-                    width: 52,
-                    height: 32,
-                    alignItems: 'flex-end',
-                    justifyContent: 'center',
+      {sections.filter((section) => section.options.length > 0).map((section) => (
+        <View key={section.id} style={{ marginTop: space.xl }}>
+          <GroupLabel theme={theme} title={section.title} />
+          {section.options.map((detail) => (
+            <View
+              key={detail.id}
+              style={{
+                minHeight: 52,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: space.sm,
+                opacity: detail.disabled ? 0.42 : 1,
+              }}
+            >
+              <Text style={[type.cardTitle, { flex: 1, lineHeight: 20, color: theme.text }]}>{detail.label}</Text>
+              <SwitchBox>
+                <Switch
+                  accessibilityLabel={detail.label}
+                  value={detail.value}
+                  disabled={detail.disabled}
+                  onValueChange={detail.onChange}
+                  trackColor={{
+                    false: theme.progressTrack,
+                    true: theme.accent,
                   }}
-                >
-                  <Switch
-                    accessibilityLabel={detail.label}
-                    value={detail.value}
-                    disabled={detail.disabled}
-                    onValueChange={detail.onChange}
-                    trackColor={{
-                      false: theme.progressTrack,
-                      true: theme.accent,
-                    }}
-                    thumbColor="#FFFFFF"
-                    ios_backgroundColor={theme.progressTrack}
-                    style={{ alignSelf: 'center' }}
-                  />
-                </View>
-              </View>
-            ))}
-          </View>
+                  thumbColor="#FFFFFF"
+                  ios_backgroundColor={theme.progressTrack}
+                  style={{ alignSelf: 'center' }}
+                />
+              </SwitchBox>
+            </View>
+          ))}
         </View>
       ))}
     </>
@@ -253,56 +206,61 @@ export function MapStylePickerSheet({
       <NJBottomSheet theme={theme} onClose={onClose} full bodyScrolls showBackdrop={false} showGrabber={false} borderless backgroundColor={theme.featureSurface} bottomPadding={sheetPaddingBottom}>
         <View
           accessibilityViewIsModal
-          style={{
-            paddingHorizontal: layout.pagePadding,
-            paddingTop: space.xs,
-            // fixedHeight is the whole panel; the sheet adds its own bottom
-            // safe-area padding under it, so the body reserves that much and the
-            // card lands at exactly fixedHeight regardless of route/toggle count.
-            ...(typeof fixedHeight === 'number' ? { height: Math.max(fixedHeight - sheetPaddingBottom, 240) } : null),
-          }}
+          style={{ paddingTop: space.xs }}
         >
-          {header}
-          {styleRow}
-          {typeof fixedHeight === 'number' ? (
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: space.xxl }} bounces={false} showsVerticalScrollIndicator={false}>
-              {body}
-            </ScrollView>
-          ) : (
-            body
-          )}
+          <View style={{ paddingHorizontal: layout.pagePadding }}>{header}</View>
+          {/* The panel is as tall as its content; only a long journey track list
+              reaches the cap and scrolls, so the map stays visible above it. */}
+          <ScrollView
+            style={{ maxHeight: Math.max(200, Math.round(windowHeight * SHEET_BODY_MAX) - sheetPaddingBottom) }}
+            bounces={false}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: layout.pagePadding, paddingBottom: space.xxl }}
+          >
+            {styleRow}
+            {body}
+          </ScrollView>
         </View>
       </NJBottomSheet>
     </View>
   );
 }
 
-function MapStylePreview({ theme, styleId, selected }: { theme: Theme; styleId: MapPresentationStyle; selected: boolean }) {
+function GroupLabel({ theme, title }: { theme: Theme; title: string }) {
+  return <Text style={[type.labelStrong, { color: theme.text2, marginBottom: space.xxs }]}>{title}</Text>;
+}
+
+function SwitchBox({ children }: { children: React.ReactNode }) {
+  return (
+    <View
+      style={{
+        // No fixed width: native switches differ in size by platform and OS
+        // version, and a box narrower than the switch clips its far edge.
+        flexShrink: 0,
+        minHeight: 32,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {children}
+    </View>
+  );
+}
+
+function MapStyleThumb({ theme, styleId, selected }: { theme: Theme; styleId: MapPresentationStyle; selected: boolean }) {
   return (
     <View
       style={{
         width: '100%',
-        aspectRatio: 4 / 3,
+        aspectRatio: 2,
+        overflow: 'hidden',
         borderRadius: radius.card,
-        shadowColor: '#000000',
-        shadowOpacity: theme.dark ? 0.28 : 0.12,
-        shadowRadius: 8,
-        shadowOffset: { width: 0, height: 3 },
-        elevation: 3,
+        borderWidth: 2,
+        borderColor: selected ? theme.accent : 'transparent',
+        backgroundColor: styleId === 'satellite' ? '#48513B' : theme.dark ? '#25272A' : '#E9ECE7',
       }}
     >
-      <View
-        style={{
-          flex: 1,
-          overflow: 'hidden',
-          borderRadius: radius.card,
-          borderWidth: selected ? 2 : StyleSheet.hairlineWidth,
-          borderColor: selected ? theme.accent : theme.fieldBorder,
-          backgroundColor: styleId === 'satellite' ? '#48513B' : theme.dark ? '#25272A' : '#E9ECE7',
-        }}
-      >
-        <MapStylePreviewArtwork dark={theme.dark} styleId={styleId} />
-      </View>
+      <MapStylePreviewArtwork dark={theme.dark} styleId={styleId} />
     </View>
   );
 }

@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>路线卡片的轨迹占位</title>
+<style>
+  :root { --accent:#0A84FF; --start:#34C759; --finish:#FF3B30; }
+  * { box-sizing:border-box; margin:0; }
+  body { font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif; background:#e4e4e9; padding:24px 16px 40px; display:flex; flex-direction:column; align-items:center; gap:24px; color:#1C1C1E; }
+  h1 { font-size:20px; font-weight:700; text-align:center; }
+  .sub { font-size:13px; color:rgba(60,60,67,.62); margin-top:6px; text-align:center; max-width:720px; line-height:1.55; }
+  .switch { display:flex; gap:6px; background:#fff; padding:4px; border-radius:999px; }
+  .switch button { border:0; background:none; font:inherit; font-size:13px; font-weight:600; padding:6px 14px; border-radius:999px; cursor:pointer; color:#3c3c43; }
+  .switch button.on { background:var(--accent); color:#fff; }
+  .row { display:flex; gap:20px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  .phone { width:360px; border-radius:30px; padding:18px 16px 24px; box-shadow:0 8px 28px rgba(0,0,0,.14); }
+  .phone h2 { font-size:12px; font-weight:700; letter-spacing:.02em; opacity:.55; margin-bottom:12px; }
+
+  .phone.light { background:#F2F2F7; color:#000;
+    --text:#000; --text2:rgba(60,60,67,.62); --text3:rgba(60,60,67,.32);
+    --field:rgba(0,0,0,.045); --sketchBg:#ECEEF0; --contour:rgba(60,60,67,.07); --surf:#fff; }
+  .phone.dark { background:#000; color:#fff;
+    --text:#fff; --text2:rgba(235,235,245,.62); --text3:rgba(235,235,245,.30);
+    --field:rgba(255,255,255,.07); --sketchBg:#1C1D1F; --contour:rgba(235,235,245,.06); --surf:#1C1C1E; }
+
+  /* Discover collection card */
+  .card { margin-bottom:22px; }
+  .hero { position:relative; height:204px; border-radius:20px; overflow:hidden; background:var(--field); }
+  .photo { position:absolute; inset:0; background:
+      linear-gradient(180deg, rgba(0,0,0,0) 55%, rgba(0,0,0,.18)),
+      linear-gradient(160deg, #8fb3d9 0%, #b9cfe0 30%, #6d8f5e 52%, #3f5d3a 75%, #2e4029 100%); }
+  .photo::after { content:"真实照片"; position:absolute; right:10px; top:10px; font-size:11px; color:#fff; background:rgba(0,0,0,.35); padding:2px 7px; border-radius:6px; }
+  .sketch { position:absolute; inset:0; background:var(--sketchBg); }
+  .sketch svg { position:absolute; inset:0; width:100%; height:100%; }
+  .diff { position:absolute; left:8px; top:8px; height:26px; padding:0 9px; border-radius:8px; color:#fff; font-size:13px; font-weight:700; display:flex; align-items:center; }
+  .thumbShape { position:absolute; right:8px; bottom:8px; width:46px; height:46px; border-radius:12px; background:rgba(255,255,255,.88); display:grid; place-items:center; }
+  .empty { position:absolute; inset:0; display:grid; place-items:center; }
+  .meta { padding:8px 2px 0; }
+  .rate { display:flex; gap:10px; font-size:13px; font-weight:600; color:var(--text2); }
+  .rate b { color:var(--accent); font-weight:700; }
+  .name { font-size:18px; line-height:24px; font-weight:800; margin-top:4px; color:var(--text); }
+  .stats { display:flex; gap:14px; margin-top:4px; font-size:13px; color:var(--text2); }
+
+  /* Topic page row */
+  .trow { display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+  .thumb { position:relative; width:84px; height:84px; border-radius:14px; overflow:hidden; background:var(--field); flex:none; }
+  .tcopy { flex:1; min-width:0; }
+  .tname { font-size:16px; font-weight:700; color:var(--text); }
+  .tsub { font-size:13px; color:var(--text2); margin-top:3px; }
+  .tag { display:inline-block; font-size:11px; font-weight:700; padding:2px 7px; border-radius:6px; background:rgba(10,132,255,.12); color:var(--accent); margin-top:4px; }
+
+  .legend { background:#fff; border-radius:18px; padding:16px 18px; width:min(740px,100%); font-size:14px; line-height:1.55; display:grid; gap:10px; }
+  .legend b { font-weight:700; }
+  .legend .d { color:rgba(60,60,67,.62); font-size:13px; }
+  .hide { display:none !important; }
+</style>
+</head>
+<body>
+  <div>
+    <h1>路线卡片：没有照片时用自己的轨迹占位</h1>
+    <p class="sub">左边是发现页合集里的大卡片，右边是专题页的列表行。四种情况：有照片（不变）、环线、往返、穿越，最后一张是连轨迹也没有时的兜底。轨迹形状都来自路线自己的数据，不是装饰图。</p>
+  </div>
+  <div class="switch" id="sw">
+    <button data-m="both" class="on">浅色 + 深色</button>
+    <button data-m="light">浅色</button>
+    <button data-m="dark">深色</button>
+  </div>
+  <div class="row" id="phones"></div>
+
+  <div class="legend">
+    <div><b>有照片：</b>不变。照片加载完成前只显示纯底色，不再先闪一张随机风景。右下角的小轨迹缩略图保留。</div>
+    <div><b>没照片、有轨迹：</b>整个照片位画这条路线真实的轨迹形状，起点绿、终点红，环线只有起点，和路线详情地图一致；底色上铺一层很淡的等高线纹理，让它读起来像地图而不是空白。右下角的小缩略图就不重复画了。</div>
+    <div class="d">轨迹按照片位的比例等比缩放、居中，留出边距；难度角标位置不变。轨迹数据随路线列表一起加载，离线也能画。</div>
+    <div><b>都没有：</b>纯底色块，中间一个浅色图钉图标，和途经点卡片一致。</div>
+  </div>
+
+<script>
+  // Normalised track shapes (0..1), drawn into whatever box they land in.
+  const shapes = {
+    loop: [[.30,.78],[.22,.60],[.26,.40],[.40,.24],[.58,.18],[.74,.28],[.80,.46],[.72,.62],[.60,.70],[.48,.80],[.36,.84],[.30,.78]],
+    outBack: [[.18,.82],[.28,.70],[.34,.58],[.46,.50],[.52,.38],[.64,.30],[.78,.18],[.70,.26],[.58,.34],[.50,.44],[.42,.54],[.32,.64],[.24,.76],[.20,.84]],
+    point: [[.14,.80],[.22,.66],[.30,.62],[.38,.50],[.46,.46],[.54,.36],[.62,.34],[.70,.24],[.80,.20],[.88,.14]],
+  };
+  const smooth = (pts, w, h, pad) => {
+    // Fit with equal scale, centred, like the real thumbnail will.
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    const s = Math.min((w - pad*2) / (maxX - minX), (h - pad*2) / (maxY - minY));
+    const ox = (w - (maxX - minX) * s) / 2, oy = (h - (maxY - minY) * s) / 2;
+    const P = pts.map(([x,y]) => [ox + (x - minX) * s, oy + (y - minY) * s]);
+    let d = `M${P[0][0]},${P[0][1]}`;
+    for (let i = 1; i < P.length; i++) {
+      const [x0,y0] = P[i-1], [x1,y1] = P[i];
+      d += ` Q${x0},${y0} ${(x0+x1)/2},${(y0+y1)/2}`;
+    }
+    d += ` T${P[P.length-1][0]},${P[P.length-1][1]}`;
+    return { d, start:P[0], end:P[P.length-1] };
+  };
+  const contours = (w, h) => {
+    let s = '';
+    for (let i = 0; i < 7; i++) {
+      const y = h * (0.12 + i * 0.13);
+      s += `<path d="M-10 ${y} C ${w*.25} ${y-18+i*3}, ${w*.55} ${y+16-i*2}, ${w+10} ${y-6}" fill="none" stroke="var(--contour)" stroke-width="1.2"/>`;
+    }
+    return s;
+  };
+  const sketch = (kind, w, h, pad, stroke, dot, withContours) => {
+    const { d, start, end } = smooth(shapes[kind], w, h, pad);
+    const loop = kind === 'loop';
+    return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      ${withContours ? contours(w, h) : ''}
+      <path d="${d}" fill="none" stroke="#fff" stroke-width="${stroke+3}" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>
+      <path d="${d}" fill="none" stroke="var(--accent)" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"/>
+      ${loop ? '' : `<circle cx="${end[0]}" cy="${end[1]}" r="${dot}" fill="var(--finish)" stroke="#fff" stroke-width="2"/>`}
+      <circle cx="${start[0]}" cy="${start[1]}" r="${dot}" fill="var(--start)" stroke="#fff" stroke-width="2"/>
+    </svg>`;
+  };
+  const pin = (size) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>`;
+
+  const routes = [
+    { name:'武功山经典穿越', diff:['中等','#FF9500'], stats:['2 天','25.3 公里','2100 m'], rate:'4.8', n:'1.2k', kind:'photo', tag:'有照片' },
+    { name:'莫干山环线', diff:['轻松','#34C759'], stats:['5 小时','14.6 公里','620 m'], rate:'4.6', n:'318', kind:'loop', tag:'环线' },
+    { name:'四姑娘山大峰往返', diff:['困难','#FF3B30'], stats:['2 天','18.2 公里','1650 m'], rate:'4.9', n:'860', kind:'outBack', tag:'往返' },
+    { name:'鳌太线北段', diff:['困难','#FF3B30'], stats:['4 天','62.0 公里','4300 m'], rate:'4.7', n:'2.1k', kind:'point', tag:'穿越' },
+    { name:'新收录的小路线', diff:null, stats:['3 小时','8.4 公里'], rate:null, n:null, kind:'none', tag:'无照片无轨迹' },
+  ];
+
+  const heroFor = (r) => {
+    if (r.kind === 'photo') return `<div class="photo"></div><div class="thumbShape">${sketch('point', 46, 46, 9, 2.2, 0, false).replace(/<circle[^>]*>/g,'')}</div>`;
+    if (r.kind === 'none') return `<div class="empty">${pin(34)}</div>`;
+    return `<div class="sketch">${sketch(r.kind, 328, 204, 30, 4, 6, true)}</div>`;
+  };
+  const thumbFor = (r) => {
+    if (r.kind === 'photo') return `<div class="photo" style="font-size:0"></div>`;
+    if (r.kind === 'none') return `<div class="empty">${pin(24)}</div>`;
+    return `<div class="sketch">${sketch(r.kind, 84, 84, 12, 2.6, 4, true)}</div>`;
+  };
+  const card = (r) => `
+    <div class="card">
+      <div class="hero">${heroFor(r)}${r.diff ? `<div class="diff" style="background:${r.diff[1]}">${r.diff[0]}</div>` : ''}</div>
+      <div class="meta">
+        ${r.rate ? `<div class="rate"><span><b>★</b> ${r.rate}</span><span>${r.n} 人走过</span></div>` : ''}
+        <div class="name">${r.name}</div>
+        <div class="stats">${r.stats.map(s => `<span>${s}</span>`).join('')}</div>
+      </div>
+    </div>`;
+  const row = (r) => `
+    <div class="trow">
+      <div class="thumb">${thumbFor(r)}</div>
+      <div class="tcopy">
+        <div class="tname">${r.name}</div>
+        <div class="tsub">${r.stats.join('  ')}</div>
+        <span class="tag">${r.tag}</span>
+      </div>
+    </div>`;
+  const phone = (mode, kind) => `
+    <div class="phone ${mode}" data-mode="${mode}">
+      <h2>${kind === 'card' ? '发现页合集' : '专题页列表'}${mode === 'dark' ? '（深色）' : '（浅色）'}</h2>
+      ${routes.map(kind === 'card' ? card : row).join('')}
+    </div>`;
+  document.getElementById('phones').innerHTML =
+    phone('light','card') + phone('light','row') + phone('dark','card') + phone('dark','row');
+  document.getElementById('sw').addEventListener('click', (e) => {
+    const m = e.target.dataset.m; if (!m) return;
+    document.querySelectorAll('#sw button').forEach(b => b.classList.toggle('on', b === e.target));
+    document.querySelectorAll('.phone').forEach(p => p.classList.toggle('hide', m !== 'both' && p.dataset.mode !== m));
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>时间线卡片 · 可见范围弹层预览</title>
+<style>
+  :root {
+    --accent: #0A84FF;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", "Helvetica Neue", sans-serif;
+    background: #ECECF1;
+    color: #1C1C1E;
+    padding: 36px 24px 56px;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+  .sub { font-size: 13.5px; color: rgba(60,60,67,0.62); margin: 8px 0 6px; line-height: 1.55; max-width: 780px; }
+  .sub b { color: #1C1C1E; }
+  .col-title { font-size: 13px; font-weight: 600; color: rgba(60,60,67,0.55); margin: 26px 0 12px; }
+
+  .stage { display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; }
+
+  /* ---------- phone frame ---------- */
+  .phone {
+    width: 375px; border-radius: 40px; overflow: hidden; position: relative;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.10);
+    flex-shrink: 0;
+  }
+  .phone .screen { position: absolute; inset: 0; display: flex; flex-direction: column; }
+
+  .l  { --page:#F2F2F7; --card:#FFFFFF; --text:#000; --t2:rgba(60,60,67,0.62); --t3:rgba(60,60,67,0.32);
+        --chip:rgba(0,0,0,0.045); --hairline:rgba(0,0,0,0.08); --sheet-item-bg:#FFFFFF; --sheet-group-bg:#F4F4F5;
+        --scrim:rgba(0,0,0,0.32); --icon-bg:rgba(0,0,0,0.05); --cancel-bg:#FFFFFF; --cta-bg:#1C1C1E; --cta-text:#fff; }
+  .d  { --page:#000000; --card:rgba(28,28,30,0.96); --text:#fff; --t2:rgba(235,235,245,0.62); --t3:rgba(235,235,245,0.30);
+        --chip:rgba(255,255,255,0.07); --hairline:rgba(255,255,255,0.10); --sheet-item-bg:rgba(40,40,44,0.96); --sheet-group-bg:rgba(40,40,44,0.96);
+        --scrim:rgba(0,0,0,0.5); --icon-bg:rgba(255,255,255,0.08); --cancel-bg:rgba(40,40,44,0.96); --cta-bg:#FFFFFF; --cta-text:#000; }
+  .screen { background: var(--page); color: var(--text); }
+
+  /* ---------- timeline card ---------- */
+  .feed { flex: 1; padding: 18px 14px; overflow: hidden; }
+  .card {
+    background: var(--card); border-radius: 18px; padding: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .d .card { box-shadow: none; border: 1px solid rgba(255,255,255,0.06); }
+  .card-head { display: flex; align-items: center; gap: 9px; }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; background: linear-gradient(135deg,#7A5AF8,#2BB4A8); flex-shrink: 0;
+           display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700; }
+  .card-head .who { flex: 1; min-width: 0; }
+  .card-head .who .t { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-head .who .s { font-size: 12.5px; color: var(--t3); margin-top: 1px; }
+  .vchip {
+    display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 999px;
+    background: var(--chip); color: var(--t2); font-size: 12px; flex-shrink: 0;
+  }
+  .vchip svg { width: 13px; height: 13px; }
+  .vchip.pulse { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .card-title { margin-top: 11px; font-size: 19px; font-weight: 700; line-height: 1.3; }
+  .card-route { margin-top: 3px; font-size: 13px; color: var(--t2); }
+  .mini-map { margin-top: 11px; height: 128px; border-radius: 12px; overflow: hidden; position: relative;
+              background: linear-gradient(160deg, #DCE8DC 0%, #C6DBCB 45%, #AFC9BA 100%); }
+  .d .mini-map { background: linear-gradient(160deg, #1B2420 0%, #171E1C 60%, #121716 100%); }
+  .mini-map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .stats { display: flex; gap: 18px; margin-top: 11px; }
+  .stat .v { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
+  .stat .k { font-size: 11px; color: var(--t3); margin-top: 1px; letter-spacing: 0.2px; }
+
+  /* ---------- scrim + sheet ---------- */
+  .scrim { position: absolute; inset: 0; background: var(--scrim); }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 8px max(12px, env(safe-area-inset-bottom)); }
+  .grabber { width: 36px; height: 5px; border-radius: 3px; background: var(--t3); opacity: .5; margin: 8px auto 10px; }
+  .group { background: var(--sheet-group-bg); border-radius: 16px; overflow: hidden; }
+  .sheet-head {
+    display: flex; align-items: center; padding: 15px 16px 13px;
+    border-bottom: 0.5px solid var(--hairline);
+  }
+  .sheet-head .title { font-size: 16px; font-weight: 700; letter-spacing: -0.2px; flex: 1; }
+  .sheet-head .sub2 { font-size: 12px; color: var(--t3); margin-top: 2px; font-weight: 400; }
+  .closebtn { width: 26px; height: 26px; border-radius: 50%; background: var(--chip); color: var(--t2);
+              display:flex;align-items:center;justify-content:center; font-size: 13px; flex-shrink:0; }
+
+  .opt { display: flex; align-items: center; gap: 12px; padding: 13px 14px; min-height: 64px; }
+  .opt + .opt { border-top: 0.5px solid var(--hairline); }
+  .opt .ic { width: 36px; height: 36px; border-radius: 50%; background: var(--icon-bg);
+             display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .opt .ic svg { width: 18px; height: 18px; stroke: var(--t2); }
+  .opt.sel .ic { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  .opt.sel .ic svg { stroke: var(--accent); }
+  .opt .txt { flex: 1; min-width: 0; }
+  .opt .name { font-size: 16px; font-weight: 600; color: var(--t2); letter-spacing: -0.2px; }
+  .opt.sel .name { color: var(--text); }
+  .opt .desc { font-size: 12.5px; color: var(--t3); margin-top: 2px; line-height: 1.35; }
+  .opt .tick { width: 22px; height: 22px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+  .opt .tick svg { width: 19px; height: 19px; stroke: var(--accent); }
+
+  .cta { margin-top: 10px; height: 52px; border-radius: 14px; background: var(--cta-bg); color: var(--cta-text);
+         display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; }
+  .cta.ghost { background: transparent; color: var(--t2); font-weight: 600; }
+  .homebar { width: 134px; height: 5px; border-radius: 3px; margin: 14px auto 0; background: var(--text); opacity: .9; }
+  .l .homebar { background: #000; }
+
+  /* toast */
+  .toast { position: absolute; top: 62px; left: 0; right: 0; display: flex; justify-content: center; }
+  .toast span { background: rgba(28,28,30,0.92); color: #fff; font-size: 13px; font-weight: 500;
+                padding: 8px 14px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px;
+                box-shadow: 0 6px 18px rgba(0,0,0,0.25); }
+  .toast svg { width: 14px; height: 14px; stroke: #30D158; }
+
+  .caption { font-size: 12.5px; color: rgba(60,60,67,0.6); margin-top: 12px; max-width: 375px; line-height: 1.5; }
+
+  /* spec table */
+  .spec { margin-top: 40px; background: #fff; border-radius: 16px; padding: 20px 22px; max-width: 860px;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+  .spec h2 { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+  .spec table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  .spec th { text-align: left; color: rgba(60,60,67,0.55); font-weight: 600; padding: 6px 12px 6px 0; border-bottom: 1px solid rgba(0,0,0,0.07); }
+  .spec td { padding: 8px 12px 8px 0; border-bottom: 1px solid rgba(0,0,0,0.05); vertical-align: top; line-height: 1.5; }
+  .spec code { background: rgba(0,0,0,0.045); padding: 1px 6px; border-radius: 5px; font-size: 12px;
+               font-family: ui-monospace, Menlo, monospace; white-space: nowrap; }
+</style>
+</head>
+<body>
+  <h1>时间线卡片 · 「谁可以看到」弹层</h1>
+  <p class="sub">
+    替换目前的原生 ActionSheet，改用 app 设计系统样式：<b>底部圆角面板 + 图标胶囊 + 每项说明 + 单选勾选 + 主操作按钮</b>，明暗两套主题。
+    点击卡片右上角的可见性胶囊（或设置页对应行）唤起。
+  </p>
+
+  <svg width="0" height="0" style="position:absolute">
+    <defs>
+      <g id="i-lock"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></g>
+      <g id="i-users"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></g>
+      <g id="i-globe"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></g>
+      <g id="i-check"><path d="M20 6 9 17l-5-5"/></g>
+    </defs>
+  </svg>
+
+  <!-- ============ 方案 A ============ -->
+  <div class="col-title">方案 A（推荐）· 底部弹层，点选即保存，「完成」收起</div>
+  <div class="stage">
+
+    <div>
+      <div class="phone l">
+        <div class="screen">
+          <div class="feed">
+            <div class="card">
+              <div class="card-head">
+                <div class="avatar">峰</div>
+                <div class="who">
+                  <div class="t">你完成了一次出行</div>
+                  <div class="s">10月25日　四姑娘山</div>
+                </div>
+                <span class="vchip pulse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-users"/></svg>关注可见</span>
+              </div>
+              <div class="card-title">大峰 · 单日往返登顶</div>
+              <div class="card-route">四姑娘山长坪沟</div>
+              <div class="mini-map">
+                <svg viewBox="0 0 340 128" fill="none">
+                  <path d="M20 112 C70 96 96 60 150 66 S246 88 292 34 L316 22" stroke="#FF7A55" stroke-width="3.5" stroke-linecap="round"/>
+                  <circle cx="20" cy="112" r="5" fill="#fff" stroke="#FF7A55" stroke-width="2.5"/>
+                  <circle cx="316" cy="22" r="5" fill="#FF7A55"/>
+                </svg>
+              </div>
+              <div class="stats">
+                <div class="stat"><div class="v mono">12.6 km</div><div class="k">里程</div></div>
+                <div class="stat"><div class="v mono">↑ 1 024 m</div><div class="k">累计爬升</div></div>
+                <div class="stat"><div class="v mono">6 h 32 m</div><div class="k">用时</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="scrim"></div>
+          <div class="sheet">
+            <div class="group">
+              <div class="grabber"></div>
+              <div class="sheet-head">
+                <div class="title">谁可以看到<div class="sub2">大峰 · 单日往返登顶</div></div>
+                <div class="closebtn">✕</div>
+              </div>
+              <div class="opt">
+                <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-lock"/></svg></div>
+                <div class="txt"><div class="name">仅自己可见</div><div class="desc">只有你自己能看到这条出行</div></div>
+                <div class="tick"></div>
+              </div>
+              <div class="opt sel">
+                <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-users"/></svg></div>
+                <div class="txt"><div class="name">关注我的可见</div><div class="desc">你的粉丝可以在主页和动态中看到</div></div>
+                <div class="tick"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><use href="#i-check"/></svg></div>
+              </div>
+              <div class="opt">
+                <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-globe"/></svg></div>
+                <div class="txt"><div class="name">公开可见</div><div class="desc">所有人都能看到，包括陌生人</div></div>
+                <div class="tick"></div>
+              </div>
+            </div>
+            <div class="cta">完成</div>
+            <div class="homebar"></div>
+          </div>
+        </div>
+      </div>
+      <div class="caption">浅色主题。点任一选项立即保存并给轻反馈；「完成」收起弹层。卡片上的胶囊保持入口不变。</div>
+    </div>
+
+    <div>
+      <div class="phone d">
+        <div class="screen">
+          <div class="feed">
+            <div class="card">
+              <div class="card-head">
+                <div class="avatar">峰</div>
+                <div class="who">
+                  <div class="t">你完成了一次出行</div>
+                  <div class="s">10月25日　四姑娘山</div>
+                </div>
+                <span class="vchip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-users"/></svg>关注可见</span>
+              </div>
+              <div class="card-title">大峰 · 单日往返登顶</div>
+              <div class="card-route">四姑娘山长坪沟</div>
+              <div class="mini-map">
+                <svg viewBox="0 0 340 128" fill="none">
+                  <path d="M20 112 C70 96 96 60 150 66 S246 88 292 34 L316 22" stroke="#FF7A55" stroke-width="3.5" stroke-linecap="round"/>
+                  <circle cx="20" cy="112" r="5" fill="#000" stroke="#FF7A55" stroke-width="2.5"/>
+                  <circle cx="316" cy="22" r="5" fill="#FF7A55"/>
+                </svg>
+              </div>
+              <div class="stats">
+                <div class="stat"><div class="v mono">12.6 km</div><div class="k">里程</div></div>
+                <div class="stat"><div class="v mono">↑ 1 024 m</div><div class="k">累计爬升</div></div>
+                <div class="stat"><div class="v mono">6 h 32 m</div><div class="k">用时</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="scrim"></div>
+          <div class="sheet">
+            <div class="group">
+              <div class="grabber"></div>
+              <div class="sheet-head">
+                <div class="title">谁可以看到<div class="sub2">大峰 · 单日往返登顶</div></div>
+                <div class="closebtn">✕</div>
+              </div>
+              <div class="opt">
+                <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-lock"/></svg></div>
+                <div class="txt"><div class="name">仅自己可见</div><div class="desc">只有你自己能看到这条出行</div></div>
+                <div class="tick"></div>
+              </div>
+              <div class="opt sel">
+                <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-users"/></svg></div>
+                <div class="txt"><div class="name">关注我的可见</div><div class="desc">你的粉丝可以在主页和动态中看到</div></div>
+                <div class="tick"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><use href="#i-check"/></svg></div>
+              </div>
+              <div class="opt">
+                <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-globe"/></svg></div>
+                <div class="txt"><div class="name">公开可见</div><div class="desc">所有人都能看到，包括陌生人</div></div>
+                <div class="tick"></div>
+              </div>
+            </div>
+            <div class="cta">完成</div>
+            <div class="homebar"></div>
+          </div>
+        </div>
+      </div>
+      <div class="caption">深色主题。遮罩加深至 0.5，面板用 <code>surfaceStrong</code>，选中项图标胶囊染主题色 accent。</div>
+    </div>
+  </div>
+
+  <!-- ============ 方案 B ============ -->
+  <div class="col-title">方案 B · 更轻：点选项即关闭，无「完成」按钮</div>
+  <div class="stage">
+    <div>
+      <div class="phone d">
+        <div class="screen">
+          <div class="feed"></div>
+          <div class="scrim"></div>
+          <div class="sheet">
+            <div class="group" style="padding-top:4px">
+              <div class="opt">
+                <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-lock"/></svg></div>
+                <div class="txt"><div class="name">仅自己可见</div><div class="desc">只有你自己能看到这条出行</div></div>
+                <div class="tick"></div>
+              </div>
+              <div class="opt sel">
+                <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-users"/></svg></div>
+                <div class="txt"><div class="name">关注我的可见</div><div class="desc">你的粉丝可以在主页和动态中看到</div></div>
+                <div class="tick"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><use href="#i-check"/></svg></div>
+              </div>
+              <div class="opt">
+                <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-globe"/></svg></div>
+                <div class="txt"><div class="name">公开可见</div><div class="desc">所有人都能看到，包括陌生人</div></div>
+                <div class="tick"></div>
+              </div>
+            </div>
+            <div class="cta ghost">取消</div>
+            <div class="homebar"></div>
+          </div>
+        </div>
+      </div>
+      <div class="caption">方案 B：结构同 A 但去掉标题栏和「完成」，点选项即保存并收起，行为最接近现有 ActionSheet，改动最小。</div>
+    </div>
+
+    <div>
+      <div class="phone l" style="margin-top:34px">
+        <div class="screen">
+          <div class="feed">
+            <div class="card">
+              <div class="card-head">
+                <div class="avatar">峰</div>
+                <div class="who">
+                  <div class="t">你完成了一次出行</div>
+                  <div class="s">10月25日　四姑娘山</div>
+                </div>
+                <span class="vchip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#i-globe"/></svg>公开</span>
+              </div>
+              <div class="card-title">大峰 · 单日往返登顶</div>
+              <div class="card-route">四姑娘山长坪沟</div>
+              <div class="mini-map">
+                <svg viewBox="0 0 340 128" fill="none">
+                  <path d="M20 112 C70 96 96 60 150 66 S246 88 292 34 L316 22" stroke="#FF7A55" stroke-width="3.5" stroke-linecap="round"/>
+                </svg>
+              </div>
+            </div>
+          </div>
+          <div class="toast"><span><svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><use href="#i-check"/></svg>可见范围已更新</span></div>
+          <div class="homebar" style="position:absolute;bottom:8px;left:0;right:0"></div>
+        </div>
+      </div>
+      <div class="caption">保存后的反馈沿用现有 toast（<code>profile.visibilitySaved</code>），卡片上的胶囊文案即时更新。</div>
+    </div>
+  </div>
+
+  <!-- ============ 规格 ============ -->
+  <div class="spec">
+    <h2>实现规格（对应 src/design-system 与 theme tokens）</h2>
+    <table>
+      <tr><th>元素</th><th>规格</th></tr>
+      <tr><td>容器</td><td>底部弹层，圆角 <code>radius.card 16</code>，背景 <code>theme.surfaceStrong</code>，遮罩 <code>rgba(0,0,0,0.32/0.5)</code></td></tr>
+      <tr><td>标题栏</td><td>16px/700「谁可以看到」+ 12px 副标题（出行标题），右侧 ✕ 圆形按钮 <code>fieldSurface</code></td></tr>
+      <tr><td>选项行</td><td>min-height 64px；图标胶囊 36px 圆、<code>fieldSurface</code>，选中时染 <code>accent</code>；名称 16px/600，未选中 <code>text2</code>；说明 12.5px <code>text3</code></td></tr>
+      <tr><td>分隔线</td><td>hairline，<code>theme.hairline</code></td></tr>
+      <tr><td>勾选</td><td>当前项右侧 accent 色 check（复用 <code>Icon name="check"</code>）</td></tr>
+      <tr><td>主按钮</td><td>「完成」52px 圆角 14，浅底用 <code>#1C1C1E</code>、深底用白（与 app 反色主按钮一致）</td></tr>
+      <tr><td>图标</td><td>Lock / Users / Globe —— 与卡片 <code>VisibilityChip</code> 现有的 lucide 图标一致</td></tr>
+      <tr><td>文案</td><td>选项名复用 i18n <code>profile.visPrivate / visFollowers / visPublic</code>；新增三条说明 key</td></tr>
+      <tr><td>接入点</td><td><code>openVisibilityPicker()</code>（src/components/social/VisibilityPicker.tsx）改走新组件；时间线卡片、旅程设置、轨迹设置、装备清单四处自动统一</td></tr>
+      <tr><td>交互</td><td>点选项即写入（保持现逻辑：点当前项不触发写入）+ selection 触觉反馈；方案 A 的「完成」只负责收起</td></tr>
+    </table>
+  </div>
+</body>
+</html>

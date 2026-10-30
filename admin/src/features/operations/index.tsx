@@ -6,8 +6,10 @@ import {
   type PaginationState,
   useReactTable,
 } from '@tanstack/react-table'
-import { adminApi, adminMutation, uploadAdminTrack } from '@/lib/supabase'
+import { adminApi, adminMutation, fetchRouteWaypoints, uploadAdminTrack } from '@/lib/supabase'
 import { parseRouteTrack } from '@/lib/route-track-parser'
+import { mergeWaypointCuration } from '@/lib/route-waypoint-merge'
+import { parseWaypoints, serializeWaypoints, waypointName } from '@/lib/route-waypoints'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -28,6 +30,7 @@ import { ProfileDropdown } from '@/components/profile-dropdown'
 import { Search } from '@/components/search'
 import { ThemeSwitch } from '@/components/theme-switch'
 import { ResourceFormDialog } from './resource-form-dialog'
+import { RouteWaypointsDialog } from './waypoints-dialog'
 
 type Row = Record<string, unknown>
 type Column = {
@@ -220,6 +223,7 @@ export function RoutesAdmin() {
   const input = useRef<HTMLInputElement>(null)
   const replaceInput = useRef<HTMLInputElement>(null)
   const [replaceTarget, setReplaceTarget] = useState<Row | null>(null)
+  const [waypointsTarget, setWaypointsTarget] = useState<{ id: string; name: string } | null>(null)
   const [batchUploading, setBatchUploading] = useState(false)
   const [editor, setEditor] = useState<{
     open: boolean
@@ -289,18 +293,30 @@ export function RoutesAdmin() {
   }
   const replaceRouteFile = async (file: File) => {
     if (!replaceTarget) return
+    const id = String(replaceTarget.id)
+    const stored = await fetchRouteWaypoints(id)
     const parsed = await parseRouteTrack(file)
     const uploaded = await uploadAdminTrack(file)
+    const merged = mergeWaypointCuration(parseWaypoints(parsed.track_waypoints), stored.waypoints)
+    // A plain GPX has no named points, so writing its empty list would discard
+    // every highlight and photo the merge just carried over.
+    const keptStored = merged.waypoints.length === 0 && stored.waypoints.length > 0
+    const waypoints = keptStored ? stored.waypoints : merged.waypoints
     await adminMutation('routes', {
       action: 'update-route',
-      id: String(replaceTarget.id),
+      id,
       ...parsed,
+      track_waypoints: serializeWaypoints(waypoints),
       region: String(replaceTarget.region || '未分类'),
       track_file_url: uploaded.url,
       track_file_name: uploaded.name,
     })
     setReplaceTarget(null)
     await refresh()
+    const notices: string[] = []
+    if (keptStored) notices.push(`新轨迹未解析出途经点，已保留原有 ${waypoints.length} 个途经点及其标注。`)
+    if (!keptStored && merged.lost.length) notices.push(`以下已标注的途经点在新轨迹中没有匹配上，亮点和照片已丢失：\n${merged.lost.map((waypoint) => waypointName(waypoint) || '（未命名）').join('\n')}`)
+    if (notices.length) window.alert(`替换轨迹完成，请复核：\n${notices.join('\n')}`)
   }
   return (
     <Shell
@@ -365,6 +381,7 @@ export function RoutesAdmin() {
                     >
                       编辑
                     </Button>
+                    <Button size='sm' variant='ghost' onClick={() => setWaypointsTarget({ id: String(row.id), name: String(row.name || '') })}>途经点</Button>
                     <Button
                       size='sm'
                       variant='ghost'
@@ -400,6 +417,11 @@ export function RoutesAdmin() {
         initial={editor.values}
         onOpenChange={(open) => setEditor((current) => ({ ...current, open }))}
         onSubmit={save}
+      />
+      <RouteWaypointsDialog
+        open={Boolean(waypointsTarget)}
+        route={waypointsTarget}
+        onOpenChange={(open) => { if (!open) setWaypointsTarget(null) }}
       />
     </Shell>
   )

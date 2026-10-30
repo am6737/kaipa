@@ -56,7 +56,7 @@ export function PoiRow({
             <Text numberOfLines={1} style={{ fontSize: 15.5, fontWeight: '700', color: theme.text, flexShrink: 1 }}>
               {poi.name}
             </Text>
-            {poi.fav && <Icon name="heartFill" color={theme.trailMine} size={13} />}
+            {poi.kind === 'route' && poi.fav && <Icon name="heartFill" color={theme.trailMine} size={13} />}
           </View>
           <Text numberOfLines={1} style={{ fontSize: 11.5, color: theme.text2 }}>
             {regionLabel(poi.region)}

@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>我的贡献 重设计预览</title>
+<style>
+  :root {
+    --bg:#F2F2F7; --grouped:#F4F4F5; --feature:#FFFFFF; --field:rgba(0,0,0,0.045); --surfaceTop:#FFFFFF;
+    --control:rgba(255,255,255,0.92); --controlShadow:0 4px 18px rgba(0,0,0,0.10);
+    --text:#111114; --text2:rgba(60,60,67,0.62); --text3:rgba(60,60,67,0.32);
+    --accent:#0A84FF; --accentSoft:rgba(10,132,255,0.12); --accentSofter:rgba(10,132,255,0.06);
+    --danger:#E5484D; --dangerSoft:rgba(229,72,77,0.10); --like:#E5484D; --cardShadow:0 2px 14px rgba(0,0,0,0.05);
+    --frame:#E9E9EE;
+  }
+  body.dark {
+    --bg:#000; --grouped:#1C1C1E; --feature:#000; --field:rgba(255,255,255,0.07); --surfaceTop:rgba(40,40,44,0.92);
+    --control:rgba(44,44,48,0.92); --controlShadow:0 4px 18px rgba(0,0,0,0.5);
+    --text:#F5F5F7; --text2:rgba(235,235,245,0.62); --text3:rgba(235,235,245,0.30);
+    --accent:#0A84FF; --accentSoft:rgba(10,132,255,0.18); --accentSofter:rgba(10,132,255,0.10);
+    --danger:#FF6369; --dangerSoft:rgba(255,99,105,0.14); --like:#FF6369; --cardShadow:none;
+    --frame:#111;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,"PingFang SC","Helvetica Neue","Noto Sans SC",sans-serif; background:var(--frame); color:var(--text); padding:28px 24px 60px; transition:background .2s; }
+  .num { font-variant-numeric:tabular-nums; }
+  .mono { font-family:ui-monospace,"SF Mono",Menlo,monospace; font-variant-numeric:tabular-nums; }
+  header.doc { max-width:1720px; margin:0 auto 24px; display:flex; align-items:flex-end; justify-content:space-between; gap:20px; flex-wrap:wrap; }
+  header.doc h1 { font-size:25px; font-weight:800; }
+  header.doc p { font-size:14px; color:var(--text2); margin-top:6px; line-height:22px; }
+  .toggle { border:0; background:var(--surfaceTop); color:var(--text); font:600 14px inherit; padding:11px 18px; border-radius:999px; box-shadow:var(--controlShadow); cursor:pointer; }
+  .grid { display:flex; flex-wrap:wrap; gap:36px 28px; justify-content:center; max-width:1720px; margin:0 auto; }
+  .col { width:390px; }
+  .col h2 { font-size:18px; font-weight:800; }
+  .col .idea { font-size:13px; color:var(--text2); line-height:20px; margin:6px 0 14px; min-height:60px; }
+  .phone { width:390px; height:844px; border-radius:50px; overflow:hidden; position:relative; box-shadow:0 20px 60px rgba(0,0,0,0.18); background:var(--page); }
+  .phone.feature { --page:var(--feature); }
+  .phone.grouped { --page:var(--grouped); }
+  .sb { height:50px; display:flex; align-items:center; justify-content:space-between; padding:6px 34px 0; font-size:16px; font-weight:600; }
+  .sb i { display:inline-block; width:26px; height:12px; border:1.5px solid var(--text); border-radius:4px; opacity:.8; }
+  .nav { height:50px; display:flex; align-items:center; justify-content:center; position:relative; }
+  .nav .back { position:absolute; left:16px; top:3px; width:44px; height:44px; border-radius:22px; background:var(--control); box-shadow:var(--controlShadow); display:flex; align-items:center; justify-content:center; }
+  .nav .title { font-size:17px; font-weight:700; }
+  .scroll { position:absolute; top:100px; left:0; right:0; bottom:0; overflow-y:auto; padding-bottom:60px; scrollbar-width:none; }
+  .scroll::-webkit-scrollbar { display:none; }
+  svg { display:block; flex:none; }
+
+  /* shared bits */
+  .lead { font-size:14px; line-height:23px; color:var(--text2); }
+  .eyebrow { font-size:12px; font-weight:600; color:var(--text2); letter-spacing:.2px; }
+  .sectionTitle { font-size:18px; font-weight:800; }
+  .cardTitle { font-size:15px; font-weight:700; line-height:21px; }
+  .body2 { font-size:14px; line-height:22px; color:var(--text2); }
+  .caption { font-size:11.5px; line-height:17px; color:var(--text3); }
+  .meta { font-size:11.5px; line-height:19px; color:var(--text2); }
+  .clamp2 { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .clamp1 { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row { display:flex; align-items:center; }
+  .gapx { gap:8px; }
+  .stat { display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--text2); }
+  .status { display:inline-flex; align-items:center; gap:4px; font-size:11.5px; font-weight:600; }
+  .link { color:var(--accent); font-size:14px; font-weight:600; }
+  .thumbs { display:flex; gap:6px; margin-top:10px; }
+  .thumbs span { width:56px; height:56px; border-radius:11px; }
+  .cover { border-radius:16px; position:relative; overflow:hidden; }
+
+  /* tabs (track library style: bold text + short accent underline, no hairline) */
+  .tabs { display:flex; gap:22px; padding:0 24px; height:44px; align-items:center; }
+  .tab { font-size:15px; color:var(--text2); position:relative; height:44px; display:flex; align-items:center; cursor:pointer; gap:4px; }
+  .tab b { font-weight:500; font-size:12px; color:var(--text3); }
+  .tab.on { color:var(--text); font-weight:700; }
+  .tab.on::after { content:""; position:absolute; left:50%; transform:translateX(-50%); bottom:4px; width:18px; height:3px; border-radius:2px; background:var(--accent); }
+
+  .chips { display:flex; gap:8px; padding:0 16px; overflow-x:auto; scrollbar-width:none; }
+  .chip { flex:none; height:36px; padding:0 14px; border-radius:16px; background:var(--field); font-size:14px; font-weight:600; color:var(--text); display:flex; align-items:center; gap:5px; cursor:pointer; }
+  .chip b { font-weight:500; color:var(--text2); font-size:12.5px; }
+  .chip.on { background:var(--accent); color:#fff; }
+  .chip.on b { color:rgba(255,255,255,.8); }
+
+  .ktile { width:36px; height:36px; border-radius:11px; background:var(--field); display:flex; align-items:center; justify-content:center; flex:none; }
+  .steps { display:flex; align-items:center; gap:6px; margin-top:12px; }
+  .steps .dot { width:8px; height:8px; border-radius:4px; background:var(--text3); }
+  .steps .bar { flex:1; height:3px; border-radius:2px; background:var(--field); }
+  .steps .on { background:var(--accent); }
+  .steps .bad { background:var(--danger); }
+  .stepLabels { display:flex; justify-content:space-between; margin-top:6px; font-size:11.5px; color:var(--text3); }
+  .stepLabels .on { color:var(--accent); font-weight:600; }
+</style>
+</head>
+<body>
+<header class="doc">
+  <div>
+    <h1>我的贡献 重设计预览</h1>
+    <p>四个独立方向，同一份示例数据：4 篇攻略、4 条评论、3 个路线请求。列表区可滚动，A 的标签和 C 的筛选可以点。</p>
+  </div>
+  <button class="toggle" onclick="document.body.classList.toggle('dark')">切换浅色 / 深色</button>
+</header>
+<div class="grid" id="grid"></div>
+
+<script>
+const I = {
+  back:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+  guide:(c,s=18)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M9 8h7M9 12h5"/></svg>`,
+  comment:(c,s=18)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z"/></svg>`,
+  request:(c,s=18)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><path d="M12 6.5v6M9 9.5h6"/></svg>`,
+  heart:(c,s=13,f='none')=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="${f}" stroke="${c}" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.5s-8-4.9-8-11A4.5 4.5 0 0 1 12 6a4.5 4.5 0 0 1 8 3.5c0 6.1-8 11-8 11z"/></svg>`,
+  thumb:(c,s=13)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v11H4V10zM7 10l4-7a2.5 2.5 0 0 1 2.5 3L13 10h6a2 2 0 0 1 2 2.3l-1.3 7A2 2 0 0 1 17.7 21H7"/></svg>`,
+  reply:(c,s=13)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14l-5-5 5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/></svg>`,
+  clock:(c,s=12)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.3" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
+  check:(c,s=12)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>`,
+  alert:(c,s=12)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.3" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.2"/></svg>`,
+  chev:(c,s=14)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>`,
+  pen:(c,s=14)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>`,
+};
+
+// mountain-ish placeholder covers
+const COVERS = {
+  雨崩:['#7FA7C9','#D9E4EE','#4F6E59'], 武功山:['#9CC3A0','#E8EFD8','#5C7D4E'], 虎跳峡:['#C9A27F','#EFE2D2','#6F5A43'],
+  四姑娘山:['#8FB0D8','#EAF1FA','#56708F'], 贡嘎:['#A8B6D6','#F0F0F6','#5E6787'], 鳌太线:['#9BA5A0','#E4E7E2','#55605A'],
+  洛克线:['#D2B48C','#F3EADB','#7E6648'], 狼塔:['#C7B07A','#F1E8CF','#7C6A3B'],
+};
+function cover(key, w, h, r=16){
+  const [sky, light, ground] = COVERS[key] || COVERS['贡嘎'];
+  return `<div class="cover" style="width:${w}px;height:${h}px;border-radius:${r}px;flex:none;background:linear-gradient(180deg,${sky},${light})">
+    <svg viewBox="0 0 100 60" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">
+      <path d="M0 60 L0 38 L18 22 L30 32 L46 12 L62 30 L74 20 L100 40 L100 60Z" fill="${ground}" opacity=".55"/>
+      <path d="M40 18 L46 12 L52 19 L48 17 L45 20Z" fill="#fff" opacity=".8"/>
+      <path d="M0 60 L0 48 L22 38 L40 46 L64 36 L100 50 L100 60Z" fill="${ground}" opacity=".9"/>
+    </svg></div>`;
+}
+const photo = (key)=>{ const [a,b,c]=COVERS[key]||COVERS['贡嘎']; return `background:linear-gradient(160deg,${a},${c})`; };
+
+const DATA = [
+  {kind:'guide', id:'g1', route:'雨崩', routeName:'雨崩徒步', region:'云南迪庆', title:'雨崩四日：神瀑、冰湖与尼农峡谷', body:'从西当温泉上山，第二天去冰湖，第三天神瀑，第四天经尼农峡谷出山。', status:'rejected', reason:'第 2 天缺少住宿信息，补充后可以重新提交', date:'10月21日', month:'10 月', helpful:0},
+  {kind:'guide', id:'g4', route:'四姑娘山', routeName:'四姑娘山大峰', region:'四川阿坝', title:'四姑娘山大峰：我的第一座雪山', body:'日隆镇适应一天，第二天到大本营，凌晨三点冲顶，天气好全程能看到幺妹峰。', status:'pending', date:'10月26日', month:'10 月', helpful:0},
+  {kind:'request', id:'r1', route:'洛克线', routeName:'洛克线', region:'四川稻城', title:'洛克线', body:'从稻城到木里，沿洛克当年的考察路线，附了上个月走的轨迹。', status:'pending', date:'10月25日', month:'10 月', hasTrack:true},
+  {kind:'comment', id:'c1', route:'贡嘎', routeName:'贡嘎子梅垭口', region:'四川甘孜', body:'垭口风很大，下午三点后基本起雾，建议一早出发。子梅村的客栈都能看到日照金山。', date:'10月24日', month:'10 月', likes:23, replies:4, photos:3},
+  {kind:'guide', id:'g2', route:'武功山', routeName:'武功山', region:'江西萍乡', title:'武功山两天一夜反穿攻略', body:'龙山村上，发云界住一晚，金顶看日出后从沈子村下撤，避开人流最多的一段。', status:'approved', date:'9月14日', month:'9 月', helpful:86},
+  {kind:'comment', id:'c2', route:'武功山', routeName:'武功山', region:'江西萍乡', body:'金顶日出人非常多，想安静一点可以住发云界，五点出发走到观音宕看。', date:'9月15日', month:'9 月', likes:12, replies:2, photos:0},
+  {kind:'guide', id:'g3', route:'虎跳峡', routeName:'虎跳峡高路', region:'云南丽江', title:'虎跳峡高路：28 道拐到中途客栈', body:'一天半的轻松线路，28 道拐是唯一的硬坡，中途客栈的露台是全程最好的观景点。', status:'approved', date:'8月2日', month:'8 月', helpful:42},
+  {kind:'comment', id:'c3', route:'虎跳峡', routeName:'虎跳峡高路', region:'云南丽江', body:'中途客栈的厕所真的是全峡谷最好看的风景之一，不是玩笑。', date:'8月3日', month:'8 月', likes:31, replies:6, photos:2},
+  {kind:'request', id:'r2', route:'狼塔', routeName:'狼塔 C+', region:'新疆乌鲁木齐', title:'狼塔 C+', body:'希望能收录，补给点和涉水点都已标在轨迹里。', status:'accepted', date:'7月10日', month:'7 月', hasTrack:true},
+  {kind:'comment', id:'c4', route:'鳌太线', routeName:'鳌太线', region:'陕西宝鸡', body:'这条线已经禁止穿越很多年了，请不要再组织。', date:'6月12日', month:'6 月', likes:8, replies:1, photos:0, routeGone:true},
+  {kind:'request', id:'r3', route:'鳌太线', routeName:'鳌太穿越', region:'陕西宝鸡', title:'鳌太穿越', body:'', status:'duplicate', date:'5月30日', month:'5 月'},
+];
+const KIND = { guide:'攻略', comment:'评论', request:'路线请求' };
+const count = k => DATA.filter(d=>k==='all'||d.kind===k).length;
+const sum = (k,f) => DATA.filter(d=>d.kind===k).reduce((s,d)=>s+(d[f]||0),0);
+const kindIcon = (k,c,s) => I[k](c,s);
+
+function statusOf(d){
+  if (d.kind==='guide') {
+    if (d.status==='pending') return {label:'审核中', color:'var(--accent)', icon:I.clock('var(--accent)')};
+    if (d.status==='rejected') return {label:'需修改', color:'var(--danger)', icon:I.alert('var(--danger)')};
+    return null;
+  }
+  if (d.kind==='request') {
+    if (d.status==='pending') return {label:'审核中', color:'var(--accent)', icon:I.clock('var(--accent)')};
+    if (d.status==='accepted') return {label:'已上线', color:'var(--text2)', icon:I.check('var(--text2)')};
+    if (d.status==='rejected') return {label:'未通过', color:'var(--danger)', icon:I.alert('var(--danger)')};
+    if (d.status==='duplicate') return {label:'已在路线库中', color:'var(--text2)', icon:I.check('var(--text2)')};
+  }
+  return null;
+}
+const statusHtml = s => s ? `<span class="status" style="color:${s.color}">${s.icon}${s.label}</span>` : '';
+function statsHtml(d){
+  if (d.kind==='guide' && d.status==='approved') return `<span class="stat">${I.thumb('var(--text2)')}<span class="num">${d.helpful}</span> 人觉得有用</span>`;
+  if (d.kind==='comment') return `<span class="stat">${I.heart('var(--text2)')}<span class="num">${d.likes}</span></span><span class="stat" style="margin-left:12px">${I.reply('var(--text2)')}<span class="num">${d.replies}</span></span>`;
+  return '';
+}
+function phone(cls, inner, title='我的贡献'){
+  return `<div class="phone ${cls}"><div class="sb"><span class="num">9:41</span><i></i></div>
+    <div class="nav"><div class="back" style="color:var(--text)">${I.back}</div><div class="title">${title}</div></div>
+    <div class="scroll">${inner}</div></div>`;
+}
+
+/* ───────── A 影响力优先 ───────── */
+function aList(filter){
+  const items = DATA.filter(d=>(filter==='all'||d.kind===filter) && !(d.status==='pending'||d.status==='rejected'));
+  let out='', last='';
+  items.forEach(d=>{
+    if (d.month!==last){ out+=`<div class="eyebrow" style="padding:${last?'22px':'8px'} 24px 6px">${d.month}</div>`; last=d.month; }
+    const title = d.kind==='comment' ? d.routeName : d.title;
+    const sub = d.kind==='comment' ? d.body : (d.kind==='guide' ? d.routeName : d.region);
+    out+=`<div style="display:flex;gap:12px;padding:12px 24px">
+      <div class="ktile">${kindIcon(d.kind,'var(--text2)',18)}</div>
+      <div style="flex:1;min-width:0">
+        <div class="row" style="justify-content:space-between;gap:10px"><div class="cardTitle clamp1">${title}</div><span class="caption num" style="flex:none">${d.date}</span></div>
+        <div class="${d.kind==='comment'?'body2 clamp2':'meta'}" style="margin-top:2px">${sub}</div>
+        ${d.photos?`<div class="thumbs">${Array.from({length:d.photos}).map((_,i)=>`<span style="${photo(d.route)};opacity:${1-i*.15}"></span>`).join('')}</div>`:''}
+        <div class="row" style="margin-top:8px;gap:12px">${statsHtml(d)}${statusHtml(statusOf(d))}${d.routeGone?'<span class="caption">关联路线暂不可用</span>':''}</div>
+      </div></div>`;
+  });
+  return out || `<div class="body2" style="text-align:center;padding:40px 24px">还没有${KIND[filter]}</div>`;
+}
+function optionA(){
+  const pending = DATA.filter(d=>d.status==='pending'||d.status==='rejected');
+  const big = (v,l)=>`<div style="flex:1"><div class="mono" style="font-size:34px;font-weight:800;letter-spacing:-1.2px;line-height:40px">${v}</div><div class="meta" style="margin-top:2px">${l}</div></div>`;
+  return phone('feature', `
+    <div style="padding:8px 24px 0">
+      <div class="lead">攻略、评论和路线请求，都会帮到后来走这条路的人。</div>
+      <div class="row" style="margin-top:22px;align-items:flex-start">
+        ${big(sum('guide','helpful'),'人觉得攻略有用')}${big(sum('comment','likes'),'个评论获赞')}${big(DATA.filter(d=>d.status==='accepted').length,'条请求已上线')}
+      </div>
+    </div>
+    <div style="margin:28px 16px 0;background:var(--field);border-radius:24px;padding:6px 0">
+      <div class="eyebrow" style="padding:12px 20px 4px">进行中 <span class="num">${pending.length}</span></div>
+      ${pending.map(d=>{const s=statusOf(d); return `<div style="padding:10px 20px">
+        <div class="row" style="justify-content:space-between;gap:10px">${statusHtml(s)}<span class="caption num">${d.date} 提交</span></div>
+        <div class="cardTitle clamp1" style="margin-top:4px">${d.title}</div>
+        <div class="meta">${KIND[d.kind]}　${d.routeName}</div>
+        ${d.reason?`<div style="margin-top:8px;font-size:13px;line-height:20px;color:var(--danger)">${d.reason}</div><div class="row" style="margin-top:8px;gap:4px;color:var(--accent)">${I.pen('var(--accent)')}<span class="link">去修改</span></div>`:''}
+      </div>`}).join('')}
+    </div>
+    <div class="tabs" id="aTabs" style="margin-top:22px">
+      ${['all','guide','comment','request'].map((k,i)=>`<div class="tab ${i?'':'on'}" data-k="${k}">${k==='all'?'全部':KIND[k]}<b class="num">${count(k)}</b></div>`).join('')}
+    </div>
+    <div id="aList" style="padding-top:6px">${aList('all')}</div>`);
+}
+
+/* ───────── B 按路线聚合 ───────── */
+function optionB(){
+  const groups = [];
+  DATA.forEach(d=>{ let g=groups.find(x=>x.route===d.route); if(!g){g={route:d.route,name:d.routeName,region:d.region,items:[]};groups.push(g);} g.items.push(d); });
+  const line = d => {
+    const s = statusOf(d);
+    const text = d.kind==='comment' ? d.body : d.title;
+    let right = '';
+    if (d.kind==='guide' && d.status==='approved') right = `<span class="stat">${I.thumb('var(--text2)')}<span class="num">${d.helpful}</span></span>`;
+    else if (d.kind==='comment') right = `<span class="stat">${I.heart('var(--text2)')}<span class="num">${d.likes}</span></span>`;
+    else right = statusHtml(s);
+    return `<div style="display:flex;gap:10px;padding:10px 0;align-items:flex-start">
+      <div style="padding-top:2px">${kindIcon(d.kind,'var(--text3)',16)}</div>
+      <div style="flex:1;min-width:0"><div style="font-size:14px;line-height:21px;font-weight:${d.kind==='comment'?400:600};color:${d.kind==='comment'?'var(--text2)':'var(--text)'}" class="clamp2">${text}</div>
+        <div class="caption num" style="margin-top:2px">${KIND[d.kind]}　${d.date}</div>
+        ${d.reason?`<div style="font-size:12.5px;line-height:19px;color:var(--danger);margin-top:4px">${d.reason}</div>`:''}</div>
+      <div style="flex:none;padding-top:2px">${right}</div></div>`;
+  };
+  return phone('grouped', `
+    <div style="padding:10px 24px 4px">
+      <div style="font-size:19px;font-weight:700;line-height:28px">你在 <span class="num">${groups.length}</span> 条路线上<br>留下了 <span class="num">${DATA.length}</span> 条贡献</div>
+      <div class="lead" style="margin-top:6px"><span class="num">${sum('guide','helpful')+sum('comment','likes')}</span> 次被后来的人用到</div>
+    </div>
+    <div style="padding:20px 16px 0;display:flex;flex-direction:column;gap:12px">
+      ${groups.map(g=>`<div style="background:var(--surfaceTop);border-radius:24px;padding:16px 20px 8px;box-shadow:var(--cardShadow)">
+        <div class="row" style="gap:12px">${cover(g.route,48,48,12)}
+          <div style="flex:1;min-width:0"><div class="cardTitle">${g.name}</div><div class="meta">${g.region}${g.items.some(i=>i.routeGone)?'　关联路线暂不可用':''}</div></div>
+          ${I.chev('var(--text3)')}</div>
+        <div style="margin-top:6px">${g.items.map(line).join('')}</div>
+      </div>`).join('')}
+    </div>`);
+}
+
+/* ───────── C 内容预览流 ───────── */
+function cFeed(filter){
+  return DATA.filter(d=>filter==='all'||d.kind===filter).map(d=>{
+    const s = statusOf(d);
+    if (d.kind==='guide') return `<div style="padding:0 16px">
+      <div style="background:var(--surfaceTop);border-radius:24px;overflow:hidden;box-shadow:var(--cardShadow)">
+        <div style="position:relative">${cover(d.route,358,150,0)}
+          ${s?`<div style="position:absolute;left:12px;top:12px;background:var(--control);border-radius:999px;padding:5px 10px">${statusHtml(s)}</div>`:''}</div>
+        <div style="padding:14px 20px 16px">
+          <div class="meta">攻略　${d.routeName}</div>
+          <div style="font-size:17px;font-weight:700;line-height:24px;margin-top:2px">${d.title}</div>
+          <div class="body2 clamp2" style="margin-top:4px">${d.body}</div>
+          ${d.reason?`<div style="margin-top:10px;background:var(--dangerSoft);border-radius:11px;padding:10px 12px;font-size:13px;line-height:20px;color:var(--danger)">${d.reason}</div>`:''}
+          <div class="row" style="justify-content:space-between;margin-top:12px">
+            <span class="caption num">${d.date}${d.status==='approved'?' 发布':' 提交'}</span>
+            ${d.status==='approved'?`<span class="stat">${I.thumb('var(--text2)')}<span class="num">${d.helpful}</span> 人觉得有用</span>`:d.reason?`<span class="link">去修改</span>`:''}
+          </div></div></div></div>`;
+    if (d.kind==='comment') return `<div style="padding:4px 24px">
+      <div class="row" style="gap:8px">${cover(d.route,22,22,6)}<span style="font-size:13px;font-weight:600">${d.routeName}</span><span class="caption num">${d.date}</span></div>
+      <div style="font-size:15px;line-height:25px;margin-top:8px">${d.body}</div>
+      ${d.photos?`<div class="thumbs">${Array.from({length:d.photos}).map((_,i)=>`<span style="width:84px;height:84px;border-radius:16px;${photo(d.route)};opacity:${1-i*.15}"></span>`).join('')}</div>`:''}
+      <div class="row" style="margin-top:10px;gap:0">${statsHtml(d)}${d.routeGone?'<span class="caption" style="margin-left:12px">关联路线暂不可用</span>':''}</div></div>`;
+    // request
+    const stage = d.status==='pending'?1:2;
+    const bad = d.status==='rejected';
+    const endLabel = d.status==='duplicate'?'已在路线库中':bad?'未通过':'已上线';
+    return `<div style="padding:0 16px"><div style="background:var(--field);border-radius:24px;padding:16px 20px">
+      <div class="row" style="gap:12px">
+        <div style="width:44px;height:44px;border-radius:12px;background:var(--surfaceTop);display:flex;align-items:center;justify-content:center">${I.request('var(--accent)',20)}</div>
+        <div style="flex:1;min-width:0"><div class="meta">路线请求　${d.region}</div><div class="cardTitle">${d.title}</div></div></div>
+      ${d.body?`<div class="body2 clamp2" style="margin-top:10px">${d.body}</div>`:''}
+      <div class="steps"><span class="dot on"></span><span class="bar on"></span><span class="dot ${stage>=1?'on':''}"></span><span class="bar ${stage>=2?(bad?'bad':'on'):''}"></span><span class="dot ${stage>=2?(bad?'bad':'on'):''}"></span></div>
+      <div class="stepLabels"><span class="num">${d.date} 提交</span><span class="${stage===1?'on':''}">审核中</span><span class="${stage===2?'on':''}">${endLabel}</span></div>
+    </div></div>`;
+  }).join('<div style="height:26px"></div>');
+}
+function optionC(){
+  return phone('feature', `
+    <div style="padding:8px 24px 16px"><div class="lead">攻略、评论和路线请求，都会帮到后来走这条路的人。</div></div>
+    <div class="chips" id="cChips">${['all','guide','comment','request'].map((k,i)=>`<div class="chip ${i?'':'on'}" data-k="${k}">${k==='all'?'全部':KIND[k]}<b class="num">${count(k)}</b></div>`).join('')}</div>
+    <div id="cFeed" style="padding-top:20px">${cFeed('all')}</div>`);
+}
+
+/* ───────── D 分区总览 ───────── */
+function optionD(){
+  const tile = (k,v,u,sub)=>`<div style="flex:1;min-width:0;background:var(--surfaceTop);border-radius:24px;padding:14px 14px 14px;min-height:118px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:var(--cardShadow)">
+    <div class="row" style="gap:6px">${kindIcon(k,'var(--text2)',15)}<span style="font-size:13px;font-weight:700">${KIND[k]}</span></div>
+    <div><div><span class="mono" style="font-size:26px;font-weight:800;letter-spacing:-.8px">${v}</span><span class="meta" style="margin-left:3px">${u}</span></div><div class="caption" style="color:var(--text2)">${sub}</div></div></div>`;
+  const guides = DATA.filter(d=>d.kind==='guide');
+  const comments = DATA.filter(d=>d.kind==='comment').slice(0,3);
+  const reqs = DATA.filter(d=>d.kind==='request');
+  const sec = (t,n)=>`<div class="row" style="justify-content:space-between;padding:0 24px;height:44px;margin-top:22px"><div class="sectionTitle">${t}</div><div class="row" style="gap:2px;color:var(--text2);font-size:13px">查看全部 <span class="num">${n}</span>${I.chev('var(--text3)',13)}</div></div>`;
+  const attention = DATA.filter(d=>d.status==='rejected');
+  return phone('grouped', `
+    <div style="padding:8px 16px 0;display:flex;gap:10px">
+      ${tile('guide',guides.length,'篇',`<span class="num">${sum('guide','helpful')}</span> 人觉得有用`)}
+      ${tile('comment',DATA.filter(d=>d.kind==='comment').length,'条',`<span class="num">${sum('comment','likes')}</span> 个赞`)}
+      ${tile('request',reqs.length,'个',`<span class="num">${reqs.filter(r=>r.status==='accepted').length}</span> 条已上线`)}
+    </div>
+    ${attention.map(d=>`<div style="margin:12px 16px 0;background:var(--dangerSoft);border-radius:24px;padding:14px 20px;display:flex;gap:12px;align-items:center">
+      <div style="flex:1;min-width:0"><div class="status" style="color:var(--danger)">${I.alert('var(--danger)')}攻略需修改</div>
+        <div class="cardTitle clamp1" style="margin-top:3px">${d.title}</div>
+        <div style="font-size:12.5px;line-height:19px;color:var(--text2);margin-top:2px">${d.reason}</div></div>
+      <div style="flex:none;height:36px;padding:0 14px;border-radius:999px;background:var(--surfaceTop);display:flex;align-items:center;color:var(--accent);font-size:14px;font-weight:600">修改</div></div>`).join('')}
+    ${sec('攻略',guides.length)}
+    <div style="display:flex;gap:12px;overflow-x:auto;padding:4px 16px 4px;scrollbar-width:none">
+      ${guides.map(d=>{const s=statusOf(d);return `<div style="flex:none;width:200px">
+        <div style="position:relative">${cover(d.route,200,120,16)}${s?`<div style="position:absolute;left:8px;top:8px;background:var(--control);border-radius:999px;padding:4px 9px">${statusHtml(s)}</div>`:''}</div>
+        <div style="font-size:14px;font-weight:700;line-height:20px;margin-top:8px" class="clamp2">${d.title}</div>
+        <div class="row" style="margin-top:4px;gap:8px"><span class="caption">${d.routeName}</span>${d.status==='approved'?`<span class="stat">${I.thumb('var(--text2)',12)}<span class="num">${d.helpful}</span></span>`:''}</div></div>`}).join('')}
+    </div>
+    ${sec('评论',DATA.filter(d=>d.kind==='comment').length)}
+    <div style="margin:0 16px;background:var(--surfaceTop);border-radius:24px;padding:6px 20px;box-shadow:var(--cardShadow)">
+      ${comments.map(d=>`<div style="padding:12px 0;display:flex;gap:12px">
+        <div style="flex:1;min-width:0"><div class="row" style="gap:8px"><span style="font-size:13px;font-weight:700">${d.routeName}</span><span class="caption num">${d.date}</span></div>
+          <div class="body2 clamp2" style="margin-top:3px">${d.body}</div>
+          <div class="row" style="margin-top:6px">${statsHtml(d)}</div></div>
+        ${d.photos?`<div style="width:56px;height:56px;border-radius:11px;flex:none;${photo(d.route)};position:relative"><span class="mono" style="position:absolute;right:5px;bottom:4px;font-size:10px;color:#fff;font-weight:700">${d.photos}</span></div>`:''}
+      </div>`).join('')}
+    </div>
+    ${sec('路线请求',reqs.length)}
+    <div style="margin:0 16px;background:var(--surfaceTop);border-radius:24px;padding:6px 20px;box-shadow:var(--cardShadow)">
+      ${reqs.map(d=>`<div class="row" style="padding:12px 0;gap:12px">
+        <div class="ktile">${I.request('var(--text2)',18)}</div>
+        <div style="flex:1;min-width:0"><div class="cardTitle">${d.title}</div><div class="caption num">${d.region}　${d.date} 提交</div></div>
+        ${statusHtml(statusOf(d))}</div>`).join('')}
+    </div>`);
+}
+
+const OPTIONS = [
+  ['A　影响力优先', '顶部三个大数字回答“帮到了多少人”；需要处理的（审核中、需修改）单独收进“进行中”块，带修改入口；下面按月份列出全部贡献，标签切换类型。', optionA],
+  ['B　按路线聚合', '以路线为单位组织：每条路线一张卡，里面是你在这条路线上的攻略、评论和请求。适合“我在哪些路上留下过东西”的回忆视角。', optionB],
+  ['C　内容预览流', '每条贡献按它在社区里的样子呈现：攻略是封面卡、评论是带图正文、路线请求带“提交 → 审核中 → 上线”的进度条。筛选用胶囊。', optionC],
+  ['D　分区总览', '总览页模式：三张统计卡，需修改的攻略置顶提醒；攻略横滑封面，评论和路线请求各给几条最新的，再用“查看全部”进入完整列表。', optionD],
+];
+document.getElementById('grid').innerHTML = OPTIONS.map(([t,idea,fn])=>`<div class="col"><h2>${t}</h2><div class="idea">${idea}</div>${fn()}</div>`).join('');
+
+document.getElementById('aTabs').addEventListener('click', e=>{
+  const t=e.target.closest('.tab'); if(!t) return;
+  document.querySelectorAll('#aTabs .tab').forEach(x=>x.classList.toggle('on',x===t));
+  document.getElementById('aList').innerHTML=aList(t.dataset.k);
+});
+document.getElementById('cChips').addEventListener('click', e=>{
+  const t=e.target.closest('.chip'); if(!t) return;
+  document.querySelectorAll('#cChips .chip').forEach(x=>x.classList.toggle('on',x===t));
+  document.getElementById('cFeed').innerHTML=cFeed(t.dataset.k);
+});
+</script>
+</body>
+</html>

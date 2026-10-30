@@ -92,4 +92,25 @@ insert into public.route_itineraries(id,version,route_id,status,origin,payload,v
 select id, 2, route_id, 'published', 'manual', payload, '审核人', current_date from itinerary_test_data;
 select pg_temp.check((select count(*) = 2 from public.route_itineraries_published((select route_id from itinerary_test_data))), 'next version republishes');
 
+-- Plan structure: stops on the track, meeting time and town.
+select pg_temp.check((select cardinality(public.route_itinerary_plan_errors(payload)) = 0 from itinerary_test_data), 'a plan without stops or access is valid');
+create temporary table staged_test_data as
+select jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(payload,
+  '{days,1,stops}', '[{"name":"下则通村","km":0},{"name":"日照金山营地","km":13}]'),
+  '{days,2,stops}', '[{"name":"日照金山营地","km":13},{"name":"新冷古寺","km":21},{"name":"夯达营地","km":30}]'),
+  '{days,3,stops}', '[{"name":"夯达营地","km":30},{"name":"则巴村","km":32}]'),
+  '{access}', '{"town":"理塘","meetingPoint":"理塘客运站","arriveBy":"07:30","stations":[{"name":"理塘","note":null}]}'),
+  '{exit}', '{"town":"理塘","readyAt":"17:00","stations":[{"name":"理塘"}]}') payload
+from itinerary_test_data;
+select pg_temp.check((select cardinality(public.route_itinerary_plan_errors(payload)) = 0 from staged_test_data), 'staged plan is valid');
+select pg_temp.check((select 'days[2].stops[1].km goes back along the track' = any(public.route_itinerary_plan_errors(jsonb_set(payload, '{days,2,stops,1,km}', '10'))) from staged_test_data), 'stops never go back');
+select pg_temp.check((select 'days[1].distanceKm must match its stops' = any(public.route_itinerary_plan_errors(jsonb_set(payload, '{days,1,distanceKm}', '20'))) from staged_test_data), 'distance follows the stops');
+select pg_temp.check((select 'stops must be set on every hike day or on none' = any(public.route_itinerary_plan_errors(payload #- '{days,3,stops}')) from staged_test_data), 'all walking days or none');
+select pg_temp.check((select 'days[0].stops only belong to a hike day' = any(public.route_itinerary_plan_errors(jsonb_set(payload, '{days,0,stops}', '[{"name":"理塘","km":0},{"name":"下则通村","km":0}]'))) from staged_test_data), 'no stops on an access day');
+select pg_temp.check((select 'access.arriveBy must be HH:MM' = any(public.route_itinerary_plan_errors(jsonb_set(payload, '{access,arriveBy}', '"7点半"'))) from staged_test_data), 'meeting time format');
+select pg_temp.check((select 'exit.stations must contain 1-3 items' = any(public.route_itinerary_plan_errors(jsonb_set(payload, '{exit,stations}', '[]'))) from staged_test_data), 'exit stations required');
+select pg_temp.reject(format($sql$insert into public.route_itineraries(id,version,route_id,status,origin,payload,verified_by,verified_on)
+  values (gen_random_uuid(), 1, %L, 'published', 'manual', %L, '审核人', current_date)$sql$,
+  (select route_id from itinerary_test_data), (select jsonb_set(payload, '{days,3,stops,1,km}', '100000') from staged_test_data)), 'beyond the route track');
+
 rollback;

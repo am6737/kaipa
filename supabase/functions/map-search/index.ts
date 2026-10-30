@@ -80,7 +80,7 @@ function text(value?: string | string[]) {
 }
 
 function uniqueRegion(parts: Array<string | undefined>) {
-  return parts.filter((part, index, values): part is string => Boolean(part) && values.indexOf(part) === index).join(' · ');
+  return parts.filter((part, index, values): part is string => Boolean(part) && values.indexOf(part) === index).join(' ');
 }
 
 function coordinateLabel(lng: number, lat: number) {
@@ -143,7 +143,8 @@ Deno.serve(protectEndpoint('map', 'map_requests')(async (req) => {
       if (!query || query.length > 100) return json({ error: { code: 'invalid_query' } }, 400);
       const params = new URLSearchParams({
         keywords: query,
-        offset: '8',
+        // AMap place/text caps one page at 25.
+        offset: '25',
         page: '1',
         extensions: 'base',
         citylimit: 'false',

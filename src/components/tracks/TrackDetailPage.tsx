@@ -16,15 +16,22 @@
 // the page drops everything that edits the track or ties it to a journey and
 // names the uploader instead. Following it and exporting it stay.
 //
+// A catalog route's 海拔 card opens the same page through `route`: the route's
+// own row converted by `routeAsTrack`, shown read-only without the journey tie
+// and the file's provenance, followed in the direction the card is showing.
+//
 // Nothing here is synthesized: a file without elevation shows no curve and
 // says so, rather than a plausible invented one.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Focus } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppActionDialog, layout, motion, radius, space, type } from '../../design-system';
 import { Icon, type IconName } from '../Icon';
 import { Press } from '../Press';
+import { HaloIconButton } from '../HaloIconButton';
 import { useData } from '../../data/DataContext';
+import { useJourneyTrackSave } from '../journey/useJourneyTrackSave';
 import { buildElevation } from '../../data/elevation';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
@@ -33,26 +40,31 @@ import { Track } from '../../data/tracks';
 import { formatTrackAscent, formatTrackDistance } from '../../lib/trackParser';
 import { formatClock, splitDistance } from '../../lib/trailGeo';
 import { measureTrack, positionAtDistance } from '../../lib/routeSegments';
-import { exportTrack } from '../../lib/trackExport';
+import { exportTrack, routeAsTrack } from '../../lib/trackExport';
+import { reverseRoute } from '../../lib/routeDirection';
 import { removeMedia } from '../../lib/storage';
+import { framingFailureKey, locateForFraming } from '../../lib/currentPosition';
 import { MAP_CONTROL_SIZE, MapControlButton, MapControlGroup } from '../MapControls';
 import { MapStylePickerSheet, type MapPresentationStyle } from '../MapStylePickerSheet';
 import { TrailSheet, type TrailSheetHandle } from '../Sheet';
 import { MarkDetail, type MarkDetailItem } from '../trail/MarkDetail';
+import { MarksListSheet } from '../trail/MarksListSheet';
 import { ensureNativeMapReady, TrackMap, type TrackMapHandle } from '../overlays/TrackMap';
 import { useMapPresentation } from '../maps/MapPresentationContext';
 import { OfflineMapRow } from '../maps/OfflineMapRow';
 import { trackToPoi } from './trackToPoi';
 import { PickDialog } from './PickDialog';
 import { TrailControlButton } from '../trail/TrailControlButton';
-import { TrackProfile, type TrackProfileMark } from './TrackProfile';
+import { ElevationProfile, type ElevationMark } from './ElevationProfile';
+import { ElevationStats } from './ElevationStats';
 import { TrackSettingsPage } from './TrackSettingsPage';
 import { FloatingMenu, MenuRow } from '../gear/GearItemsList';
 import { usePendingMenuAction } from '../gear/GearMenuTransition';
 import { Avatar } from '../Avatar';
 import type { PublishedTrackOwner } from '../../hooks/useSocial';
-import { trailRouteFromTrack, useOpenTrail } from '../../trail/trailRoutes';
+import { trailRouteFromPoi, trailRouteFromTrack, useOpenTrail } from '../../trail/trailRoutes';
 import { regionLabel } from '../../lib/regionLabel';
+import type { Poi } from '../../data/pois';
 
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
 
@@ -120,33 +132,6 @@ function SectionTitle({ theme, text, count }: { theme: Theme; text: string; coun
   );
 }
 
-// The back and ⋯ controls over a map: a bare icon with no disc behind it, kept
-// legible over any tiles by a light halo rather than a plate.
-function HaloIconButton({ theme, icon, onPress, accessibilityLabel }: { theme: Theme; icon: IconName; onPress: () => void; accessibilityLabel: string }) {
-  return (
-    <Press
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      onPress={onPress}
-      style={{
-        width: layout.iconButton,
-        height: layout.iconButton,
-        alignItems: 'center',
-        justifyContent: 'center',
-        // The glyph is an SVG, so the halo is a shadow on the subtree. iOS draws
-        // a layer shadow from the content's alpha when the view itself is
-        // transparent; Android needs the drop-shadow filter for the same.
-        ...Platform.select({
-          ios: { shadowColor: theme.dark ? '#000000' : '#FFFFFF', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.95, shadowRadius: 3 },
-          default: { filter: theme.dark ? 'drop-shadow(0px 1px 3px rgba(0,0,0,0.9))' : 'drop-shadow(0px 1px 3px rgba(255,255,255,0.95))' },
-        }),
-      }}
-    >
-      <Icon name={icon} size={26} color={theme.text} strokeWidth={2.4} />
-    </Press>
-  );
-}
-
 function StatChip({ theme, icon, value, unit }: { theme: Theme; icon: IconName; value: string; unit?: string }) {
   const empty = value === '--';
   return (
@@ -160,20 +145,43 @@ function StatChip({ theme, icon, value, unit }: { theme: Theme; icon: IconName; 
   );
 }
 
-export function TrackDetailPage({
-  theme,
-  track,
-  onBack,
-  entryVariant = 'push',
-  owner,
-}: {
+type TrackDetailProps = {
   theme: Theme;
   track: Track;
   onBack: () => void;
   entryVariant?: 'push' | 'continuationX' | 'continuationY';
   /** Someone else's published track: shown read-only, with its uploader. */
   owner?: PublishedTrackOwner;
-}) {
+  /** The catalog route this page is showing; set when it isn't a library track. */
+  route?: Poi;
+  /** The route walked from its recorded finish; route mode only. */
+  reversed?: boolean;
+};
+
+/** One page for a library track and for a catalog route's 海拔 card. The route
+ *  arrives as its own row, is read-only, and has no journey to tie to. */
+type Props = Omit<TrackDetailProps, 'track' | 'route' | 'reversed'> & (
+  { track: Track } | { route: Poi; reversed?: boolean }
+);
+
+export function TrackDetailPage(props: Props) {
+  if ('track' in props) return <TrackDetail {...props} />;
+  // Walked from the far trailhead: mirror the route once, so the map, the curve
+  // and the mark numbers all read in the direction the card is showing.
+  const walked = props.reversed ? reverseRoute(props.route) : props.route;
+  return (
+    <TrackDetail
+      theme={props.theme}
+      track={routeAsTrack(walked)}
+      route={props.route}
+      reversed={!!props.reversed}
+      onBack={props.onBack}
+      entryVariant={props.entryVariant ?? 'continuationY'}
+    />
+  );
+}
+
+function TrackDetail({ theme, track, route, reversed = false, onBack, entryVariant = 'push', owner }: TrackDetailProps) {
   const { t, resolved } = useI18n();
   const nav = useNav();
   const insets = useSafeAreaInsets();
@@ -187,10 +195,15 @@ export function TrackDetailPage({
   const [applyOpen, setApplyOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const readOnly = owner != null;
+  const readOnly = owner != null || route != null;
+  // A journey's copy of a catalog route is not a 「我的轨迹」 entry: it has no
+  // settings, delete or apply of its own, only an explicit save into the library.
+  const journeyCopy = !readOnly && track.inLibrary === false;
+  const libraryActions = !readOnly && !journeyCopy;
+  const trackSave = useJourneyTrackSave(journeyCopy ? track.id : undefined);
   // The route card's display switches: kilometre labels and the marks.
   const [layersOpen, setLayersOpen] = useState(false);
-  const [distanceMarkersVisible, setDistanceMarkersVisible] = useState(true);
+  const [distanceMarkersVisible, setDistanceMarkersVisible] = useState(false);
   const [marksVisible, setMarksVisible] = useState(true);
   // Place in the distance-ordered mark list; the map numbers, the curve badges
   // and the card all count in this same order.
@@ -205,6 +218,11 @@ export function TrackDetailPage({
   const [headerH, setHeaderH] = useState(96);
   const [chartH, setChartH] = useState(300);
   const trackMapRef = useRef<TrackMapHandle>(null);
+  // What the camera frames, for the frame button's next step: the track, the
+  // track with the reader in it, or neither once a gesture or a mark moved it.
+  const [mapFrame, setMapFrame] = useState<'track' | 'withMe' | null>('track');
+  const [userLocation, setUserLocation] = useState<{ lng: number; lat: number; accuracy?: number } | null>(null);
+  const [framingMe, setFramingMe] = useState(false);
   const sheetRef = useRef<TrailSheetHandle>(null);
 
   const entryX = useRef(new Animated.Value(entryVariant === 'continuationX' ? 52 : entryVariant === 'push' ? window.width : 0)).current;
@@ -227,7 +245,11 @@ export function TrackDetailPage({
 
   const info = useMemo(() => trackToPoi(track), [track]);
   const series = useMemo(() => buildElevation(info, { synthesize: false }), [info]);
-  const followRoute = useMemo(() => trailRouteFromTrack(track), [track]);
+  // Following a route goes the way the route card follows it, direction included.
+  const followRoute = useMemo(
+    () => (route ? trailRouteFromPoi(route, reversed) : trailRouteFromTrack(track)),
+    [route, reversed, track],
+  );
   const openTrail = useOpenTrail();
   const linkedJourneys = useMemo(() => data.journeys.filter((journey) => journey.trackId === track.id), [data.journeys, track.id]);
 
@@ -261,7 +283,10 @@ export function TrackDetailPage({
         ele: waypoint.ele ?? (hasProfile ? series.pts[Math.round((waypoint.km / (series.totalKm || 1)) * (series.pts.length - 1))]?.ele ?? null : null),
       }] : [];
     })
-    .sort((a, b) => (a.alongM ?? 0) - (b.alongM ?? 0)), [track.waypoints, lineMeasure, hasProfile, series]);
+    // The card wears the number the map circle and the curve badge show, which
+    // is the mark's place in this walking order.
+    .sort((a, b) => (a.alongM ?? 0) - (b.alongM ?? 0))
+    .map((mark, position) => ({ ...mark, number: position + 1 })), [track.waypoints, lineMeasure, hasProfile, series]);
   // The map numbers badges by its own array order, so it gets the same list.
   const waypoints = useMemo(() => marks.flatMap((mark) => (mark.lng != null && mark.lat != null ? [{
     name: mark.name,
@@ -269,9 +294,10 @@ export function TrackDetailPage({
     coord: [mark.lng, mark.lat] as [number, number],
   }] : [])), [marks]);
   // The curve plots badges by distance, so each mark keeps its own sample height
-  // when the waypoint carries none.
-  const profileMarks = useMemo<TrackProfileMark[]>(() => marks.map((mark, position) => ({
+  // when the waypoint carries none, and wears its place in the distance order.
+  const profileMarks = useMemo<ElevationMark[]>(() => marks.map((mark, position) => ({
     index: position,
+    label: String(position + 1),
     km: (mark.alongM ?? 0) / 1000,
     ele: mark.ele ?? series.pts[Math.round(((mark.alongM ?? 0) / 1000 / (series.totalKm || 1)) * (series.pts.length - 1))]?.ele ?? 0,
   })), [marks, series]);
@@ -296,9 +322,34 @@ export function TrackDetailPage({
   // route is fitted again once the middle one settles at its real height.
   useEffect(() => {
     if (!hasMap) return undefined;
-    const id = setTimeout(() => trackMapRef.current?.fitRoute(), 240);
+    const id = setTimeout(() => {
+      trackMapRef.current?.fitRoute();
+      setMapFrame('track');
+    }, 240);
     return () => clearTimeout(id);
   }, [hasMap, snapHeights[1]]);
+
+  // Komoot's frame button: off the track it frames the track; on the track it
+  // pulls back until the reader is in the frame too; from there, back again.
+  const cycleMapFrame = async () => {
+    if (mapFrame !== 'track') {
+      trackMapRef.current?.fitRoute();
+      setMapFrame('track');
+      return;
+    }
+    if (framingMe) return;
+    setFramingMe(true);
+    const fix = await locateForFraming();
+    setFramingMe(false);
+    if (!fix.ok) {
+      nav.showToast(t(framingFailureKey(fix.reason)));
+      return;
+    }
+    const { lng, lat, accuracy } = fix.position;
+    setUserLocation({ lng, lat, accuracy: accuracy ?? undefined });
+    trackMapRef.current?.fitRouteWith([lng, lat]);
+    setMapFrame('withMe');
+  };
 
   const scrubCoord = useMemo((): [number, number] | undefined => {
     if (!hasMap) return undefined;
@@ -320,8 +371,8 @@ export function TrackDetailPage({
     if (Number.isFinite(kmh) && kmh > 0) measures.push({ key: 'speed', label: t('tracks.detail.avgSpeed'), value: kmh.toFixed(1), unit: 'km/h' });
   }
   measures.push({ key: 'descent', label: t('tracks.detail.descent'), value: hasDesc ? fmt(descValue) : '--', unit: hasDesc ? 'm' : undefined });
-  measures.push({ key: 'max', label: t('tracks.detail.maxEle'), value: hasProfile ? fmt(series.maxEle) : '--', unit: hasProfile ? 'm' : undefined });
-  measures.push({ key: 'min', label: t('tracks.detail.minEle'), value: hasProfile ? fmt(series.minEle) : '--', unit: hasProfile ? 'm' : undefined });
+  // The three heights belong to the curve, so they sit under it rather than
+  // twice on the page.
   if (track.pointCount) measures.push({ key: 'points', label: t('tracks.detail.points'), value: fmt(track.pointCount) });
 
   const when = track.startedAt ?? track.createdAt;
@@ -354,11 +405,19 @@ export function TrackDetailPage({
   // route page and the walk do; the map and the curve keep it highlighted, and
   // follow as the sheet is swiped to the next one.
   const [openMark, setOpenMark] = useState<number | null>(null);
+  const [marksListOpen, setMarksListOpen] = useState(false);
   const highlightMark = useCallback((pos: number | null) => {
     setSelectedPos(pos);
     setScrubKm(null);
     const mark = pos != null ? marks[pos] : undefined;
-    setSelectedPt(mark?.lng != null && mark.lat != null ? [mark.lng, mark.lat] : null);
+    const coordinate = mark?.lng != null && mark.lat != null ? [mark.lng, mark.lat] as [number, number] : null;
+    setSelectedPt(coordinate);
+    // The card and the map read the same mark, so the map keeps it in the part
+    // of itself the card does not cover — swiping to the next one moves this pin.
+    if (coordinate) {
+      trackMapRef.current?.focusPoint(coordinate);
+      setMapFrame(null);
+    }
   }, [marks]);
   const selectMark = useCallback((pos: number | null) => {
     highlightMark(pos);
@@ -466,6 +525,7 @@ export function TrackDetailPage({
           rounded={false}
           showLegend={false}
           interactive
+          endpointBadges
           scrubPt={scrubCoord}
           waypoints={waypoints}
           showWaypoints={marksVisible}
@@ -474,10 +534,13 @@ export function TrackDetailPage({
           routeStyleWaypoints
           showWaypointCallout={false}
           selectedWaypointIndex={selectedPos}
+          selectedWaypointPhoto={selectedMark?.photo}
           onWaypointPress={(_waypoint, index) => selectMark(index)}
           onMapPress={() => selectMark(null)}
           mapStyle={mapStyle}
           routePadding={routePadding}
+          userLocation={userLocation}
+          onGestureStart={() => setMapFrame(null)}
         />
       ) : null}
 
@@ -511,10 +574,14 @@ export function TrackDetailPage({
           />
           <MapControlButton
             theme={theme}
-            icon="expand"
-            onPress={() => trackMapRef.current?.fitRoute()}
-            accessibilityLabel={t('tracks.detail.fitRoute')}
-          />
+            active={mapFrame != null}
+            onPress={() => { void cycleMapFrame(); }}
+            accessibilityLabel={t(mapFrame === 'track' ? 'tracks.detail.fitTrackWithMe' : 'tracks.detail.fitRoute')}
+          >
+            {framingMe
+              ? <ActivityIndicator size="small" color={theme.accent} />
+              : <Focus color={mapFrame != null ? theme.accent : theme.text} size={18} strokeWidth={2} />}
+          </MapControlButton>
         </MapControlGroup>
       </Animated.View>
 
@@ -552,7 +619,14 @@ export function TrackDetailPage({
               }],
             }}
           >
-            {readOnly ? null : <TrailControlButton theme={theme} icon="journey" label={t('tracks.action.apply')} onPress={() => setApplyOpen(true)} />}
+            {libraryActions ? <TrailControlButton theme={theme} icon="journey" label={t('tracks.action.apply')} onPress={() => setApplyOpen(true)} /> : null}
+            {trackSave ? (
+              trackSave.saved ? (
+                <TrailControlButton theme={theme} icon="check" label={t('journey.track.savedInLibrary')} muted onPress={() => nav.openOwnTrack(trackSave.saved!.id)} />
+              ) : (
+                <TrailControlButton theme={theme} icon="download" label={t('journey.track.saveToLibrary')} busy={trackSave.saving} disabled={trackSave.saving} onPress={() => { void trackSave.save(); }} />
+              )
+            ) : null}
             {followRoute ? <TrailControlButton theme={theme} icon="play" label={t('trail.entry.followTrack')} primary grow={1.45} onPress={() => openTrail(followRoute)} /> : null}
           </Animated.View>
         )}
@@ -563,7 +637,7 @@ export function TrackDetailPage({
             <Animated.View pointerEvents={midVisible ? 'auto' : 'none'} style={{ opacity: midOpacity }}>
               {hasProfile ? (
                 <View style={{ paddingTop: space.md }}>
-                  <TrackProfile
+                  <ElevationProfile
                     theme={theme}
                     series={series}
                     width={chartW}
@@ -573,6 +647,9 @@ export function TrackDetailPage({
                     selectedKm={scrubKm}
                     onSelect={scrub}
                   />
+                  <View style={{ marginTop: space.md }}>
+                    <ElevationStats theme={theme} elevation={track.elevation} />
+                  </View>
                 </View>
               ) : (
                 <Text style={[type.body, { color: theme.text2, paddingTop: space.md }]}>{t('tracks.detail.noElevation')}</Text>
@@ -588,12 +665,16 @@ export function TrackDetailPage({
                   <Text style={[type.meta, { color: theme.text2 }]}>{formatDay(when, resolved)}</Text>
                 </View>
               ) : null}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs }}>
-                <Icon name={recorded ? 'record' : 'upload'} size={13} color={theme.text3} strokeWidth={2} />
-                <Text style={[type.meta, { color: theme.text2 }]}>{sourceLabel}</Text>
-              </View>
+              {/* A catalog route was neither recorded here nor imported by the
+                  person looking at it. */}
+              {route ? null : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs }}>
+                  <Icon name={recorded ? 'record' : 'upload'} size={13} color={theme.text3} strokeWidth={2} />
+                  <Text style={[type.meta, { color: theme.text2 }]}>{sourceLabel}</Text>
+                </View>
+              )}
               {marks.length ? (
-                <Press accessibilityRole="button" onPress={() => { setMarksVisible(true); selectMark(0); }} style={{ minHeight: layout.fieldHeight, justifyContent: 'center' }}>
+                <Press accessibilityRole="button" onPress={() => { setMarksVisible(true); setMarksListOpen(true); }} style={{ minHeight: layout.fieldHeight, justifyContent: 'center' }}>
                   <Text style={[type.meta, { color: theme.accent, fontWeight: '700' }]}>{t('tracks.detail.marksLink', { count: marks.length })}</Text>
                 </Press>
               ) : null}
@@ -619,8 +700,8 @@ export function TrackDetailPage({
               </>
             ) : null}
 
-            {readOnly ? null : <SectionTitle theme={theme} text={t('tracks.detail.journeys')} count={linkedJourneys.length || undefined} />}
-            {readOnly ? null : linkedJourneys.length ? linkedJourneys.map((journey) => (
+            {libraryActions ? <SectionTitle theme={theme} text={t('tracks.detail.journeys')} count={linkedJourneys.length || undefined} /> : null}
+            {!libraryActions ? null : linkedJourneys.length ? linkedJourneys.map((journey) => (
               <Press
                 key={journey.id}
                 accessibilityRole="button"
@@ -643,12 +724,7 @@ export function TrackDetailPage({
                 <Icon name="chevronR" size={16} color={theme.text3} strokeWidth={2.2} />
               </Press>
             )) : (
-              <View>
-                <Text style={[type.body, { color: theme.text2 }]}>{t('tracks.detail.journeysEmpty')}</Text>
-                <Press accessibilityRole="button" onPress={() => setApplyOpen(true)} style={{ minHeight: layout.iconButton, justifyContent: 'center', alignSelf: 'flex-start' }}>
-                  <Text style={[type.chatAction, { color: theme.accent }]}>{t('tracks.action.apply')}</Text>
-                </Press>
-              </View>
+              <Text style={[type.body, { color: theme.text2 }]}>{t('tracks.detail.journeysEmpty')}</Text>
             )}
 
             {/* Android only, and OfflineMapRow returns null by itself elsewhere. */}
@@ -659,6 +735,18 @@ export function TrackDetailPage({
           </Animated.View>
         </View>
       </TrailSheet>
+
+      <MarksListSheet
+        theme={theme}
+        visible={marksListOpen}
+        items={marks}
+        selected={selectedPos}
+        onSelect={(pos) => {
+          setMarksListOpen(false);
+          selectMark(pos);
+        }}
+        onClose={() => setMarksListOpen(false)}
+      />
 
       <MarkDetail
         theme={theme}
@@ -713,14 +801,14 @@ export function TrackDetailPage({
           theme={theme}
           title={t('journey.map.layerTitle')}
           closeLabel={t('common.close')}
-          options={([
+          styleOptions={([
             { id: 'standard', label: t('journey.map.layerStandard') },
             { id: 'satellite', label: t('journey.map.layerSatellite') },
           ] satisfies { id: MapPresentationStyle; label: string }[])}
           value={mapStyle}
-          detailSections={[{
+          sections={[{
             id: 'track-display',
-            title: t('journey.map.routeTracksTitle'),
+            title: t('journey.map.displayTitle'),
             options: [
               {
                 id: 'distance-markers',
@@ -746,11 +834,11 @@ export function TrackDetailPage({
         />
       ) : null}
       <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + space.xs + MAP_CONTROL_SIZE + space.xs} width={Math.min(232, window.width - space.sm * 2)} onClose={() => { menuAction.cancel(); setMoreOpen(false); }} onClosed={menuAction.onClosed}>
-        {readOnly ? null : <MenuRow theme={theme} icon="gearSettings" label={t('tracks.settings.title')} onPress={() => closeMoreThen(() => setSettingsOpen(true))} />}
+        {libraryActions ? <MenuRow theme={theme} icon="gearSettings" label={t('tracks.settings.title')} onPress={() => closeMoreThen(() => setSettingsOpen(true))} /> : null}
         {canExport ? <MenuRow theme={theme} icon="download" label={t('tracks.action.export')} onPress={() => closeMoreThen(exportGpx)} /> : null}
-        {readOnly ? null : <MenuRow theme={theme} icon="trash" label={t('tracks.action.delete')} destructive onPress={() => closeMoreThen(() => setDeleteOpen(true))} />}
+        {libraryActions ? <MenuRow theme={theme} icon="trash" label={t('tracks.action.delete')} destructive onPress={() => closeMoreThen(() => setDeleteOpen(true))} /> : null}
       </FloatingMenu>
-      {settingsOpen && !readOnly ? <TrackSettingsPage theme={theme} track={track} onBack={() => setSettingsOpen(false)} /> : null}
+      {settingsOpen && libraryActions ? <TrackSettingsPage theme={theme} track={track} onBack={() => setSettingsOpen(false)} /> : null}
     </Animated.View>
   );
 }

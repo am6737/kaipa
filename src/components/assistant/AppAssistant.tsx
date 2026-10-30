@@ -856,6 +856,38 @@ function ItineraryCard({ theme, card, onOpen }: { theme: Theme; card: NonNullabl
   </View>;
 }
 
+const PACKING_CARD_NAMES = 6;
+
+function PackingChangeCard({ theme, journeyName, change, onOpen }: { theme: Theme; journeyName: string; change: Extract<ActionResult, { kind: 'packing' }>; onOpen: () => void }) {
+  const { t, resolved } = useI18n();
+  const shown = change.names.slice(0, PACKING_CARD_NAMES);
+  const summary = [
+    change.added ? t('agent.packingAdded', { count: change.added }) : '',
+    change.removed ? t('agent.packingRemoved', { count: change.removed }) : '',
+  ].filter(Boolean).join(resolved === 'zh' ? '，' : ', ');
+  return (
+    <View style={[styles.planPreview, { backgroundColor: theme.surfaceTop }]}>
+      <Text style={[styles.planMeta, { color: theme.text2 }]} numberOfLines={1}>{journeyName}</Text>
+      <Text style={[styles.planTitle, { color: theme.text }]}>{t('agent.packingTitle')}</Text>
+      {summary ? <Text style={[styles.planMeta, { color: theme.text3 }]}>{summary}</Text> : null}
+      {shown.length ? <View style={styles.packingNames}>
+        {shown.map((name, index) => (
+          <View key={`${name}_${index}`} style={[styles.packingName, { backgroundColor: theme.fieldSurface }]}>
+            <Text style={[styles.packingNameText, { color: theme.text2 }]} numberOfLines={1}>{name}</Text>
+          </View>
+        ))}
+        {change.names.length > shown.length
+          ? <Text style={[styles.packingMore, { color: theme.text3 }]}>{t('agent.packingMore', { count: change.names.length - shown.length })}</Text>
+          : null}
+      </View> : null}
+      <Press onPress={onOpen} accessibilityRole="button" accessibilityLabel={`${t('agent.viewChecklist')}：${journeyName}`} style={styles.viewJourney}>
+        <ArrowUpRight size={18} color={theme.text} strokeWidth={2} />
+        <Text style={[styles.viewJourneyText, { color: theme.text }]}>{t('agent.viewChecklist')}</Text>
+      </Press>
+    </View>
+  );
+}
+
 function ActionResultCard({ theme, title, detail, openLabel, icon: Icon = Check, onOpen }: { theme: Theme; title: string; detail: string; openLabel: string; icon?: typeof Check; onOpen: () => void }) {
   return (
     <Press onPress={onOpen} accessibilityRole="button" accessibilityLabel={`${openLabel}：${title}`} style={[styles.actionResultCard, { backgroundColor: theme.surfaceTop }]}>
@@ -889,7 +921,7 @@ type JourneyChange = {
 
 type ActionResult =
   | JourneyChange
-  | { kind: 'packing'; journeyId: string; added: number; removed: number }
+  | { kind: 'packing'; journeyId: string; added: number; removed: number; names: string[] }
   | { kind: 'gearSet'; name: string; setId?: string; added: number; toBuy: number }
   | { kind: 'gear'; names: string[]; itemId?: number }
   | { kind: 'undo'; journeyId: string; count: number }
@@ -919,6 +951,7 @@ function actionResultsForTurn(turn: Turn): ActionResult[] {
   // A new journey is presented by the plan preview card, which covers its itinerary.
   const createdJourney = of('create_journey').length > 0;
 
+  const journeyChanged = new Set<string>();
   if (!undone && !createdJourney) {
     const journeys = new Map<string, JourneyChange>();
     const journeyChange = (journeyId: unknown) => {
@@ -958,25 +991,40 @@ function actionResultsForTurn(turn: Turn): ActionResult[] {
       const change = journeyChange(activity.arguments.journeyId);
       if (change) change.endpointDays += resultCount(activity.arguments.endpoints);
     }
-    results.push(...[...journeys.values()].filter((change) =>
-      change.addedRows || change.deletedRows || change.plannedDate || change.totalDays || change.location || change.endpointDays));
+    for (const change of journeys.values()) {
+      if (!(change.addedRows || change.deletedRows || change.plannedDate || change.totalDays || change.location || change.endpointDays)) continue;
+      journeyChanged.add(change.journeyId);
+      // The plan preview card is the journey card; it needs no second summary.
+      if (change.journeyId !== turn.planPreview?.journeyId) results.push(change);
+    }
   }
 
-  if (!undone) {
+  // A checklist written alongside the itinerary is part of the plan the journey
+  // card opens; only a turn that edited just the checklist gets its own card.
+  if (!undone && !createdJourney) {
     // commit_packing_draft writes through add_packing_items, which records its own row.
-    const packing = new Map<string, { added: number; removed: number }>();
-    const packingChange = (journeyId: string) => packing.get(journeyId) || packing.set(journeyId, { added: 0, removed: 0 }).get(journeyId)!;
+    const packing = new Map<string, { added: number; removed: number; names: string[]; proposed: number }>();
+    const packingChange = (journeyId: string) => packing.get(journeyId) || packing.set(journeyId, { added: 0, removed: 0, names: [], proposed: 0 }).get(journeyId)!;
     for (const activity of of('add_packing_items')) {
       const journeyId = String(outputRecord(activity.output).journeyId || activity.arguments.journeyId || '');
       const added = resultCount(outputRecord(activity.output).added);
-      if (journeyId && added) packingChange(journeyId).added += added;
+      if (!journeyId || !added) continue;
+      const change = packingChange(journeyId);
+      const items = Array.isArray(activity.arguments.items) ? activity.arguments.items : [];
+      change.added += added;
+      change.proposed += items.length;
+      for (const item of items) if (typeof item?.name === 'string' && item.name.trim()) change.names.push(item.name.trim());
     }
     for (const activity of of('delete_packing_items')) {
       const journeyId = String(outputRecord(activity.output).journeyId || activity.arguments.journeyId || '');
       const removed = resultCount(outputRecord(activity.output).deleted);
       if (journeyId && removed) packingChange(journeyId).removed += removed;
     }
-    for (const [journeyId, change] of packing) results.push({ kind: 'packing', journeyId, ...change });
+    for (const [journeyId, { proposed, names, ...change }] of packing) {
+      if (journeyChanged.has(journeyId)) continue;
+      // Skipped duplicates make the proposed names differ from what was saved.
+      results.push({ kind: 'packing', journeyId, ...change, names: proposed === change.added ? names : [] });
+    }
 
     const sets = new Map<string, Extract<ActionResult, { kind: 'gearSet' }>>();
     for (const activity of of('add_gear_set_items')) {
@@ -1024,6 +1072,7 @@ function actionResultsForTurn(turn: Turn): ActionResult[] {
     const routes = mentioned(of('search_routes').flatMap((activity) => searchHits(activity.output, 'routes')), new Set());
     results.push(...routes.map((hit) => ({ kind: 'route' as const, routeId: hit.id, name: hit.name })));
     const linkedJourneys = new Set(results.flatMap((result) => 'journeyId' in result ? [result.journeyId] : []));
+    if (turn.planPreview) linkedJourneys.add(turn.planPreview.journeyId);
     const journeys = mentioned(of('search_journeys').flatMap((activity) => searchHits(activity.output, 'journeys')), linkedJourneys);
     results.push(...journeys.map((hit) => ({ kind: 'journeyRef' as const, journeyId: hit.id, name: hit.name })));
   }
@@ -1084,16 +1133,11 @@ function ActionResultCards({ theme, results, onOpenJourney, onOpenGear, onOpenRo
             />;
           }
           case 'packing':
-            return <ActionResultCard
+            return <PackingChangeCard
               key={`packing_${result.journeyId}`}
               theme={theme}
-              title={t('agent.packingUpdatedFor', { name: journeyName(result.journeyId) })}
-              detail={[
-                result.added ? t('agent.packingAdded', { count: result.added }) : '',
-                result.removed ? t('agent.packingRemoved', { count: result.removed }) : '',
-              ].filter(Boolean).join(clauseSeparator)}
-              openLabel={t('agent.viewChecklist')}
-              icon={BriefcaseBusiness}
+              journeyName={journeyName(result.journeyId)}
+              change={result}
               onOpen={() => onOpenJourney(result.journeyId, { tab: 'checklist' })}
             />;
           case 'gearSet':
@@ -2502,7 +2546,8 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
               {turn === pendingDepartureTurn ? <DepartureCard theme={theme} recents={recentDepartures} disabled={departureBusy} failure={departureFailure} onAnswer={answerDeparture}
                 onEditing={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250)} /> : null}
               {turn.sources?.length ? <SourcesStrip theme={theme} sources={turn.sources} title={t('agent.sources')} /> : null}
-              {turn.planPreview && !(turn.role === 'assistant' && actionResultsForTurn(turn).some((result) => result.kind === 'journey' && result.journeyId === turn.planPreview!.journeyId))
+              {/* A checklist-only edit shows its own card instead of the whole plan. */}
+              {turn.planPreview && !(turn.role === 'assistant' && actionResultsForTurn(turn).some((result) => result.kind === 'packing' && result.journeyId === turn.planPreview!.journeyId))
                 ? <PlanPreviewCard theme={theme} preview={turn.planPreview} openLabel={t('agent.viewJourney')} onOpen={onOpenJourney} />
                 : null}
               {turn.itineraryCard ? <ItineraryCard theme={theme} card={turn.itineraryCard} onOpen={() => openItineraryCard(turn.itineraryCard!)} /> : null}
@@ -2802,6 +2847,10 @@ const styles = StyleSheet.create({
   planItemText: { flex: 1, minWidth: 0, ...type.planItem },
   viewJourney: { alignSelf: 'flex-start', minHeight: 42, marginTop: space.sm, paddingHorizontal: space.md, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs },
   viewJourneyText: { ...type.chatAction },
+  packingNames: { marginTop: space.md, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.xs },
+  packingName: { maxWidth: '100%', paddingVertical: space.xxs, paddingHorizontal: space.sm, borderRadius: radius.pill },
+  packingNameText: { ...type.chatDetail },
+  packingMore: { ...type.chatDetail },
   actionResultCard: { marginTop: space.md, minHeight: 72, borderRadius: radius.card, padding: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.sm, boxShadow: '0px 8px 22px rgba(0,0,0,0.06)' },
   actionResultIcon: { width: 36, height: 36, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(128,128,128,0.12)' },
   actionResultCopy: { flex: 1, minWidth: 0, gap: 2 },

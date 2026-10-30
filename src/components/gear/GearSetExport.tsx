@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 import { Theme } from '../../theme/theme';
-import { GearCat, GearItem, Metric, WeightUnit, fmtWeight, itemPrice, itemQty, itemWeight, packStats, splitWeight } from '../../data/gear';
+import { GearCat, GearItem, Metric, WeightUnit, fmtItemWeight, fmtWeight, itemPrice, itemQty, itemWeight, packStats, splitWeight } from '../../data/gear';
 import { MONO } from '../../theme/fonts';
 import { LabeledDonut, Row } from './LabeledDonut';
 import { GearItemImage } from './parts';
@@ -70,7 +70,7 @@ export function buildGearSetText(data: GearSetExportData) {
     const groupWeight = group.items.reduce((sum, item) => sum + itemWeight(item), 0);
     lines.push('', `${group.cat.name}  ${fmtWeight(groupWeight, data.weightUnit, true)}`);
     group.items.forEach((item) => {
-      lines.push(`- ${item.name} x${itemQty(item)}  ${fmtWeight(itemWeight(item), data.weightUnit, true)}  ${money(itemPrice(item))}`);
+      lines.push(`- ${item.name} x${itemQty(item)}  ${fmtItemWeight(itemWeight(item), data.weightUnit, true)}  ${money(itemPrice(item))}`);
     });
   });
 
@@ -150,7 +150,7 @@ export const GearSetPoster = React.forwardRef<any, { data: GearSetExportData; th
                     {displaySettings.groupStats ? <Text style={[styles.matchCategoryMeta, { color: theme.text3 }]}>{group.items.length}{'  '}{fmtWeight(groupWeight, data.weightUnit, true)}</Text> : null}
                   </View>
                   {group.items.map((item) => {
-                    const meta = [displaySettings.weight ? fmtWeight(itemWeight(item), data.weightUnit) : null, displaySettings.value ? money(itemPrice(item)) : null, itemQty(item) > 1 ? `×${itemQty(item)}` : null].filter(Boolean).join('  ');
+                    const meta = [displaySettings.weight ? fmtItemWeight(itemWeight(item), data.weightUnit) : null, displaySettings.value ? money(itemPrice(item)) : null, itemQty(item) > 1 ? `×${itemQty(item)}` : null].filter(Boolean).join('  ');
                     return (
                       <View key={`${group.cat.id}-${item.name}`} style={styles.matchRow}>
                         {displaySettings.images ? <GearItemImage theme={theme} item={item} radius={12} style={styles.matchThumb} /> : null}

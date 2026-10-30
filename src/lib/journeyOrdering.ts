@@ -37,8 +37,3 @@ export function sortRowsWithinDay(rows: TLRow[]): TLRow[] {
 export function orderedJourneyRows(rows: TLRow[], knownGroups: string[]): TLRow[] {
   return groupJourneyRows(rows, knownGroups).flatMap((group) => sortRowsWithinDay(group.rows));
 }
-
-/** The pending tab holds only undated rows; numbered tabs share the dated timeline. */
-export function journeyGroupsForSelectedDay(groups: TLGroup[], selectedDay: string): TLGroup[] {
-  return groups.filter((group) => selectedDay === '' ? group.key === '' : group.key !== '');
-}

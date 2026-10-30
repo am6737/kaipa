@@ -46,7 +46,11 @@ export const pinKey = (p: { id: string; layer?: 'explore' | 'memory' }) => `${p.
 export interface PinVisibilityApi {
   /** Show exactly these pins (`pinKey` values), hide the rest. Hiding is
       immediate - that layer is the one the user just left. `stagger` reveals the
-      new ones one after another, like the first screen's pins arrive. */
+      new ones in a sweep that starts at the middle of the group and works
+      outward, one compressed step apart, so a whole region arriving finishes
+      inside the same total as the first screen's card cascade however many pins
+      it carries. Only pins that were not already shown animate; the rest keep
+      their alpha. Ignored while the OS asks for reduced motion. */
   apply: (visibleKeys: Set<string>, options?: { stagger?: boolean }) => void;
 }
 
@@ -55,7 +59,10 @@ export type GlobeMapStyle = 'standard' | 'terrain' | 'satellite';
 export type GlobeCameraAction =
   | { type: 'fitRoute' | 'resetNorth'; revision: number }
   | { type: 'fitCoordinates'; revision: number; coordinates: [number, number][]; padding?: [number, number, number, number]; animated?: boolean }
-  | { type: 'locate'; revision: number; coordinate: [number, number] }
+  /** `zoom` keeps the camera where it is instead of jumping to 14; `inFrame`
+     puts the point in the band the route fits to — above the bottom card —
+     rather than dead centre with the map squared back to north. */
+  | { type: 'locate'; revision: number; coordinate: [number, number]; zoom?: number; inFrame?: boolean }
   | { type: 'restore'; revision: number; coordinate: [number, number]; zoom: number };
 
 
@@ -163,6 +170,19 @@ export interface GlobeProps {
   autoFrameRoute?: boolean;
   /** cascade the POI pins in one-by-one (first data load) instead of showing them all at once */
   staggerPins?: boolean;
+  /**
+   * Names the group of pins the caller is currently *arriving* — for 发现 that is
+   * the selected region, and it changes only when a different region's places
+   * swap in. Android uses it to decide which pins play the native marker
+   * entrance: a pin whose key was not on screen at the previous build gets it
+   * while this value is new, and never again for the same appearance. Every
+   * other reason a pin is rebuilt — a chip filter, the selected pin, `muted`
+   * flipping (its marker id changes), a card opening — keeps the value, so
+   * nothing replays. iOS ignores it: there the same decision is made by the
+   * `stagger` option of the visibility rail. Ignored while the OS asks for
+   * reduced motion.
+   */
+  pinEntranceKey?: string;
   /** reports map orientation so detail chrome can reveal a compass only when useful */
   onCameraOrientationChange?: (heading: number, pitch: number) => void;
   /** reports that the user has moved the camera away from its programmatic route framing */

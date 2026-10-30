@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>当季路线 更多 预览</title>
+<style>
+  :root {
+    --bg: #E9E9EC; --grouped: #F4F4F5; --surface: #FFFFFF; --field: rgba(0,0,0,0.045);
+    --text: #111113; --text2: rgba(60,60,67,0.62); --text3: rgba(60,60,67,0.32);
+    --accent: #0A84FF; --frameEdge: #D4D4D8; --note: #6B6B70; --scrim: rgba(0,0,0,0.28);
+  }
+  body.dark {
+    --bg: #0B0B0C; --grouped: #1C1C1E; --surface: #2C2C2E; --field: rgba(255,255,255,0.07);
+    --text: #FFFFFF; --text2: rgba(235,235,245,0.62); --text3: rgba(235,235,245,0.30);
+    --frameEdge: #2C2C2E; --note: #9A9AA0; --scrim: rgba(0,0,0,0.5);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif; padding: 28px 24px 48px; }
+  header.page { max-width: 1100px; margin: 0 auto 24px; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  header.page h1 { font-size: 22px; font-weight: 800; }
+  header.page p { font-size: 13px; color: var(--note); margin-top: 6px; line-height: 1.6; max-width: 680px; }
+  .toggle { border: 0; border-radius: 999px; padding: 9px 16px; font-size: 13px; font-weight: 700; background: var(--surface); color: var(--text); cursor: pointer; }
+  .row { max-width: 1100px; margin: 0 auto; display: flex; gap: 40px; flex-wrap: wrap; justify-content: center; }
+  .col { width: 340px; }
+  .cap { font-size: 14px; font-weight: 800; margin-bottom: 4px; }
+  .capnote { font-size: 12px; color: var(--note); line-height: 1.6; margin-bottom: 12px; min-height: 58px; }
+  .phone { width: 340px; height: 720px; border-radius: 44px; border: 8px solid var(--frameEdge); background: var(--grouped); position: relative; overflow: hidden; }
+  .status { height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 26px; font-size: 13px; font-weight: 700; }
+  .nav { height: 44px; position: relative; display: flex; align-items: center; padding: 0 10px; }
+  .nav .x { width: 44px; height: 44px; display: grid; place-items: center; font-size: 22px; }
+  .nav .t { position: absolute; left: 0; right: 0; text-align: center; font-size: 16px; font-weight: 700; pointer-events: none; }
+  .body { padding: 18px 20px 140px; height: calc(100% - 88px); overflow-y: auto; scrollbar-width: none; }
+  .body::-webkit-scrollbar, .inner::-webkit-scrollbar, .sheet .list::-webkit-scrollbar { display: none; }
+  .q { font-size: 25px; font-weight: 800; line-height: 1.3; }
+  .search { margin-top: 10px; height: 52px; border-radius: 24px; background: var(--surface); display: flex; align-items: center; gap: 10px; padding: 0 16px; font-size: 16px; font-weight: 600; color: var(--text3); }
+  .labelrow { display: flex; align-items: baseline; justify-content: space-between; margin: 22px 0 2px; }
+  .label { font-size: 12px; font-weight: 700; color: var(--text2); }
+  .more { font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer; padding: 4px 0 4px 12px; user-select: none; }
+  .item { padding: 10px 0; cursor: pointer; }
+  .item .name { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item .meta { font-size: 12px; color: var(--text2); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .inner { max-height: 0; overflow-y: auto; scrollbar-width: none; transition: max-height .25s ease; position: relative; }
+  .inner.open { max-height: 232px; }
+  .fade { height: 0; margin-top: -24px; position: relative; pointer-events: none; }
+  .fade.on::before { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 24px; background: linear-gradient(to bottom, transparent, var(--grouped)); }
+  .gap { height: 28px; }
+  .field { margin-top: 10px; height: 52px; border-radius: 24px; background: var(--surface); display: flex; align-items: center; gap: 10px; padding: 0 16px; }
+  .field b { flex: 1; font-size: 15px; font-weight: 700; }
+  .chev { color: var(--text3); font-size: 15px; }
+  .trackrow { display: flex; align-items: center; gap: 12px; margin-top: 8px; padding: 6px 0; }
+  .trackrow .tile { width: 36px; height: 36px; border-radius: 11px; background: var(--field); display: grid; place-items: center; color: var(--text2); font-size: 15px; flex: none; }
+  .trackrow b { display: block; font-size: 15px; }
+  .trackrow span { font-size: 12px; color: var(--text2); }
+  .sec { display: flex; align-items: baseline; gap: 6px; }
+  .sec b { font-size: 18px; font-weight: 800; }
+  .sec span { font-size: 12px; color: var(--text3); }
+  .bar { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 20px 30px; background: var(--grouped); }
+  .btn { height: 52px; border-radius: 26px; background: var(--accent); color: #fff; font-size: 16px; font-weight: 800; display: grid; place-items: center; }
+  .scrim { position: absolute; inset: 0; background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity .2s; }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; height: 74%; background: var(--surface); border-radius: 28px 28px 0 0; transform: translateY(100%); transition: transform .28s ease; display: flex; flex-direction: column; }
+  .phone.sheetOpen .scrim { opacity: 1; pointer-events: auto; }
+  .phone.sheetOpen .sheet { transform: none; }
+  .grab { width: 36px; height: 5px; border-radius: 3px; background: var(--text3); margin: 8px auto 0; }
+  .sheet h2 { font-size: 22px; font-weight: 800; padding: 16px 20px 6px; }
+  .sheet .list { flex: 1; overflow-y: auto; padding: 0 20px 30px; scrollbar-width: none; }
+  .hint { position: absolute; left: 0; right: 0; top: 52px; text-align: center; font-size: 11px; color: var(--note); }
+</style>
+</head>
+<body>
+<header class="page">
+  <div>
+    <h1>当季路线「更多」两种做法</h1>
+    <p>两台手机都能点「更多」试一下。默认只显示 2 条。左边：打开底部面板，放全部当季路线（和「轨迹」选择面板一样）。右边：原地展开，限高后在区域内滚动，可以感受一下和整页滚动叠在一起的手感。</p>
+  </div>
+  <button class="toggle" onclick="document.body.classList.toggle('dark')">切换深色</button>
+</header>
+
+<div class="row">
+  <div class="col">
+    <div class="cap">A 打开面板（建议）</div>
+    <div class="capnote">页面高度不变，「什么时候出发」始终在原位。面板能放全部当季路线，选中后关闭面板并填入目的地。</div>
+    <div class="phone" id="pa">
+      <div class="status"><span>9:41</span><span>●●● 100%</span></div>
+      <div class="nav"><div class="x">✕</div><div class="t">创建旅程</div></div>
+      <div class="body" data-form></div>
+      <div class="bar"><div class="btn">创建旅程</div></div>
+      <div class="scrim" onclick="closeSheet()"></div>
+      <div class="sheet">
+        <div class="grab"></div>
+        <h2>10 月当季</h2>
+        <div class="list" id="sheetList"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">B 原地展开，限高滚动</div>
+    <div class="capnote">展开后列表最高约 4 条，超出部分在区域内滚动。注意展开后「什么时候出发」被推下去了，滚动时要分清滚的是列表还是整页。</div>
+    <div class="phone" id="pb">
+      <div class="status"><span>9:41</span><span>●●● 100%</span></div>
+      <div class="nav"><div class="x">✕</div><div class="t">创建旅程</div></div>
+      <div class="body" data-form></div>
+      <div class="bar"><div class="btn">创建旅程</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const routes = [
+  ['武功山 经典环线', '江西 萍乡', '32.5 km', '↑2150 m', '2-3 天'],
+  ['贡嘎 子梅垭口', '四川 甘孜', '24.8 km', '↑1680 m', '3 天'],
+  ['雨崩 冰湖 神瀑', '云南 迪庆', '38.2 km', '↑2420 m', '3-4 天'],
+  ['南太行 王莽岭 锡崖沟', '山西 晋城', '18.6 km', '↑1120 m', '1-2 天'],
+  ['四姑娘山 长坪沟', '四川 阿坝', '29.0 km', '↑1350 m', '2 天'],
+  ['稻城 亚丁 转山', '四川 甘孜', '33.4 km', '↑1980 m', '2-3 天'],
+  ['徽杭古道', '安徽 宣城', '25.0 km', '↑980 m', '1-2 天'],
+  ['乌孙古道 北段', '新疆 伊犁', '68.0 km', '↑3150 m', '5-6 天'],
+];
+const row = r => `<div class="item"><div class="name">${r[0]}</div><div class="meta">${r.slice(1).join('  ')}</div></div>`;
+
+function form(variant) {
+  const head = `<div class="labelrow"><span class="label">10 月当季</span><span class="more" data-more>${variant === 'b' ? '更多' : '更多'}</span></div>`;
+  const first = routes.slice(0, 2).map(row).join('');
+  const rest = variant === 'b' ? `<div class="inner" data-inner>${routes.slice(2).map(row).join('')}</div><div class="fade" data-fade></div>` : '';
+  return `
+    <div class="q">想去哪里？</div>
+    <div class="search">⌕ <span>搜索路线 / 地区</span></div>
+    ${head}${first}${rest}
+    <div class="gap"></div>
+    <div class="q">什么时候出发？</div>
+    <div class="field">▦ <b>日期待定</b><span class="chev">›</span></div>
+    <div class="gap"></div>
+    <div class="sec"><b>轨迹</b><span>可选</span></div>
+    <div class="trackrow"><div class="tile">⟋</div><div style="flex:1"><b>从我的轨迹选择</b><span>或上传 GPX、KML、KMZ 文件</span></div><span class="chev">›</span></div>`;
+}
+
+document.querySelector('#pa [data-form]').innerHTML = form('a');
+document.querySelector('#pb [data-form]').innerHTML = form('b');
+document.getElementById('sheetList').innerHTML = routes.map(row).join('');
+
+const pa = document.getElementById('pa');
+pa.querySelector('[data-more]').onclick = () => pa.classList.add('sheetOpen');
+function closeSheet() { pa.classList.remove('sheetOpen'); }
+document.getElementById('sheetList').addEventListener('click', e => { if (e.target.closest('.item')) closeSheet(); });
+
+const pb = document.getElementById('pb');
+const more = pb.querySelector('[data-more]'), inner = pb.querySelector('[data-inner]'), fade = pb.querySelector('[data-fade]');
+more.onclick = () => {
+  const open = inner.classList.toggle('open');
+  fade.classList.toggle('on', open);
+  more.textContent = open ? '收起' : '更多';
+  if (!open) inner.scrollTop = 0;
+};
+</script>
+</body>
+</html>

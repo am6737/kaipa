@@ -1,8 +1,8 @@
 // ProfileOverview.tsx — 概览标签：四宫格入口、装备、年度里程。版式参照 Komoot 的概览页。
 // 块与块之间只用留白和 fieldSurface 底色区分，不画分割线。
 import React from 'react';
-import { ScrollView, Text, View } from 'react-native';
-import { Award, Backpack, ChevronRight, Footprints, Heart, Route } from 'lucide-react-native';
+import { Text, View } from 'react-native';
+import { Award, Backpack, ChevronRight, Heart, Route } from 'lucide-react-native';
 import type { Theme } from '../../../theme/theme';
 import { layout, radius, space, type } from '../../../design-system';
 import { Press } from '../../Press';
@@ -12,7 +12,7 @@ type LucideGlyph = typeof Route;
 
 export type OverviewTile = {
   key: string;
-  icon: 'tracks' | 'footprints' | 'favorites' | 'contributions';
+  icon: 'tracks' | 'favorites' | 'checklist' | 'contributions';
   label: string;
   count: number;
   onPress: () => void;
@@ -20,8 +20,8 @@ export type OverviewTile = {
 
 const TILE_ICONS: Record<OverviewTile['icon'], LucideGlyph> = {
   tracks: Route,
-  footprints: Footprints,
   favorites: Heart,
+  checklist: Backpack,
   contributions: Award,
 };
 
@@ -32,10 +32,7 @@ export function ProfileOverview({ theme, tiles, gear, yearDistance }: {
     itemCount: number;
     weightLabel: string;
     valueLabel: string;
-    sets: { id: string; name: string; detail: string }[];
     onOpenItems: () => void;
-    onOpenSets: () => void;
-    onOpenSet: (setId: string) => void;
   };
   /** 当年每月里程（米），12 个月。 */
   yearDistance: { year: number; months: number[] };
@@ -91,33 +88,6 @@ export function ProfileOverview({ theme, tiles, gear, yearDistance }: {
         <GearStat theme={theme} value={gear.weightLabel} label={t('profile.gearWeight')} onPress={gear.onOpenItems} />
         <GearStat theme={theme} value={gear.valueLabel} label={t('profile.gearValue')} onPress={gear.onOpenItems} />
       </View>
-      <SectionHead theme={theme} title={t('profile.gearSetsTitle')} count={String(gear.sets.length)} onPress={gear.onOpenSets} />
-      {gear.sets.length ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={{ marginHorizontal: -layout.pagePadding }}
-          contentContainerStyle={{ gap: 10, paddingHorizontal: layout.pagePadding }}
-        >
-          {gear.sets.map((set) => (
-            <Press
-              key={set.id}
-              onPress={() => gear.onOpenSet(set.id)}
-              accessibilityRole="button"
-              scaleTo={0.98}
-              style={{ width: 168, height: 132, padding: 14, borderRadius: radius.card, backgroundColor: theme.fieldSurface, justifyContent: 'space-between' }}
-            >
-              <Backpack color={theme.text2} size={22} strokeWidth={1.8} />
-              <View>
-                <Text numberOfLines={2} style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{set.name}</Text>
-                <Text numberOfLines={1} style={{ fontSize: 12, color: theme.text2, marginTop: 2 }}>{set.detail}</Text>
-              </View>
-            </Press>
-          ))}
-        </ScrollView>
-      ) : (
-        <Text style={{ paddingVertical: space.xl, textAlign: 'center', fontSize: 14, color: theme.text3 }}>{t('profile.gearSetsEmptySelf')}</Text>
-      )}
 
       <YearChart theme={theme} {...yearDistance} />
     </View>

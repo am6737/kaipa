@@ -17,6 +17,7 @@ import { Icon } from '../Icon';
 import { KPSpinner, KPState } from '../State';
 import { Press } from '../Press';
 import { ProfileTabs } from '../me/profile/ProfileHero';
+import { TabPanelSwitch } from '../TabPanelSwitch';
 import { FollowButton } from './FollowButton';
 
 type Tab = 'followers' | 'following' | 'find';
@@ -59,11 +60,13 @@ export function PeoplePage({ theme, userId, tab: initialTab, onBack }: {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: layout.pagePadding, paddingTop: space.md, paddingBottom: insets.bottom + 80 }}
       >
-        {tab === 'find' ? (
-          <FindPeople theme={theme} />
-        ) : (
-          <FollowList key={tab} theme={theme} userId={userId} kind={tab} showRequests={self && tab === 'followers'} />
-        )}
+        <TabPanelSwitch order={tabs.map((item) => item.key)} active={tab}>
+          {tab === 'find' ? (
+            <FindPeople theme={theme} />
+          ) : (
+            <FollowList key={tab} theme={theme} userId={userId} kind={tab} showRequests={self && tab === 'followers'} />
+          )}
+        </TabPanelSwitch>
       </ScrollView>
     </DetailPage>
   );

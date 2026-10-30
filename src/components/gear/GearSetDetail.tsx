@@ -17,11 +17,11 @@ import { Glass } from '../Glass';
 import { Press } from '../Press';
 import { useNav } from '../../nav/NavContext';
 import { useData } from '../../data/DataContext';
-import { openVisibilityPicker, visibilityLabel } from '../social/VisibilityPicker';
+import { useVisibilityPicker, visibilityLabel } from '../social/VisibilityPicker';
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat, GearSet, Metric, METRICS, itemWeight, itemPrice, itemQty, packStats, WeightUnit, fmtWeight, splitWeight } from '../../data/gear';
 import { GearItemRow, yuan, yuanWithGap } from './parts';
-import { DetailPage, layout, radius, space, type } from '../../design-system';
+import { DetailPage, layout, radius, space, type, type DetailEntryVariant } from '../../design-system';
 import { LabeledDonut, Row } from './LabeledDonut';
 import { buildGearSetText, GearSetExportData, GearSetPoster } from './GearSetExport';
 import { GearMenuTransition, usePendingMenuAction } from './GearMenuTransition';
@@ -222,6 +222,7 @@ interface Group {
 
 function GearSetDetailView({
   theme,
+  entryVariant,
   set,
   allItems,
   catMap,
@@ -235,6 +236,7 @@ function GearSetDetailView({
   applicationAction,
 }: {
   theme: Theme;
+  entryVariant?: DetailEntryVariant;
   set: GearSet;
   allItems: GearItem[];
   catMap: Record<string, GearCat>;
@@ -440,7 +442,9 @@ function GearSetDetailView({
       message: t('gear.setDetail.deleteConfirmMessage'),
       items: [{ label: t('gear.setDetail.deleteSet'), icon: 'trash', destructive: true, onPress: onDelete }],
     });
-  const editVisibility = () => openVisibilityPicker(nav, t, set.visibility ?? 'private', async (next) => {
+  const visibilityPicker = useVisibilityPicker(theme);
+  // The row lives in the ⋯ menu, which is gone by the time this runs: open next to the ⋯ button.
+  const editVisibility = () => visibilityPicker.open({ x: winW - 14 - 44, y: insets.top + 12, width: 44, height: 44 }, set.visibility ?? 'private', async (next) => {
     try {
       await data.setSetVisibility(set.id, next);
       nav.showToast(t('profile.visibilitySaved'));
@@ -485,6 +489,7 @@ function GearSetDetailView({
   return (
     <DetailPage
       theme={theme}
+      entryVariant={entryVariant}
       onBack={onBack}
       flatChrome
       right={applicationAction ? undefined : (
@@ -543,6 +548,7 @@ function GearSetDetailView({
               <ExportMenuRow theme={theme} icon="trash" label={t('gear.setDetail.deleteSet')} destructive onPress={() => runFromMoreMenu(confirmDelete)} />
             </ReAnimated.View>
           </FloatingMenu> : null}
+          {visibilityPicker.menu}
           {!applicationAction && totN === 0 ? (
             // The first placeholder card already adds gear, so only AI stays here.
             <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingBottom: Math.max(insets.bottom, space.md) + space.xxs, alignItems: 'center' }}>
@@ -636,6 +642,7 @@ function GearSetDetailView({
 
 export const GearSetDetail = React.memo(GearSetDetailView, (previous, next) => (
   previous.theme === next.theme
+  && previous.entryVariant === next.entryVariant
   && previous.set === next.set
   && previous.allItems === next.allItems
   && previous.catMap === next.catMap

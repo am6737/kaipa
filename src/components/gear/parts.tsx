@@ -9,7 +9,7 @@ import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
-import { GearItem, GearCat, itemWeight, itemPrice, fmtWeight, WeightUnit } from '../../data/gear';
+import { GearItem, GearCat, itemWeight, itemPrice, fmtItemWeight, WeightUnit } from '../../data/gear';
 import {
   AppCard,
   AppHeaderSearch,
@@ -43,7 +43,8 @@ const compactWan = (value: number) => {
 };
 export const yuan = (v: number) => '¥' + compactWan(v);
 export const yuanWithGap = (v: number) => '¥ ' + compactWan(v);
-export const fmtKg = (v: number, unit: WeightUnit = 'kg') => fmtWeight(v, unit);
+// Per-item weight: grams below 1 kg.
+export const fmtKg = (v: number, unit: WeightUnit = 'kg') => fmtItemWeight(v, unit);
 export function GearItemImage({ theme, item, radius = 0, style, contentFit = 'cover', borderless = false }: { theme: Theme; item: GearItem; radius?: number; style?: StyleProp<ViewStyle>; contentFit?: 'cover' | 'contain'; borderless?: boolean }) {
   const photo = item.photos?.[0];
   return (

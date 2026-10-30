@@ -4,7 +4,8 @@ import { File as FSFile } from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js';
-import { useTheme } from './theme/AppearanceContext';
+import { FrozenTheme, useTheme } from './theme/AppearanceContext';
+import type { Theme } from './theme/theme';
 import { useI18n } from './i18n';
 import { FrozenNav, NavProvider, useNav } from './nav/NavContext';
 import { DataProvider, useData } from './data/DataContext';
@@ -43,6 +44,7 @@ import { JourneyVersionHistoryPage } from './components/journey/JourneyVersionHi
 import { UserProfilePage } from './components/social/UserProfilePage';
 import { PeoplePage } from './components/social/PeoplePage';
 import { GearSetPreviewPage } from './components/social/GearSetPreviewPage';
+import { TrackDetailPage } from './components/tracks/TrackDetailPage';
 import { PublishedTrackPage } from './components/social/PublishedTrackPage';
 import { SharePoster } from './components/overlays/SharePoster';
 import { SearchScreen } from './screens/SearchScreen';
@@ -137,39 +139,55 @@ function AppShell() {
             page re-renders, so the switch doesn't wait on this heavy screen. */}
         <TabPage selected={nav.mainTab === 'discover'} forced={detailOpen} fadeIn={false} whenHidden="offscreen">
           {(shown) => (
-            <FrozenNav frozen={!shown}>
-              <DiscoverScreen
-                theme={theme}
-                active={shown}
-                keepMapWarm
-                covered={nav.searchOpen && searchOpaque}
-                externalOverlayOpen={Boolean(sharePosterPoi || passphrasePoi)}
-                onBlockingOverlayChange={setDiscoverOverlayOpen}
-              />
-            </FrozenNav>
+            <FrozenTheme frozen={!shown}>
+              {(tabTheme) => (
+                <FrozenNav frozen={!shown}>
+                  <DiscoverScreen
+                    theme={tabTheme}
+                    active={shown}
+                    keepMapWarm
+                    covered={nav.searchOpen && searchOpaque}
+                    externalOverlayOpen={Boolean(sharePosterPoi || passphrasePoi)}
+                    onBlockingOverlayChange={setDiscoverOverlayOpen}
+                  />
+                </FrozenNav>
+              )}
+            </FrozenTheme>
           )}
         </TabPage>
         {/* Kept laid out (like 我的) rather than display:none: un-hiding rebuilt the
             whole page's native views on every tab switch, which lagged the tap. */}
         <TabPage selected={nav.mainTab === 'journey'} covered={detailOpen} whenHidden="transparent">
           {() => (
-            <FrozenNav frozen={nav.mainTab !== 'journey' || detailOpen} covered={nav.blockingOverlayOpen}>
-              <JourneyScreen theme={theme} />
-            </FrozenNav>
+            <FrozenTheme frozen={nav.mainTab !== 'journey' || detailOpen}>
+              {(tabTheme) => (
+                <FrozenNav frozen={nav.mainTab !== 'journey' || detailOpen} covered={nav.blockingOverlayOpen}>
+                  <JourneyScreen theme={tabTheme} />
+                </FrozenNav>
+              )}
+            </FrozenTheme>
           )}
         </TabPage>
         <TabPage selected={nav.mainTab === 'gear'} covered={detailOpen} whenHidden="none">
           {() => (
-            <FrozenNav frozen={nav.mainTab !== 'gear' || detailOpen} covered={nav.blockingOverlayOpen}>
-              <GearScreen theme={theme} />
-            </FrozenNav>
+            <FrozenTheme frozen={nav.mainTab !== 'gear' || detailOpen}>
+              {(tabTheme) => (
+                <FrozenNav frozen={nav.mainTab !== 'gear' || detailOpen} covered={nav.blockingOverlayOpen}>
+                  <GearScreen theme={tabTheme} />
+                </FrozenNav>
+              )}
+            </FrozenTheme>
           )}
         </TabPage>
         <TabPage selected={nav.mainTab === 'me'} covered={detailOpen} whenHidden="transparent">
           {() => (
-            <FrozenNav frozen={nav.mainTab !== 'me' || detailOpen} covered={nav.blockingOverlayOpen}>
-              <MeScreen theme={theme} />
-            </FrozenNav>
+            <FrozenTheme frozen={nav.mainTab !== 'me' || detailOpen}>
+              {(tabTheme) => (
+                <FrozenNav frozen={nav.mainTab !== 'me' || detailOpen} covered={nav.blockingOverlayOpen}>
+                  <MeScreen theme={tabTheme} />
+                </FrozenNav>
+              )}
+            </FrozenTheme>
           )}
         </TabPage>
       </View>
@@ -273,6 +291,13 @@ function AppShell() {
               'smart_plan',
             );
             return true;
+          }}
+          onCreatedFromPlan={async (journeyId) => {
+            const journeys = await data.refetchJourneys();
+            nav.closeNewJourney();
+            nav.showToast(t('appShell.toastJourneyCreated'));
+            const created = journeys.find((journey) => journey.id === journeyId);
+            if (created) nav.openPoint(created);
           }}
         />
       )}
@@ -450,6 +475,8 @@ function AppShell() {
         <GearSetPreviewPage key={`${index}:${page.setId}`} theme={theme} setId={page.setId} onBack={nav.closeSocialPage} />
       ) : page.kind === 'track' ? (
         <PublishedTrackPage key={`${index}:${page.trackId}`} theme={theme} trackId={page.trackId} onBack={nav.closeSocialPage} />
+      ) : page.kind === 'ownTrack' ? (
+        <OwnTrackLayer key={`${index}:${page.trackId}`} theme={theme} trackId={page.trackId} onBack={nav.closeSocialPage} />
       ) : null)}
       {nav.searchOpen && <SearchScreen theme={theme} onOpaqueChange={setSearchOpaque} />}
       <AppAssistant
@@ -540,6 +567,14 @@ async function readStoredSession(): Promise<Session | null> {
   } catch {
     return null;
   }
+}
+
+function OwnTrackLayer({ theme, trackId, onBack }: { theme: Theme; trackId: string; onBack: () => void }) {
+  const data = useData();
+  const track = data.allTracks.find((item) => item.id === trackId);
+  // Deleted elsewhere while the journey was open: drop the layer rather than leave a blank one.
+  useEffect(() => { if (!track) onBack(); }, [track, onBack]);
+  return track ? <TrackDetailPage theme={theme} track={track} onBack={onBack} /> : null;
 }
 
 export function AppRoot() {

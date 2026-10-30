@@ -4,12 +4,14 @@
 // 微信与 Google 入口暂时隐藏（尚未接入）。
 // Auth gate: 未登录显示这里，登录成功 onSuccess()。
 //
-// Entry (邮箱+密码) → CTA / 协议 / 切换登录注册 / 忘记密码 / 底部三按钮
-//   ├─ 找回账号  : 账号 → 验证码 → 设新密码 → 完成
-//   ├─ 游客登录  : onSuccess()
-//   └─ 更多方式  : 手机号(→验证码) / Apple
-// 协议·隐私 全屏文档页可从任意输入步骤打开。
-import React, { useEffect, useRef, useState } from 'react';
+// 首屏只放当前可用的入口：iOS 首推 Apple，其次手机号（运营开关），都没有时邮箱登录顶上；
+// 游客登录在下方，「更多方式登录」里是邮箱和扫码。
+//   ├─ 邮箱登录  : 邮箱 + 密码 → 忘记密码（邮箱验证码 → 设新密码 → 完成）
+//   ├─ 手机号    : 手机号 → 验证码
+//   └─ 扫码登录  : 另一台已登录的手机确认
+// 未勾选协议时任一入口都弹「同意并继续」，同意后接着执行刚才的操作。
+// 用户协议、隐私政策全屏文档页可从任意步骤打开。
+import React, { forwardRef, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -35,7 +37,8 @@ import { elevAccent, shadow } from '../theme/shadow';
 import { MONO } from '../theme/fonts';
 import { layout, motion, radius, space, type } from '../design-system';
 import { useI18n, TKey } from '../i18n';
-import { signInWithEmail, signUpWithEmail, signInAnonymously, signInWithApple, isAppleSignInAvailable, isAppleSignInCanceled, sendPhoneOtp, verifyPhoneOtp } from '../lib/auth';
+import { signInWithEmail, signUpWithEmail, signInAnonymously, signInWithApple, isAppleSignInAvailable, isAppleSignInCanceled, sendPhoneOtp, verifyPhoneOtp, sendPasswordResetCode, verifyPasswordResetCode, setPasswordAfterReset } from '../lib/auth';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { WeChatIcon } from '../components/WeChatIcon';
 import QRCode from 'react-native-qrcode-svg';
 import { createQrLoginRequest, consumeQrLoginRequest, encodeQrLoginPayload, getQrLoginStatus } from '../lib/qrLogin';
@@ -76,11 +79,6 @@ const EyeOff = ({ c }: { c: string }) => (
       strokeLinecap="round"
       strokeLinejoin="round"
     />
-  </Svg>
-);
-const ChevDownSmall = ({ c }: { c: string }) => (
-  <Svg width={11} height={11} viewBox="0 0 24 24" fill="none">
-    <Path d="m6 9 6 6 6-6" stroke={c} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
   </Svg>
 );
 const ChevRight = ({ c }: { c: string }) => (
@@ -174,26 +172,25 @@ function LandingButton({
   label,
   icon,
   onPress,
-  disabled = false,
+  filled = false,
 }: {
   t: Theme;
   label: string;
   icon: React.ReactNode;
   onPress: () => void;
-  disabled?: boolean;
+  // 实心款给 Apple：系统规范要求黑底（深色模式白底）按钮。
+  filled?: boolean;
 }) {
   return (
     <Press
       onPress={onPress}
-      disabled={disabled}
       accessibilityRole="button"
-      accessibilityState={{ disabled }}
       style={{
-        opacity: disabled ? 0.4 : 1,
         height: 54,
         borderRadius: radius.pill,
         borderWidth: 1.5,
         borderColor: t.text,
+        backgroundColor: filled ? t.text : 'transparent',
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
@@ -201,7 +198,7 @@ function LandingButton({
       }}
     >
       <View style={{ width: 24, alignItems: 'center' }}>{icon}</View>
-      <Text style={{ color: t.text, fontSize: 16, fontWeight: '700' }}>{label}</Text>
+      <Text style={{ color: filled ? t.featureSurface : t.text, fontSize: 16, fontWeight: '700' }}>{label}</Text>
     </Press>
   );
 }
@@ -261,49 +258,39 @@ const inputStyle = (t: Theme): TextStyle => ({
   paddingVertical: 0,
 });
 
+// 目前只支持 +86，所以只显示区号，不放下拉箭头假装能选。
 function CountryCode({ t }: { t: Theme }) {
-  return (
-    <View
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: space.xxs,
-        paddingRight: space.sm,
-        borderRightWidth: StyleSheet.hairlineWidth,
-        borderColor: t.hairline,
-        height: 24,
-      }}
-    >
-      <Text style={{ fontSize: 15, fontWeight: '700', color: t.text }}>+86</Text>
-      <ChevDownSmall c={t.text3} />
-    </View>
-  );
+  return <Text style={{ fontSize: 15, fontWeight: '700', color: t.text, paddingRight: space.xxs }}>+86</Text>;
 }
 
-function PasswordField({
-  t,
-  value,
-  onChangeText,
-  placeholder,
-  show,
-  setShow,
-}: {
+// 138 0013 8000：输入框里按 3-4-4 分组显示，状态里只存数字。
+const formatPhone = (digits: string) => [digits.slice(0, 3), digits.slice(3, 7), digits.slice(7, 11)].filter(Boolean).join(' ');
+
+const PasswordField = forwardRef<TextInput, {
   t: Theme;
   value: string;
   onChangeText: (v: string) => void;
   placeholder: string;
   show: boolean;
   setShow: (v: boolean) => void;
-}) {
+  isNew?: boolean;
+  onSubmitEditing?: () => void;
+}>(function PasswordField({ t, value, onChangeText, placeholder, show, setShow, isNew = false, onSubmitEditing }, ref) {
   return (
     <AuthField t={t} leading={<Lock c={t.text3} />}>
       <TextInput
+        ref={ref}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={t.text3}
         secureTextEntry={!show}
         autoCapitalize="none"
+        autoCorrect={false}
+        autoComplete={isNew ? 'new-password' : 'current-password'}
+        textContentType={isNew ? 'newPassword' : 'password'}
+        returnKeyType={onSubmitEditing ? 'go' : 'done'}
+        onSubmitEditing={onSubmitEditing}
         style={inputStyle(t)}
       />
       <Press onPress={() => setShow(!show)} hitSlop={10} style={{ padding: space.xxs }}>
@@ -311,70 +298,30 @@ function PasswordField({
       </Press>
     </AuthField>
   );
-}
-
-// ── Segmented control (手机号 / 邮箱) ──────────────────────────────────────────
-function AuthSeg<T extends string>({ t, value, options, onChange }: { t: Theme; value: T; options: { id: T; label: string }[]; onChange: (v: T) => void }) {
-  return (
-    <View style={{ flexDirection: 'row', gap: space.xxs, padding: space.xxs, borderRadius: radius.card, backgroundColor: t.fieldSurface }}>
-      {options.map((o) => {
-        const on = o.id === value;
-        return (
-          <Press
-            key={o.id}
-            onPress={() => onChange(o.id)}
-            style={{
-              flex: 1,
-              height: 40,
-              borderRadius: radius.control,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: on ? t.surfaceTop : 'transparent',
-              ...(on && t.dark ? { boxShadow: '0px 4px 12px rgba(0,0,0,0.35)' } : {}),
-            }}
-          >
-            <Text style={{ fontSize: 14, fontWeight: '700', color: on ? t.text : t.text2 }}>{o.label}</Text>
-          </Press>
-        );
-      })}
-    </View>
-  );
-}
+});
 
 // ── Agreement row (checkbox + 《用户协议》/《隐私政策》) ───────────────────────
-function AuthAgree({ t, value, onChange, flash, onOpenDoc }: { t: Theme; value: boolean; onChange: (v: boolean) => void; flash: boolean; onOpenDoc: (id: DocId) => void }) {
+function AuthAgree({ t, value, onChange, onOpenDoc }: { t: Theme; value: boolean; onChange: (v: boolean) => void; onOpenDoc: (id: DocId) => void }) {
   const { t: tr } = useI18n();
-  const shake = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (!flash) return;
-    Animated.sequence([
-      Animated.timing(shake, { toValue: -4, duration: 60, useNativeDriver: true }),
-      Animated.timing(shake, { toValue: 4, duration: 60, useNativeDriver: true }),
-      Animated.timing(shake, { toValue: -3, duration: 60, useNativeDriver: true }),
-      Animated.timing(shake, { toValue: 0, duration: 60, useNativeDriver: true }),
-    ]).start();
-  }, [flash, shake]);
   return (
     <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}>
-      <Animated.View style={{ transform: [{ translateX: shake }] }}>
-        <Pressable onPress={() => onChange(!value)} hitSlop={10} accessibilityRole="checkbox" accessibilityState={{ checked: value }}>
-          <View
-            style={{
-              width: 20,
-              height: 20,
-              borderRadius: 7,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: value ? t.accent : t.fieldSurface,
-              borderWidth: 1.5,
-              borderColor: value ? t.accent : flash ? t.danger : t.fieldBorder,
-            }}
-          >
-            {value && <CheckSmall />}
-          </View>
-        </Pressable>
-      </Animated.View>
-      <Text style={{ flex: 1, fontSize: 12, color: flash ? t.danger : t.text2, lineHeight: 19 }}>
+      <Pressable onPress={() => onChange(!value)} hitSlop={10} accessibilityRole="checkbox" accessibilityState={{ checked: value }}>
+        <View
+          style={{
+            width: 20,
+            height: 20,
+            borderRadius: 7,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: value ? t.accent : t.fieldSurface,
+            borderWidth: 1.5,
+            borderColor: value ? t.accent : t.fieldBorder,
+          }}
+        >
+          {value && <CheckSmall />}
+        </View>
+      </Pressable>
+      <Text style={{ flex: 1, fontSize: 12, color: t.text2, lineHeight: 19 }}>
         {tr('auth.agree.prefix')}
         <Text onPress={() => onOpenDoc('agreement')} style={{ color: t.text, fontWeight: '700' }}>
           {tr('auth.agree.agreement')}
@@ -439,7 +386,8 @@ function AuthBack({ t, top, onPress }: { t: Theme; top: number; onPress: () => v
 }
 
 // ── 6-digit OTP input (hidden field over 6 boxes) ────────────────────────────
-function OtpInput({ t, code, setCode }: { t: Theme; code: string; setCode: (v: string) => void }) {
+// 验证失败时 `invalid` 把格子整体标红，用户一开始输入就恢复。
+function OtpInput({ t, code, setCode, invalid = false }: { t: Theme; code: string; setCode: (v: string) => void; invalid?: boolean }) {
   const ref = useRef<TextInput>(null);
   useEffect(() => {
     const id = setTimeout(() => ref.current?.focus(), 360);
@@ -452,11 +400,20 @@ function OtpInput({ t, code, setCode }: { t: Theme; code: string; setCode: (v: s
         value={code}
         keyboardType="number-pad"
         maxLength={6}
+        textContentType="oneTimeCode"
+        autoComplete="sms-otp"
         onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))}
         style={{ position: 'absolute', width: '100%', height: '100%', opacity: 0 }}
       />
       <View style={{ flexDirection: 'row', gap: space.xs }}>
         {[0, 1, 2, 3, 4, 5].map((i) => {
+          if (invalid) {
+            return (
+              <View key={i} style={{ flex: 1, height: 58, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: t.dangerSoft, borderWidth: 1, borderColor: t.danger }}>
+                <Text style={{ fontSize: 24, fontWeight: '700', color: t.text }} />
+              </View>
+            );
+          }
           const active = i === code.length;
           return (
             <View
@@ -494,6 +451,48 @@ function ResendRow({ t, left, onResend }: { t: Theme; left: number; onResend: ()
           <Text style={{ fontSize: 13.5, fontWeight: '600', color: t.accent }}>{tr('auth.otp.resend')}</Text>
         </Press>
       )}
+    </View>
+  );
+}
+
+// ── 协议同意弹窗：未勾选时由任一入口唤起，「同意并继续」后接着执行原操作 ─────────────
+function AuthConsentSheet({ t, onAccept, onClose, onOpenDoc }: { t: Theme; onAccept: () => void; onClose: () => void; onOpenDoc: (id: DocId) => void }) {
+  const { t: tr } = useI18n();
+  const insets = useSafeAreaInsets();
+  const slide = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(slide, { toValue: 1, duration: motion.emphasized, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [slide]);
+  const translateY = slide.interpolate({ inputRange: [0, 1], outputRange: [320, 0] });
+  return (
+    <View style={[StyleSheet.absoluteFill, { zIndex: 85, justifyContent: 'flex-end', alignItems: 'center' }]}>
+      <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.22)' }]} onPress={onClose} accessibilityLabel={tr('auth.consent.decline')} />
+      <Animated.View
+        accessibilityViewIsModal
+        style={{
+          width: '100%',
+          maxWidth: 520,
+          transform: [{ translateY }],
+          backgroundColor: t.dark ? t.groupedBg : t.featureSurface,
+          borderTopLeftRadius: radius.feature,
+          borderTopRightRadius: radius.feature,
+          paddingTop: space.xl,
+          paddingHorizontal: space.xl,
+          paddingBottom: insets.bottom + space.md,
+        }}
+      >
+        <Text style={{ ...type.navTitle, color: t.text, textAlign: 'center' }}>{tr('auth.consent.title')}</Text>
+        <Text style={{ ...type.body, color: t.text2, lineHeight: 22, textAlign: 'center', marginTop: space.sm }}>
+          {tr('auth.consent.prefix')}
+          <Text onPress={() => onOpenDoc('agreement')} style={{ color: t.text, fontWeight: '700' }}>{tr('auth.agree.agreement')}</Text>
+          {tr('auth.agree.and')}
+          <Text onPress={() => onOpenDoc('privacy')} style={{ color: t.text, fontWeight: '700' }}>{tr('auth.agree.privacy')}</Text>
+        </Text>
+        <AuthCTA t={t} label={tr('auth.consent.accept')} enabled onPress={onAccept} topGap={space.xl} />
+        <Press onPress={onClose} accessibilityRole="button" style={{ height: 48, alignItems: 'center', justifyContent: 'center', marginTop: space.xxs }}>
+          <Text style={{ ...type.body, color: t.text2, fontWeight: '600' }}>{tr('auth.consent.decline')}</Text>
+        </Press>
+      </Animated.View>
     </View>
   );
 }
@@ -587,7 +586,7 @@ function AuthDocPage({ t, doc, onBack }: { t: Theme; doc: DocId; onBack: () => v
 }
 
 // ── "更多登录方式" bottom sheet ───────────────────────────────────────────────
-function AuthMoreSheet({ t, appleAvailable, onPick, onClose }: { t: Theme; appleAvailable: boolean; onPick: (id: 'email' | SocialId) => void; onClose: () => void }) {
+function AuthMoreSheet({ t, showEmail, onPick, onClose }: { t: Theme; showEmail: boolean; onPick: (id: 'email' | 'qr') => void; onClose: () => void }) {
   const { t: tr } = useI18n();
   const insets = useSafeAreaInsets();
   const slide = useRef(new Animated.Value(0)).current;
@@ -601,12 +600,11 @@ function AuthMoreSheet({ t, appleAvailable, onPick, onClose }: { t: Theme; apple
   }, [slide]);
   const translateY = slide.interpolate({ inputRange: [0, 1], outputRange: [320, 0] });
 
-  // 微信 / Google 登录入口暂时隐藏（尚未接入，恢复时把对应项加回列表即可）；
-  // Apple 走系统原生面板，仅在 iOS 且系统支持时出现。
-  // 邮箱入口保留：登录可用；注册受 email_register 开关控制（见下方切换行）。
-  const items: { id: 'email' | SocialId; label: string; icon: React.ReactNode }[] = [
-    { id: 'email', label: tr('auth.emailHint'), icon: <Mail c={t.text} /> },
-    ...(appleAvailable ? [{ id: 'apple' as const, label: 'Apple', icon: <AppleGlyph c={t.text} /> }] : []),
+  // 微信 / Google 登录入口暂时隐藏（尚未接入）；Apple 在首屏。
+  // 邮箱已经是首屏主入口时不再重复列出。扫码只对换机或第二台设备的老用户有用，所以收在这里。
+  const items: { id: 'email' | 'qr'; label: string; hint?: string; icon: React.ReactNode }[] = [
+    ...(showEmail ? [{ id: 'email' as const, label: tr('auth.emailHint'), icon: <Mail c={t.text} /> }] : []),
+    { id: 'qr', label: tr('qrLogin.entry'), hint: tr('auth.more.qrHint'), icon: <QrGlyph c={t.text} /> },
   ];
 
   return (
@@ -648,6 +646,7 @@ function AuthMoreSheet({ t, appleAvailable, onPick, onClose }: { t: Theme; apple
             >
               <View style={{ width: 32, alignItems: 'center', justifyContent: 'center' }}>{item.icon}</View>
               <Text style={{ flex: 1, fontSize: 15.5, fontWeight: '600', color: t.text }}>{item.label}</Text>
+              {item.hint ? <Text style={{ ...type.caption, color: t.text3 }}>{item.hint}</Text> : null}
             </Press>
           ))}
         </View>
@@ -693,12 +692,29 @@ function AuthSocialOverlay({ t, kind }: { t: Theme; kind: SocialId }) {
 }
 
 // ── OTP step (phone) ──────────────────────────────────────────────────────────
-function AuthOtp({ t, phone, busy, error, onBack, onVerify }: { t: Theme; phone: string; busy: boolean; error?: string; onBack: () => void; onVerify: (code: string) => void }) {
+function AuthOtp({
+  t,
+  phone,
+  busy,
+  error,
+  onBack,
+  onVerify,
+  onResend,
+}: {
+  t: Theme;
+  phone: string;
+  busy: boolean;
+  error?: string;
+  onBack: () => void;
+  onVerify: (code: string) => void;
+  onResend: () => Promise<boolean>;
+}) {
   const { t: tr } = useI18n();
   const insets = useSafeAreaInsets();
   const x = useSlideIn();
   const [code, setCode] = useState('');
   const [left, setLeft] = useState(60);
+  const [invalid, setInvalid] = useState(false);
   useEffect(() => {
     if (left <= 0) return;
     const id = setTimeout(() => setLeft((n) => n - 1), 1000);
@@ -710,20 +726,37 @@ function AuthOtp({ t, phone, busy, error, onBack, onVerify }: { t: Theme; phone:
       return () => clearTimeout(id);
     }
   }, [code]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 验证失败：清空并标红，用户一开始重新输入就恢复。
+  useEffect(() => {
+    if (!error) return;
+    setCode('');
+    setInvalid(true);
+  }, [error]);
+  const changeCode = (next: string) => {
+    if (next) setInvalid(false);
+    setCode(next);
+  };
+  const resend = async () => {
+    if (busy) return;
+    setCode('');
+    setInvalid(false);
+    if (await onResend()) setLeft(60);
+  };
 
   return (
-    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: t.groupedBg, transform: [{ translateX: x }] }]}>
-      <AuthBack t={t} top={insets.top + 12} onPress={onBack} />
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 76, paddingHorizontal: layout.pagePadding, paddingBottom: insets.bottom + space.xxxl }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        <Text style={{ fontSize: 26, fontWeight: '700', color: t.text, letterSpacing: -0.5 }}>{tr('auth.otp.title')}</Text>
-        <Text style={{ fontSize: 14, color: t.text2, marginTop: 8, lineHeight: 21 }}>
-          {tr('auth.otp.sentTo')} <Text style={{ fontFamily: MONO, color: t.text, fontWeight: '600' }}>+86 {phone}</Text>
-        </Text>
-        <OtpInput t={t} code={code} setCode={setCode} />
-        <ResendRow t={t} left={left} onResend={() => { setLeft(60); setCode(''); }} />
+    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: t.featureSurface, transform: [{ translateX: x }] }]}>
+      <AuthBack t={t} top={insets.top + space.sm} onPress={onBack} />
+      <ScrollView
+        contentContainerStyle={{ width: '100%', maxWidth: 460, alignSelf: 'center', paddingTop: insets.top + 112, paddingHorizontal: space.xxl, paddingBottom: insets.bottom + space.xxxl }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <StepTitle t={t} title={tr('auth.otp.title')} sub={`${tr('auth.otp.sentTo')} +86 ${formatPhone(phone)}`} />
+        <OtpInput t={t} code={code} setCode={changeCode} invalid={invalid && !code} />
         {error ? <Text style={{ marginTop: space.md, color: t.danger, fontSize: 13, textAlign: 'center' }}>{error}</Text> : null}
+        <ResendRow t={t} left={left} onResend={() => void resend()} />
         {busy && (
-          <View style={{ marginTop: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <View style={{ marginTop: space.xl, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>
             <Spinner size={16} color={t.accent} track={t.hairline} width={2} />
             <Text style={{ fontSize: 13, color: t.text2 }}>{tr('auth.otp.verifying')}</Text>
           </View>
@@ -740,8 +773,7 @@ function AuthPhoneStep({
   setPhone,
   agree,
   setAgree,
-  flash,
-  flashAgree,
+  requireAgree,
   onBack,
   onNext,
   busy,
@@ -753,8 +785,7 @@ function AuthPhoneStep({
   setPhone: (v: string) => void;
   agree: boolean;
   setAgree: (v: boolean) => void;
-  flash: boolean;
-  flashAgree: () => void;
+  requireAgree: (action: () => void) => void;
   onBack: () => void;
   onNext: () => void;
   busy: boolean;
@@ -791,11 +822,13 @@ function AuthPhoneStep({
           <AuthField t={t} leading={<CountryCode t={t} />}>
             <TextInput
               ref={ref}
-              value={phone}
+              value={formatPhone(phone)}
               keyboardType="number-pad"
+              textContentType="telephoneNumber"
+              autoComplete="tel"
               placeholder={tr('auth.phone.placeholder')}
               placeholderTextColor={t.text3}
-              maxLength={11}
+              maxLength={13}
               onChangeText={(v) => setPhone(v.replace(/\D/g, '').slice(0, 11))}
               style={inputStyle(t)}
             />
@@ -806,33 +839,39 @@ function AuthPhoneStep({
           label={tr('auth.phone.getCode')}
           enabled={valid}
           topGap={52}
-          onPress={() => {
-            if (!agree) {
-              flashAgree();
-              return;
-            }
-            onNext();
-          }}
+          onPress={() => requireAgree(onNext)}
           busy={busy}
         />
         {error ? <Text style={{ marginTop: space.md, color: t.danger, fontSize: 13, textAlign: 'center' }}>{error}</Text> : null}
         <View style={{ marginTop: space.lg }}>
-          <AuthAgree t={t} value={agree} onChange={setAgree} flash={flash} onOpenDoc={onOpenDoc} />
+          <AuthAgree t={t} value={agree} onChange={setAgree} onOpenDoc={onOpenDoc} />
         </View>
       </ScrollView>
     </Animated.View>
   );
 }
 
-// ── 找回账号 flow (输入 → 验证码 → 重置密码 → 完成) ──────────────────────────────
+// ── 找回密码 flow (邮箱 → 邮件验证码 → 设新密码 → 完成) ─────────────────────────────
+// 只走邮箱：手机号账号没有密码，直接用验证码登录。验证码在一个不落盘的临时客户端里校验，
+// 这样重置期间不会建立正式会话、把用户直接带进 App。
 type RStep = 'input' | 'otp' | 'reset' | 'done';
 
-function AuthRecover({ t, onBack, onDone, onOpenDoc }: { t: Theme; onBack: () => void; onDone: () => void; onOpenDoc: (id: DocId) => void }) {
+function AuthRecover({
+  t,
+  initialEmail,
+  onBack,
+  onDone,
+  friendlyError,
+}: {
+  t: Theme;
+  initialEmail: string;
+  onBack: () => void;
+  onDone: () => void;
+  friendlyError: (message: string) => string;
+}) {
   const { t: tr } = useI18n();
   const insets = useSafeAreaInsets();
-  const [method, setMethod] = useState<'phone' | 'email'>('phone');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail);
   const [rstep, setRstep] = useState<RStep>('input');
   const [code, setCode] = useState('');
   const [left, setLeft] = useState(60);
@@ -840,11 +879,12 @@ function AuthRecover({ t, onBack, onDone, onOpenDoc }: { t: Theme; onBack: () =>
   const [pwd2, setPwd2] = useState('');
   const [showPwd, setShowPwd] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [codeInvalid, setCodeInvalid] = useState(false);
+  const recovery = useRef<SupabaseClient | null>(null);
   const inputRef = useRef<TextInput>(null);
 
-  const phoneValid = /^1\d{10}$/.test(phone);
   const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
-  const inputValid = method === 'phone' ? phoneValid : emailValid;
   const pwdValid = pwd.length >= 6 && pwd === pwd2;
 
   useEffect(() => {
@@ -852,112 +892,135 @@ function AuthRecover({ t, onBack, onDone, onOpenDoc }: { t: Theme; onBack: () =>
       const id = setTimeout(() => inputRef.current?.focus(), 360);
       return () => clearTimeout(id);
     }
-  }, [rstep, method]);
+  }, [rstep]);
   useEffect(() => {
     if (rstep !== 'otp' || left <= 0) return;
     const id = setTimeout(() => setLeft((n) => n - 1), 1000);
     return () => clearTimeout(id);
   }, [rstep, left]);
-  useEffect(() => {
-    if (rstep === 'otp' && code.length === 6) {
-      const id = setTimeout(() => { setRstep('reset'); setCode(''); }, 280);
-      return () => clearTimeout(id);
-    }
-  }, [code, rstep]);
 
-  const sendCode = () => { setRstep('otp'); setLeft(60); setCode(''); };
-  const submitReset = () => { setBusy(true); setTimeout(() => { setBusy(false); setRstep('done'); }, 900); };
+  const sendCode = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    const { error: sendError } = await sendPasswordResetCode(email);
+    setBusy(false);
+    if (sendError) { setError(friendlyError(sendError.message)); return; }
+    setCode('');
+    setCodeInvalid(false);
+    setLeft(60);
+    setRstep('otp');
+  };
+  const verifyCode = async (token: string) => {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    const result = await verifyPasswordResetCode(email, token);
+    setBusy(false);
+    if (result.error || !result.client) {
+      setCode('');
+      setCodeInvalid(true);
+      setError(friendlyError(result.error?.message ?? ''));
+      return;
+    }
+    recovery.current = result.client;
+    setRstep('reset');
+  };
+  useEffect(() => {
+    if (rstep !== 'otp' || code.length !== 6) return;
+    const id = setTimeout(() => void verifyCode(code), 260);
+    return () => clearTimeout(id);
+  }, [code, rstep]); // eslint-disable-line react-hooks/exhaustive-deps
+  const submitReset = async () => {
+    if (!recovery.current || busy) return;
+    setBusy(true);
+    setError('');
+    const { error: updateError } = await setPasswordAfterReset(recovery.current, pwd);
+    setBusy(false);
+    if (updateError) { setError(friendlyError(updateError.message)); return; }
+    recovery.current = null;
+    setRstep('done');
+  };
+  const go = (next: RStep) => { setError(''); setRstep(next); };
+  const errorText = error ? <Text style={{ marginTop: space.md, color: t.danger, fontSize: 13, lineHeight: 19, textAlign: 'center' }}>{error}</Text> : null;
+  const scrollStyle = { width: '100%' as const, maxWidth: 460, alignSelf: 'center' as const, paddingTop: insets.top + 112, paddingHorizontal: space.xxl, paddingBottom: insets.bottom + space.xxxl };
 
   let body: React.ReactNode;
   if (rstep === 'done') {
     body = (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 }}>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.xxl }}>
         <SuccessPop t={t} />
         <Text style={{ fontSize: 22, fontWeight: '700', color: t.text, marginTop: 22 }}>{tr('auth.recover.doneTitle')}</Text>
-        <Text style={{ fontSize: 14, color: t.text2, marginTop: 8, textAlign: 'center', lineHeight: 21 }}>{tr('auth.recover.doneSub')}</Text>
-        <Press
-          onPress={onDone}
-          style={[
-            { height: 52, borderRadius: 16, marginTop: 32, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center', backgroundColor: t.accent },
-            elevAccent(t.accent),
-          ]}
-        >
-          <Text style={{ fontSize: 16, fontWeight: '700', color: '#fff' }}>{tr('auth.recover.backToLogin')}</Text>
-        </Press>
+        <Text style={{ fontSize: 14, color: t.text2, marginTop: space.xs, textAlign: 'center', lineHeight: 21 }}>{tr('auth.recover.doneSub')}</Text>
+        <View style={{ alignSelf: 'stretch' }}>
+          <AuthCTA t={t} label={tr('auth.recover.backToLogin')} enabled onPress={onDone} topGap={space.xxl} />
+        </View>
       </View>
     );
   } else if (rstep === 'reset') {
     body = (
       <>
-        <AuthBack t={t} top={insets.top + 12} onPress={() => setRstep('otp')} />
-        <ScrollView contentContainerStyle={{ paddingTop: insets.top + 76, paddingHorizontal: layout.pagePadding, paddingBottom: insets.bottom + space.xxxl }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <AuthBack t={t} top={insets.top + space.sm} onPress={() => go('otp')} />
+        <ScrollView contentContainerStyle={scrollStyle} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <StepTitle t={t} title={tr('auth.reset.title')} sub={tr('auth.reset.sub')} />
-          <View style={{ gap: 12, marginTop: 26 }}>
-            <PasswordField t={t} value={pwd} onChangeText={setPwd} placeholder={tr('auth.reset.newPwd')} show={showPwd} setShow={setShowPwd} />
-            <AuthField t={t} leading={<Lock c={t.text3} />}>
-              <TextInput value={pwd2} onChangeText={setPwd2} placeholder={tr('auth.reset.confirmPwd')} placeholderTextColor={t.text3} secureTextEntry={!showPwd} autoCapitalize="none" style={inputStyle(t)} />
-            </AuthField>
+          <View style={{ gap: space.sm, marginTop: 36 }}>
+            <PasswordField t={t} value={pwd} onChangeText={setPwd} placeholder={tr('auth.reset.newPwd')} show={showPwd} setShow={setShowPwd} isNew />
+            <PasswordField t={t} value={pwd2} onChangeText={setPwd2} placeholder={tr('auth.reset.confirmPwd')} show={showPwd} setShow={setShowPwd} isNew onSubmitEditing={pwdValid ? () => void submitReset() : undefined} />
           </View>
-          {pwd2.length > 0 && pwd !== pwd2 && <Text style={{ fontSize: 12.5, color: t.danger, marginTop: 10, paddingLeft: 4 }}>{tr('auth.reset.mismatch')}</Text>}
-          <AuthCTA t={t} label={tr('common.done')} enabled={pwdValid} busy={busy} onPress={submitReset} />
+          {pwd2.length > 0 && pwd !== pwd2 && <Text style={{ fontSize: 12.5, color: t.danger, marginTop: space.sm, paddingLeft: space.lg }}>{tr('auth.reset.mismatch')}</Text>}
+          <AuthCTA t={t} label={tr('common.done')} enabled={pwdValid} busy={busy} onPress={() => void submitReset()} topGap={36} />
+          {errorText}
         </ScrollView>
       </>
     );
   } else if (rstep === 'otp') {
-    const sentTo = method === 'phone' ? `+86 ${phone}` : email;
     body = (
       <>
-        <AuthBack t={t} top={insets.top + 12} onPress={() => setRstep('input')} />
-        <ScrollView contentContainerStyle={{ paddingTop: insets.top + 76, paddingHorizontal: layout.pagePadding, paddingBottom: insets.bottom + space.xxxl }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          <Text style={{ fontSize: 26, fontWeight: '700', color: t.text, letterSpacing: -0.5 }}>{tr('auth.otp.title')}</Text>
-          <Text style={{ fontSize: 14, color: t.text2, marginTop: 8, lineHeight: 21 }}>
-            {tr('auth.otp.sentTo')} <Text style={{ fontFamily: MONO, color: t.text, fontWeight: '600' }}>{sentTo}</Text>
-          </Text>
-          <OtpInput t={t} code={code} setCode={setCode} />
-          <ResendRow t={t} left={left} onResend={() => { setLeft(60); setCode(''); }} />
+        <AuthBack t={t} top={insets.top + space.sm} onPress={() => go('input')} />
+        <ScrollView contentContainerStyle={scrollStyle} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <StepTitle t={t} title={tr('auth.otp.title')} sub={`${tr('auth.otp.sentTo')} ${email}`} />
+          <OtpInput t={t} code={code} setCode={(next) => { if (next) setCodeInvalid(false); setCode(next); }} invalid={codeInvalid && !code} />
+          {errorText}
+          <ResendRow t={t} left={left} onResend={() => void sendCode()} />
+          <Text style={{ ...type.caption, color: t.text3, marginTop: space.lg, lineHeight: 18, textAlign: 'center' }}>{tr('auth.recover.cantReceive')}</Text>
         </ScrollView>
       </>
     );
   } else {
     body = (
       <>
-        <AuthBack t={t} top={insets.top + 12} onPress={onBack} />
-        <ScrollView contentContainerStyle={{ paddingTop: insets.top + 76, paddingHorizontal: layout.pagePadding, paddingBottom: insets.bottom + space.xxxl }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <AuthBack t={t} top={insets.top + space.sm} onPress={onBack} />
+        <ScrollView contentContainerStyle={scrollStyle} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <StepTitle t={t} title={tr('auth.recover.title')} sub={tr('auth.recover.sub')} />
-          <View style={{ marginTop: 24 }}>
-            <AuthSeg t={t} value={method} onChange={setMethod} options={[{ id: 'phone', label: tr('auth.recover.tabPhone') }, { id: 'email', label: tr('auth.recover.tabEmail') }]} />
+          <View style={{ marginTop: 36 }}>
+            <AuthField t={t} leading={<Mail c={t.text3} />}>
+              <TextInput
+                ref={inputRef}
+                value={email}
+                keyboardType="email-address"
+                textContentType="emailAddress"
+                autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder={tr('auth.emailPlaceholder')}
+                placeholderTextColor={t.text3}
+                returnKeyType="send"
+                onSubmitEditing={emailValid ? () => void sendCode() : undefined}
+                onChangeText={(v) => setEmail(v.trim())}
+                style={inputStyle(t)}
+              />
+            </AuthField>
           </View>
-          <View style={{ marginTop: 16 }}>
-            {method === 'phone' ? (
-              <AuthField t={t} leading={<CountryCode t={t} />}>
-                <TextInput
-                  ref={inputRef}
-                  value={phone}
-                  keyboardType="number-pad"
-                  placeholder={tr('auth.phone.placeholder')}
-                  placeholderTextColor={t.text3}
-                  maxLength={11}
-                  onChangeText={(v) => setPhone(v.replace(/\D/g, '').slice(0, 11))}
-                  style={inputStyle(t)}
-                />
-              </AuthField>
-            ) : (
-              <AuthField t={t} leading={<Mail c={t.text3} />}>
-                <TextInput ref={inputRef} value={email} keyboardType="email-address" placeholder={tr('auth.emailPlaceholder')} placeholderTextColor={t.text3} autoCapitalize="none" onChangeText={(v) => setEmail(v.trim())} style={inputStyle(t)} />
-              </AuthField>
-            )}
-          </View>
-          <AuthCTA t={t} label={tr('auth.phone.getCode')} enabled={inputValid} onPress={sendCode} />
-          <Text style={{ fontSize: 12.5, color: t.text3, marginTop: 16, lineHeight: 20, textAlign: 'center' }}>
-            {tr('auth.recover.cantReceive')} <Text style={{ color: t.accent, fontWeight: '600' }}>{tr('auth.recover.helpFeedback')}</Text> {tr('auth.recover.contactUs')}
-          </Text>
+          <AuthCTA t={t} label={tr('auth.phone.getCode')} enabled={emailValid} busy={busy} onPress={() => void sendCode()} topGap={36} />
+          {errorText}
+          <Text style={{ ...type.caption, color: t.text3, marginTop: space.lg, lineHeight: 18, textAlign: 'center' }}>{tr('auth.recover.phoneNote')}</Text>
         </ScrollView>
       </>
     );
   }
 
   return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: t.groupedBg }]}>
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: t.featureSurface }]}>
       <SlideStep t={t} stepKey={rstep}>
         {body}
       </SlideStep>
@@ -971,6 +1034,7 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
   const [request, setRequest] = useState<{ id: string; secret: string; expiresAt: string } | null>(null);
   const [phase, setPhase] = useState<'generating' | 'waiting' | 'scanned' | 'confirmed' | 'signingIn' | 'expired' | 'error'>('generating');
   const [error, setError] = useState('');
+  const [remaining, setRemaining] = useState(0);
   const slide = useSlideIn();
   const qrReveal = useRef(new Animated.Value(0)).current;
   const statusProgress = useRef(new Animated.Value(0)).current;
@@ -1000,8 +1064,9 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
   useEffect(() => {
     if (!request || phase === 'expired' || phase === 'error') return;
     const tick = () => {
-      const remaining = Math.max(0, Math.ceil((new Date(request.expiresAt).getTime() - Date.now()) / 1000));
-      if (remaining === 0) setPhase('expired');
+      const seconds = Math.max(0, Math.ceil((new Date(request.expiresAt).getTime() - Date.now()) / 1000));
+      setRemaining(seconds);
+      if (seconds === 0) setPhase('expired');
     };
     tick();
     const timer = setInterval(tick, 1000);
@@ -1191,7 +1256,14 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
 
           <View style={{ minHeight: 80, alignItems: 'center', justifyContent: 'center', marginTop: space.md }}>
             {phase === 'waiting' ? (
-              <Text style={{ color: t.text2, fontSize: 13, lineHeight: 20, textAlign: 'center' }}>{tr('qrLogin.openScannerHint')}</Text>
+              <>
+                <Text style={{ color: t.text2, fontSize: 13, lineHeight: 20, textAlign: 'center' }}>{tr('qrLogin.openScannerHint')}</Text>
+                {remaining > 0 ? (
+                  <Text style={{ color: t.text3, fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: space.xxs, fontVariant: ['tabular-nums'] }}>
+                    {tr('qrLogin.expiresIn', { time: `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}` })}
+                  </Text>
+                ) : null}
+              </>
             ) : phase === 'error' ? (
               <Text style={{ color: t.danger, fontSize: 13.5, lineHeight: 20, textAlign: 'center' }}>{statusLabel}</Text>
             ) : phase === 'generating' ? null : (
@@ -1221,7 +1293,7 @@ function SlideStep({ t, stepKey, children }: { t: Theme; stepKey: string; childr
 }
 function SlideStepInner({ t, children }: { t: Theme; children: React.ReactNode }) {
   const x = useSlideIn();
-  return <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: t.groupedBg, transform: [{ translateX: x }] }]}>{children}</Animated.View>;
+  return <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: t.featureSurface, transform: [{ translateX: x }] }]}>{children}</Animated.View>;
 }
 
 // Success checkmark with a pop animation.
@@ -1254,13 +1326,16 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
   const [pwd, setPwd] = useState('');
   const [showPwd, setShowPwd] = useState(false);
   const [agree, setAgree] = useState(false);
-  const [flash, setFlash] = useState(false);
   const [step, setStep] = useState<Step>('entry');
   const [busy, setBusy] = useState(false);
+  const [guestBusy, setGuestBusy] = useState(false);
   const [social, setSocial] = useState<SocialId | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [doc, setDoc] = useState<DocId | null>(null);
   const [appleAvailable, setAppleAvailable] = useState(false);
+  // 未勾选协议时暂存用户点的操作，「同意并继续」后接着执行。
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
+  const pwdRef = useRef<TextInput>(null);
   // 手机号登录由运营开关控制；默认（含拉取失败）为冻结。
   const { flags } = usePublicRuntimeFlags();
   const phoneLoginEnabled = flags.phoneLogin === 'enabled';
@@ -1275,20 +1350,34 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
     };
   }, []);
 
-  const flashAgree = () => { setFlash(true); setTimeout(() => setFlash(false), 450); };
+  const requireAgree = (action: () => void) => {
+    if (agree) action();
+    else setPendingAction(() => action);
+  };
+  const acceptConsent = () => {
+    const action = pendingAction;
+    setAgree(true);
+    setPendingAction(null);
+    action?.();
+  };
   const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
   const entryEnabled = emailValid && pwd.length >= 6;
 
   const [authError, setAuthError] = useState('');
+  const [authNotice, setAuthNotice] = useState('');
   const friendlyError = (msg: string): string => {
     const m = msg.toLowerCase();
     if (m.includes('invalid login credentials') || m.includes('invalid_credentials'))
       return tr('auth.error.invalidCredentials');
+    if (m.includes('token has expired or is invalid') || m.includes('otp_expired') || m.includes('invalid otp'))
+      return tr('auth.error.invalidCode');
+    if (m.includes('same_password') || m.includes('should be different from the old password'))
+      return tr('auth.error.samePassword');
     if (m.includes('user already registered'))
       return tr('auth.error.userAlreadyRegistered');
     if (m.includes('email not confirmed'))
       return tr('auth.error.emailNotConfirmed');
-    if (m.includes('rate limit') || m.includes('too many requests'))
+    if (m.includes('rate limit') || m.includes('too many requests') || m.includes('security purposes'))
       return tr('auth.error.rateLimited');
     if (m.includes('password') && (m.includes('at least') || m.includes('too short') || m.includes('weak')))
       return tr('auth.error.weakPassword');
@@ -1298,24 +1387,32 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
       return tr('auth.error.appleFailed');
     return tr('auth.error.unknown');
   };
-  const onPrimary = async () => {
-    if (!agree) { flashAgree(); return; }
+  const onPrimary = () => requireAgree(async () => {
+    if (busy) return;
     setBusy(true);
     setAuthError('');
-    const fn = intent === 'register' ? signUpWithEmail : signInWithEmail;
-    const { error } = await fn(email, pwd);
+    setAuthNotice('');
+    const result = intent === 'register' ? await signUpWithEmail(email, pwd) : await signInWithEmail(email, pwd);
     setBusy(false);
-    if (error) { setAuthError(friendlyError(error.message)); return; }
+    if (result.error) { setAuthError(friendlyError(result.error.message)); return; }
+    // 服务端开了邮箱确认时注册不返回会话，要告诉用户去邮箱，不然页面像是没反应。
+    if (intent === 'register' && !result.data.session) {
+      setAuthNotice(tr('auth.emailConfirmSent', { email }));
+      setIntent('login');
+    }
+  });
+  const sendOtp = async () => {
+    setAuthError('');
+    const { error } = await sendPhoneOtp(`+86${phone}`);
+    if (error) { setAuthError(friendlyError(error.message)); return false; }
+    return true;
   };
   const onPhoneNext = async () => {
     if (busy) return;
     setBusy(true);
-    setAuthError('');
-    const normalized = `+86${phone}`;
-    const { error } = await sendPhoneOtp(normalized);
+    const sent = await sendOtp();
     setBusy(false);
-    if (error) { setAuthError(friendlyError(error.message)); return; }
-    setStep('otp');
+    if (sent) setStep('otp');
   };
   const onVerify = async (code: string) => {
     if (busy) return;
@@ -1326,15 +1423,8 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
     if (error) { setAuthError(friendlyError(error.message)); return; }
     onSuccess();
   };
-  const onSocial = async (id: SocialId) => {
-    if (!agree) { flashAgree(); return; }
+  const onApple = async () => {
     if (busy) return;
-    if (id !== 'apple') {
-      // 微信 / Google 尚未接入，保留原有占位动画（入口已隐藏）。
-      setSocial(id);
-      setTimeout(() => onSuccess(), 1300);
-      return;
-    }
     setAuthError('');
     setBusy(true);
     // 原生卡片弹出期间不显示加载层（卡片自带遮罩与反馈），卡片收起拿到凭证后再显示「正在连接」。
@@ -1347,9 +1437,8 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
     setAuthError(friendlyError(error.message));
   };
   const onGuest = async () => {
-    if (!agree) { flashAgree(); return; }
-    if (busy) return;
-    setBusy(true);
+    if (guestBusy) return;
+    setGuestBusy(true);
     setAuthError('');
     try {
       const { error } = await signInAnonymously();
@@ -1364,34 +1453,40 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
     } catch (error) {
       setAuthError(friendlyError(error instanceof Error ? error.message : 'unknown'));
     } finally {
-      setBusy(false);
+      setGuestBusy(false);
     }
   };
+  const goStep = (next: Step) => { setAuthError(''); setStep(next); };
+  const openEmail = () => { setAuthError(''); setAuthNotice(''); setEmailOpen(true); };
 
-  if (doc) return <AuthDocPage t={t} doc={doc} onBack={() => setDoc(null)} />;
-  if (step === 'phone')
-    return (
+  let screen: React.ReactNode;
+  if (step === 'phone') {
+    screen = (
       <AuthPhoneStep
         t={t}
         phone={phone}
         setPhone={setPhone}
         agree={agree}
         setAgree={setAgree}
-        flash={flash}
-        flashAgree={flashAgree}
-        onBack={() => setStep('entry')}
+        requireAgree={requireAgree}
+        onBack={() => goStep('entry')}
         onNext={() => void onPhoneNext()}
         busy={busy}
         error={authError}
         onOpenDoc={setDoc}
       />
     );
-  if (step === 'otp') return <AuthOtp t={t} phone={phone} busy={busy} error={authError} onBack={() => setStep('phone')} onVerify={(code) => void onVerify(code)} />;
-  if (step === 'recover') return <AuthRecover t={t} onBack={() => setStep('entry')} onDone={() => setStep('entry')} onOpenDoc={setDoc} />;
-  if (step === 'qr') return <AuthQrLogin t={t} onBack={() => setStep('entry')} />;
-
-  if (!emailOpen) {
-    return (
+  } else if (step === 'otp') {
+    screen = <AuthOtp t={t} phone={phone} busy={busy} error={authError} onBack={() => goStep('phone')} onVerify={(code) => void onVerify(code)} onResend={sendOtp} />;
+  } else if (step === 'recover') {
+    screen = <AuthRecover t={t} initialEmail={emailValid ? email : ''} onBack={() => goStep('entry')} onDone={() => { setPwd(''); goStep('entry'); }} friendlyError={friendlyError} />;
+  } else if (step === 'qr') {
+    screen = <AuthQrLogin t={t} onBack={() => goStep('entry')} />;
+  } else if (!emailOpen) {
+    // 首屏只放当前能用的入口：iOS 首推 Apple；手机号开关打开时其次；两者都没有时邮箱登录顶上。
+    const showApple = appleAvailable;
+    const emailOnLanding = !showApple && !phoneLoginEnabled;
+    screen = (
       <View style={{ flex: 1, backgroundColor: t.featureSurface }}>
         <ScrollView
           contentContainerStyle={{
@@ -1410,41 +1505,38 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
           </View>
 
           <View style={{ gap: space.sm }}>
-            <LandingButton
-              t={t}
-              label={tr('auth.more.phoneLogin')}
-              icon={<PhoneGlyph c={t.text} />}
-              onPress={() => setStep('phone')}
-              disabled={!phoneLoginEnabled}
-            />
-            <LandingButton
-              t={t}
-              label={tr('qrLogin.entry')}
-              icon={<QrGlyph c={t.text} />}
-              onPress={() => {
-                if (!agree) { flashAgree(); return; }
-                setStep('qr');
-              }}
-            />
+            {showApple ? (
+              <LandingButton
+                t={t}
+                filled
+                label={tr('auth.appleContinue')}
+                icon={<AppleGlyph c={t.featureSurface} />}
+                onPress={() => requireAgree(() => void onApple())}
+              />
+            ) : null}
+            {phoneLoginEnabled ? (
+              <LandingButton t={t} label={tr('auth.more.phoneLogin')} icon={<PhoneGlyph c={t.text} />} onPress={() => requireAgree(() => goStep('phone'))} />
+            ) : null}
+            {emailOnLanding ? (
+              <LandingButton t={t} label={tr('auth.emailLoginTitle')} icon={<Mail c={t.text} />} onPress={openEmail} />
+            ) : null}
             <Press
               accessibilityRole="button"
-              accessibilityState={{ disabled: busy }}
-              disabled={busy}
-              onPress={onGuest}
-              style={{
-                height: 48,
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: space.xs,
-              }}
+              accessibilityState={{ disabled: guestBusy }}
+              accessibilityHint={tr('auth.guestHint')}
+              disabled={guestBusy}
+              onPress={() => requireAgree(() => void onGuest())}
+              style={{ minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: space.xxs }}
             >
-              {busy ? (
+              {guestBusy ? (
                 <Spinner size={17} color={t.text2} track={t.hairline} width={2} />
               ) : (
                 <>
-                  <GuestGlyph c={t.text2} />
-                  <Text style={{ color: t.text2, fontSize: 14, fontWeight: '600' }}>{tr('auth.guestLogin')}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+                    <GuestGlyph c={t.text2} />
+                    <Text style={{ color: t.text2, fontSize: 14, fontWeight: '600' }}>{tr('auth.guestLogin')}</Text>
+                  </View>
+                  <Text style={{ ...type.caption, color: t.text3 }}>{tr('auth.guestHint')}</Text>
                 </>
               )}
             </Press>
@@ -1456,7 +1548,7 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
             </Text>
           ) : null}
 
-          <View style={{ marginTop: space.lg, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>
+          <View style={{ marginTop: space.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>
             <Press onPress={() => setMoreOpen(true)} hitSlop={10} style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
               <DotsGlyph c={t.text3} />
               <Text style={{ color: t.text3, fontSize: 13, fontWeight: '600' }}>{tr('auth.moreMethods')}</Text>
@@ -1464,121 +1556,141 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
           </View>
 
           <View style={{ marginTop: space.xl }}>
-            <AuthAgree t={t} value={agree} onChange={setAgree} flash={flash} onOpenDoc={setDoc} />
+            <AuthAgree t={t} value={agree} onChange={setAgree} onOpenDoc={setDoc} />
           </View>
         </ScrollView>
         {moreOpen && (
           <AuthMoreSheet
             t={t}
-            appleAvailable={appleAvailable}
+            showEmail={!emailOnLanding}
             onClose={() => setMoreOpen(false)}
             onPick={(id) => {
               setMoreOpen(false);
-              if (id === 'email') setEmailOpen(true);
-              else void onSocial(id);
+              if (id === 'email') openEmail();
+              else requireAgree(() => goStep('qr'));
             }}
           />
         )}
         {social && <AuthSocialOverlay t={t} kind={social} />}
       </View>
     );
+  } else {
+    screen = (
+      <View style={{ flex: 1, backgroundColor: t.featureSurface }}>
+        <AuthBack t={t} top={insets.top + space.sm} onPress={() => { setAuthError(''); setAuthNotice(''); setEmailOpen(false); }} />
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+          <ScrollView
+            contentContainerStyle={{
+              flexGrow: 1,
+              width: '100%',
+              maxWidth: 460,
+              alignSelf: 'center',
+              paddingTop: insets.top + 112,
+              paddingHorizontal: space.xxl,
+              paddingBottom: insets.bottom + space.xxxl,
+            }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <StepTitle
+              t={t}
+              title={intent === 'login' ? tr('auth.emailLoginTitle') : tr('auth.emailRegisterTitle')}
+              sub={intent === 'login' ? tr('auth.emailLoginSub') : tr('auth.emailRegisterSub')}
+            />
+
+            <View style={{ marginTop: 36, gap: space.sm }}>
+              <AuthField t={t} leading={<Mail c={t.text3} />}>
+                <TextInput
+                  value={email}
+                  onChangeText={(v) => setEmail(v.trim())}
+                  placeholder={tr('auth.emailPlaceholder')}
+                  placeholderTextColor={t.text3}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="email-address"
+                  textContentType={intent === 'register' ? 'emailAddress' : 'username'}
+                  autoComplete={intent === 'register' ? 'email' : 'username'}
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                  onSubmitEditing={() => pwdRef.current?.focus()}
+                  style={inputStyle(t)}
+                />
+              </AuthField>
+              <PasswordField
+                ref={pwdRef}
+                t={t}
+                value={pwd}
+                onChangeText={setPwd}
+                placeholder={intent === 'register' ? tr('auth.setPwdPlaceholder') : tr('auth.pwdPlaceholder')}
+                show={showPwd}
+                setShow={setShowPwd}
+                isNew={intent === 'register'}
+                onSubmitEditing={entryEnabled ? onPrimary : undefined}
+              />
+            </View>
+
+            {intent === 'login' ? (
+              <View style={{ alignItems: 'flex-end', marginTop: space.xs }}>
+                <Press onPress={() => goStep('recover')} hitSlop={8} style={{ paddingVertical: space.xs }}>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: t.text2 }}>{tr('auth.forgotPwd')}</Text>
+                </Press>
+              </View>
+            ) : null}
+
+            <AuthCTA
+              t={t}
+              label={intent === 'register' ? tr('auth.registerCta') : tr('auth.loginCta')}
+              enabled={entryEnabled}
+              busy={busy}
+              topGap={intent === 'login' ? 36 : 52}
+              onPress={onPrimary}
+            />
+
+            {authError ? (
+              <Text style={{ color: t.danger, fontSize: 13, lineHeight: 19, marginTop: space.sm, textAlign: 'center' }}>
+                {authError}
+              </Text>
+            ) : authNotice ? (
+              <Text style={{ color: t.text2, fontSize: 13, lineHeight: 19, marginTop: space.sm, textAlign: 'center' }}>
+                {authNotice}
+              </Text>
+            ) : null}
+
+            <View style={{ marginTop: space.lg }}>
+              <AuthAgree t={t} value={agree} onChange={setAgree} onOpenDoc={setDoc} />
+            </View>
+
+            {flags.emailRegister === 'enabled' ? (
+              <View style={{ marginTop: space.xxl, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>
+                <Text style={{ fontSize: 13, color: t.text2 }}>
+                  {intent === 'login' ? tr('auth.switch.noAccount') : tr('auth.switch.hasAccount')}
+                </Text>
+                <Press
+                  onPress={() => {
+                    setIntent(intent === 'login' ? 'register' : 'login');
+                    setAuthError('');
+                    setAuthNotice('');
+                  }}
+                  hitSlop={8}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: t.text }}>
+                    {intent === 'login' ? tr('auth.switch.toRegister') : tr('auth.switch.toLogin')}
+                  </Text>
+                </Press>
+              </View>
+            ) : null}
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </View>
+    );
   }
 
+  // 协议弹窗盖在当前页之上，协议全文页再盖在弹窗之上，看完返回还能直接同意。
   return (
     <View style={{ flex: 1, backgroundColor: t.featureSurface }}>
-      <AuthBack t={t} top={insets.top + space.sm} onPress={() => setEmailOpen(false)} />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <ScrollView
-          contentContainerStyle={{
-            flexGrow: 1,
-            width: '100%',
-            maxWidth: 460,
-            alignSelf: 'center',
-            paddingTop: insets.top + 112,
-            paddingHorizontal: space.xxl,
-            paddingBottom: insets.bottom + space.xxxl,
-          }}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <StepTitle
-            t={t}
-            title={intent === 'login' ? tr('auth.emailLoginTitle') : tr('auth.emailRegisterTitle')}
-            sub={intent === 'login' ? tr('auth.emailLoginSub') : tr('auth.emailRegisterSub')}
-          />
-
-          <View style={{ marginTop: 36, gap: space.sm }}>
-            <AuthField t={t} leading={<Mail c={t.text3} />}>
-              <TextInput
-                value={email}
-                onChangeText={(v) => setEmail(v.trim())}
-                placeholder={tr('auth.emailPlaceholder')}
-                placeholderTextColor={t.text3}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="email-address"
-                textContentType="emailAddress"
-                returnKeyType="next"
-                style={inputStyle(t)}
-              />
-            </AuthField>
-            <PasswordField
-              t={t}
-              value={pwd}
-              onChangeText={setPwd}
-              placeholder={intent === 'register' ? tr('auth.setPwdPlaceholder') : tr('auth.pwdPlaceholder')}
-              show={showPwd}
-              setShow={setShowPwd}
-            />
-          </View>
-
-          {intent === 'login' ? (
-            <View style={{ alignItems: 'flex-end', marginTop: space.xs }}>
-              <Press onPress={() => setStep('recover')} hitSlop={8} style={{ paddingVertical: space.xs }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: t.text2 }}>{tr('auth.forgotPwd')}</Text>
-              </Press>
-            </View>
-          ) : null}
-
-          <AuthCTA
-            t={t}
-            label={intent === 'register' ? tr('auth.registerCta') : tr('auth.loginCta')}
-            enabled={entryEnabled}
-            busy={busy}
-            topGap={intent === 'login' ? 36 : 52}
-            onPress={onPrimary}
-          />
-
-          {authError ? (
-            <Text style={{ color: t.danger, fontSize: 13, lineHeight: 19, marginTop: space.sm, textAlign: 'center' }}>
-              {authError}
-            </Text>
-          ) : null}
-
-          <View style={{ marginTop: space.lg }}>
-            <AuthAgree t={t} value={agree} onChange={setAgree} flash={flash} onOpenDoc={setDoc} />
-          </View>
-
-          {flags.emailRegister === 'enabled' ? (
-            <View style={{ marginTop: space.xxl, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>
-              <Text style={{ fontSize: 13, color: t.text2 }}>
-                {intent === 'login' ? tr('auth.switch.noAccount') : tr('auth.switch.hasAccount')}
-              </Text>
-              <Press
-                onPress={() => {
-                  setIntent(intent === 'login' ? 'register' : 'login');
-                  setAuthError('');
-                }}
-                hitSlop={8}
-              >
-                <Text style={{ fontSize: 13, fontWeight: '700', color: t.text }}>
-                  {intent === 'login' ? tr('auth.switch.toRegister') : tr('auth.switch.toLogin')}
-                </Text>
-              </Press>
-            </View>
-          ) : null}
-        </ScrollView>
-      </KeyboardAvoidingView>
+      {screen}
+      {pendingAction ? <AuthConsentSheet t={t} onAccept={acceptConsent} onClose={() => setPendingAction(null)} onOpenDoc={setDoc} /> : null}
+      {doc ? <AuthDocPage t={t} doc={doc} onBack={() => setDoc(null)} /> : null}
     </View>
   );
 }

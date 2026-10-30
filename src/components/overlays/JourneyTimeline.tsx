@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ReAnimated, { Easing as ReanimatedEasing, cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Theme } from '../../theme/theme';
+import { MONO } from '../../theme/fonts';
 import { Poi } from '../../data/pois';
 import { TLRow, TLMedia, TLGroup, TimelineLocation } from '../../data/timeline';
 import { useTimeline } from '../../hooks/useTimeline';
@@ -25,20 +26,20 @@ import { KPSkeletonLine, KPState } from '../State';
 import { Avatar } from '../Avatar';
 import { Press, PressDragGuardContext, useDragCancelledPress } from '../Press';
 import { useNav } from '../../nav/NavContext';
-import { useI18n } from '../../i18n';
+import { useI18n, type TKey, type TVars } from '../../i18n';
 import { uploadBatch, uploadMedia } from '../../lib/storage';
 import { isWriteBusy } from '../../lib/writeErrors';
 import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../lib/mediaLibrary';
 import WheelPicker from '@quidone/react-native-wheel-picker';
 import * as Haptics from 'expo-haptics';
-import { AppCard, motion, radius, space, type } from '../../design-system';
+import { motion, radius, space, type } from '../../design-system';
 import { ReorderableTimelineGroup } from '../journey/ReorderableTimelineGroup';
 import { JourneyGroupNote } from '../journey/JourneyGroupNote';
 import { JourneyGroupPicker } from '../journey/JourneyGroupPicker';
 import { useLastAddedGroup } from '../journey/useLastAddedGroup';
 import { buildJourneyGroupChoices } from '../../lib/journeyGroupChoices';
 import { journeyDayDisplayLabel, journeyDayOrdinal, nextJourneyDayKey } from '../../lib/journeyDays';
-import { groupJourneyRows, journeyGroupsForSelectedDay, sortRowsWithinDay } from '../../lib/journeyOrdering';
+import { groupJourneyRows, sortRowsWithinDay } from '../../lib/journeyOrdering';
 import { buildJourneyStops, carryPlaceFromPreviousDay } from '../../lib/journeyStops';
 import { journeyTracks, trackForId, trackLengthMatches, type JourneyTrack } from '../../lib/journeyTracks';
 import { JourneyAccessPathSheet } from './JourneyAccessPathSheet';
@@ -210,7 +211,7 @@ const MAX_TL_MEDIA = 10;const fmtMins = (m: number) => `${String(Math.floor(m / 
 const HOUR_OPTS = Array.from({ length: 24 }, (_, h) => ({ value: h, label: String(h).padStart(2, '0') }));
 const MIN_OPTS = Array.from({ length: 12 }, (_, i) => ({ value: i * 5, label: String(i * 5).padStart(2, '0') }));
 
-function TimeWheel({ theme, value, onChange, compact }: { theme: Theme; value: number; onChange: (mins: number) => void; compact?: boolean }) {
+export function TimeWheel({ theme, value, onChange, compact }: { theme: Theme; value: number; onChange: (mins: number) => void; compact?: boolean }) {
   const h = Math.floor(value / 60);
   const m = (Math.round((value % 60) / 5) * 5) % 60;
   const overlay = { backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.045)', borderRadius: 10 };
@@ -1144,7 +1145,7 @@ export function MediaViewer({
 }
 
 // ── One itinerary entry — full text + inline tappable photos (no done state) ──
-function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, selected, onToggleSelected, dayLayout, reorderHandle }: {
+function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, selected, onToggleSelected, reorderHandle }: {
   theme: Theme;
   row: TLRow;
   onPress?: () => void;
@@ -1152,7 +1153,6 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelected?: () => void;
-  dayLayout?: boolean;
   reorderHandle?: React.ReactNode;
 }) {
   const { t } = useI18n();
@@ -1206,7 +1206,6 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
   // carry — media-only items keep photos in the full-width grid, place-only
   // items stay a single line. 1–2 media go right, ≥3 fall back to the grid.
   const sideMedia = hasText && media.length > 0 && media.length <= 2;
-  const tileBg = dayLayout ? theme.surfaceTop : theme.fieldSurface;
 
   // ≥3 media (or no text to host the right column): a three-up grid shows the
   // whole set at a glance — the old horizontal strip hid both count and tails,
@@ -1229,7 +1228,7 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
             <Pressable
               key={cell.index}
               onPress={onOpenMedia ? () => onOpenMedia(media, cell.index, row) : undefined}
-              style={{ flex: 1, aspectRatio: 1, borderRadius: radius.control, overflow: 'hidden', backgroundColor: tileBg }}
+              style={{ flex: 1, aspectRatio: 1, borderRadius: radius.control, overflow: 'hidden', backgroundColor: theme.fieldSurface }}
             >
               {(() => {
                 const uri = cell.item.video ? cell.item.thumb : cell.item.uri;
@@ -1291,14 +1290,11 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
       style={{
         position: 'relative',
         flexDirection: 'row',
-        alignItems: dayLayout ? 'flex-start' : 'center',
+        alignItems: 'center',
         gap: space.md,
-        // In the day layout this Pressable *is* the card: the inset lives here so
-        // the whole tinted area is a tap target, not just the text lines.
-        paddingVertical: dayLayout ? space.md : space.sm,
-        paddingHorizontal: dayLayout ? space.md : 0,
+        paddingVertical: space.sm,
         // Only visible editing controls need a rail; browsing uses the full
-        // content width inside the card's regular inset.
+        // content width.
         paddingLeft: selectionMode ? space.xxxl : undefined,
         paddingRight: reorderHandle ? space.xxxl : undefined,
       }}
@@ -1345,8 +1341,198 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
           {reorderHandle}
         </View>
       ) : null}
-      {!reorderHandle && !dayLayout && !selectionMode && onPress ? <Icon name="chevronR" color={theme.text3} size={15} /> : null}
+      {!reorderHandle && !selectionMode && onPress ? <Icon name="chevronR" color={theme.text3} size={15} /> : null}
     </Pressable>
+  );
+}
+
+// ── The 行程 page's compact rows — one line per step, the stay line last ──
+//
+// These replace the cards the old day layout used: no background, no index, no
+// media tiles. A row is still the press target for the item editor, still
+// selectable, and still carries the reorder handle, so selection mode and
+// reordering keep working exactly as on the per-day pages.
+
+function useStepSelection(selected: boolean | undefined, onToggleSelected: (() => void) | undefined) {
+  const selectionProgress = useRef(new Animated.Value(selected ? 1 : 0)).current;
+  useEffect(() => {
+    selectionProgress.stopAnimation();
+    Animated.timing(selectionProgress, {
+      toValue: selected ? 1 : 0,
+      duration: motion.quick,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [selected, selectionProgress]);
+  const toggleSelection = () => {
+    if (!onToggleSelected) return;
+    selectionProgress.stopAnimation();
+    Animated.timing(selectionProgress, {
+      toValue: selected ? 0 : 1,
+      duration: 110,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+    requestAnimationFrame(() => React.startTransition(onToggleSelected));
+  };
+  return { selectionProgress, toggleSelection };
+}
+
+function StepSelectionDot({ theme, progress, selected }: { theme: Theme; progress: Animated.Value; selected: boolean }) {
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: space.xs,
+        top: 0,
+        bottom: 0,
+        width: 26,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <View
+        style={{
+          width: 18,
+          height: 18,
+          borderRadius: radius.pill,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: selected ? theme.accent : 'rgba(0,0,0,0.24)',
+          opacity: selected ? 1 : 0.9,
+          overflow: 'hidden',
+        }}
+      >
+        <Animated.View
+          style={{
+            opacity: progress,
+            transform: [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }) }],
+          }}
+        >
+          <Icon name="check" color="#FFFFFF" size={10} strokeWidth={2.5} />
+        </Animated.View>
+      </View>
+    </View>
+  );
+}
+
+interface ItineraryStepProps {
+  theme: Theme;
+  row: TLRow;
+  onPress?: () => void;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onToggleSelected?: () => void;
+  reorderHandle?: React.ReactNode;
+}
+
+const stepRowStyle = (selectionMode: boolean | undefined, hasHandle: boolean) => ({
+  position: 'relative' as const,
+  flexDirection: 'row' as const,
+  alignItems: 'flex-start' as const,
+  gap: space.md,
+  paddingVertical: space.xs,
+  // Only the selection rail shifts the content; browsing keeps the full width.
+  paddingLeft: selectionMode ? space.xxxl : 0,
+  paddingRight: hasHandle ? space.xxxl : 0,
+});
+
+function stepSuffixParts(row: TLRow, t: (key: TKey, vars?: TVars) => string): string[] {
+  const parts: string[] = [];
+  const mediaCount = row.media?.length ?? 0;
+  if (mediaCount > 0) parts.push(t('journey.itinerary.mediaCount', { count: mediaCount }));
+  return parts;
+}
+
+function ItineraryStep({ theme, row, onPress, selectionMode, selected, onToggleSelected, reorderHandle }: ItineraryStepProps) {
+  const { t } = useI18n();
+  const { selectionProgress, toggleSelection } = useStepSelection(selected, onToggleSelected);
+  // This row is the full page width, so a page swipe can end as a press on it.
+  const rowPress = useDragCancelledPress(selectionMode ? toggleSelection : onPress, useContext(PressDragGuardContext));
+  const title = row.title.trim();
+  const text = title || row.location?.name?.trim() || '';
+  const suffix = stepSuffixParts(row, t).join('　');
+  // The place sits under the step as its own line; when the place is the step's text it is not repeated.
+  const place = title && row.location?.name?.trim() && row.location.name.trim() !== title ? row.location.name.trim() : '';
+  // A pin marks the place, matching the day cards: on the place line, or on the
+  // step itself when the place is its only text.
+  const placeOnly = !title && text.length > 0;
+  return (
+    <Pressable
+      onPressIn={rowPress.onPressIn}
+      onPress={rowPress.onPress}
+      hitSlop={selectionMode ? 6 : undefined}
+      accessibilityRole={selectionMode ? 'checkbox' : 'button'}
+      accessibilityState={selectionMode ? { checked: selected } : undefined}
+      style={stepRowStyle(selectionMode, reorderHandle != null)}
+    >
+      {selectionMode ? <StepSelectionDot theme={theme} progress={selectionProgress} selected={Boolean(selected)} /> : null}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 4 }}>
+          {placeOnly ? <View style={{ height: 22, justifyContent: 'center' }}><Icon name="pin" size={13} color={theme.text2} strokeWidth={1.8} /></View> : null}
+          <Text style={{ flex: 1, minWidth: 0, fontSize: 14, lineHeight: 22, color: theme.text }}>
+            {text}
+            {suffix ? <Text style={{ fontSize: 12.5, color: theme.text3 }}>  {suffix}</Text> : null}
+          </Text>
+        </View>
+        {place ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 }}>
+            <Icon name="pin" size={11} color={theme.text3} strokeWidth={1.8} />
+            <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 12.5, lineHeight: 18, color: theme.text3 }}>{place}</Text>
+          </View>
+        ) : null}
+      </View>
+      {/* Time sits on the right so every step starts at the same left edge;
+          an untimed step simply has nothing there. */}
+      {row.timeStart != null ? (
+        <Text style={{ flexShrink: 0, fontFamily: MONO, fontSize: 13, lineHeight: 22, color: theme.text3, fontVariant: ['tabular-nums'] }}>
+          {row.timeEnd != null ? `${fmtMins(row.timeStart)}–${fmtMins(row.timeEnd)}` : fmtMins(row.timeStart)}
+        </Text>
+      ) : null}
+      {reorderHandle ? (
+        <View style={{ position: 'absolute', right: space.xxs, top: 0, bottom: 0, width: 36 }}>
+          {reorderHandle}
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
+function ItineraryStayRow({ theme, row, onPress, selectionMode, selected, onToggleSelected, reorderHandle }: ItineraryStepProps) {
+  const { t } = useI18n();
+  const { selectionProgress, toggleSelection } = useStepSelection(selected, onToggleSelected);
+  const rowPress = useDragCancelledPress(selectionMode ? toggleSelection : onPress, useContext(PressDragGuardContext));
+  const name = row.title.trim() || row.location?.name?.trim() || '';
+  return (
+    <Pressable
+      onPressIn={rowPress.onPressIn}
+      onPress={rowPress.onPress}
+      hitSlop={selectionMode ? 6 : undefined}
+      accessibilityRole={selectionMode ? 'checkbox' : 'button'}
+      accessibilityState={selectionMode ? { checked: selected } : undefined}
+      style={{ ...stepRowStyle(selectionMode, reorderHandle != null), marginTop: space.xxs }}
+    >
+      {selectionMode ? <StepSelectionDot theme={theme} progress={selectionProgress} selected={Boolean(selected)} /> : null}
+      <Text style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 22, color: theme.text }}>
+        {`${t('journey.itinerary.stayLabel')} ${name}`}
+      </Text>
+      {reorderHandle ? (
+        <View style={{ position: 'absolute', right: space.xxs, top: 0, bottom: 0, width: 36 }}>
+          {reorderHandle}
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
+/** A dated day that is not the journey's last, with nothing to sleep in. */
+function ItineraryStayWarn({ theme }: { theme: Theme }) {
+  const { t } = useI18n();
+  return (
+    <Text style={{ fontSize: 13, lineHeight: 22, color: theme.warn, fontWeight: '600', marginTop: space.xs }}>
+      {t('journey.itinerary.noStay')}
+    </Text>
   );
 }
 
@@ -1378,7 +1564,7 @@ function TimelineSkeleton({ theme }: { theme: Theme }) {
   );
 }
 
-export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDay, showDayTabs = true, availableDays, selectionMode = false, selectedItemIds, onSelectedItemIdsChange, onGroupLayout, onGroupCollapseChange, onReorderActiveChange }: { theme: Theme; info: Poi; readOnly?: boolean; preview?: { rows: Record<string, unknown>[]; groups: Record<string, unknown>[] }; selectedDay?: string; showDayTabs?: boolean; availableDays?: string[]; selectionMode?: boolean; selectedItemIds?: Set<string>; onSelectedItemIdsChange?: (ids: Set<string>) => void; onGroupLayout?: (day: string, y: number) => void; onGroupCollapseChange?: (change: { collapsed: boolean; delta: number }) => void; onReorderActiveChange?: (active: boolean) => void }) {
+export function JourneyTimelineCard({ theme, info, readOnly, preview, showDayTabs = true, availableDays, selectionMode = false, selectedItemIds, onSelectedItemIdsChange, onGroupLayout, onGroupCollapseChange, onReorderActiveChange, continuous = false, dayHeading }: { theme: Theme; info: Poi; readOnly?: boolean; preview?: { rows: Record<string, unknown>[]; groups: Record<string, unknown>[] }; showDayTabs?: boolean; availableDays?: string[]; selectionMode?: boolean; selectedItemIds?: Set<string>; onSelectedItemIdsChange?: (ids: Set<string>) => void; onGroupLayout?: (day: string, y: number) => void; onGroupCollapseChange?: (change: { collapsed: boolean; delta: number }) => void; onReorderActiveChange?: (active: boolean) => void; /** The 行程 page: every day in one list, the unplanned group last. */ continuous?: boolean; dayHeading?: (day: string, note: React.ReactNode) => React.ReactNode }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
   const { userId, refetchJourneys } = useData();
@@ -1398,21 +1584,15 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
     onSelectedItemIdsChange(next);
   };
 
-  const defaultDayCount = Math.max(1, info.totalDays || Number.parseInt(info.days || '', 10) || 1);
-  // When the parent owns the day tabs, preserve its exact group key. The
-  // displayed label may be localized (for example `第一天`) while persisted
-  // timeline groups still use `Day 1`; regenerating keys here would make the
-  // selected-day filter miss every group and render a blank panel.
+  // The 行程 page carries every day the journey has, planned or not, so the
+  // unplanned group is always there to receive what has no day yet. A route's
+  // timeline has no days of its own: everything sits in one group.
   const defaultDays = info.kind === 'journey'
-    ? selectedDay != null
-      ? [...(availableDays?.length ? availableDays : [selectedDay]), ...(selectedDay === '' ? [''] : [])]
-      : tl.knownGroups.length
-        ? [...tl.knownGroups, ...(availableDays ?? []).filter((day) => !tl.knownGroups.includes(day))]
-        : Array.from({ length: defaultDayCount }, (_, index) => `Day ${index + 1}`)
+    ? [...(availableDays?.length ? availableDays : tl.knownGroups), '']
     : [];
   const groups = groupJourneyRows(tl.rows, [...new Set([...defaultDays, ...tl.knownGroups])]);
   const dayLabel = (g: TLGroup) => g.label.trim() ? journeyDayDisplayLabel(g.label, resolved) : t(info.kind === 'journey' ? 'journey.timeline.pendingGroup' : 'journey.timeline.ungrouped');
-  const currentDay = selectedDay ?? activeDay;
+  const currentDay = activeDay;
   const nextDayName = () => nextJourneyDayKey(groups.map((group) => group.key));
   // A day that the server refused must not pass as added — these three used to
   // be swallowed (one only warned to the console), so a group could be missing
@@ -1522,9 +1702,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
   }
 
   const chips = [{ key: ALL_DAYS, label: t('journey.tab.overview') }, ...groups.map((g) => ({ key: g.key, label: dayLabel(g) }))];
-  const shownGroups = selectedDay != null
-    ? journeyGroupsForSelectedDay(groups, selectedDay)
-    : currentDay === ALL_DAYS ? groups : groups.filter((g) => g.key === currentDay);
+  const shownGroups = currentDay === ALL_DAYS ? groups : groups.filter((g) => g.key === currentDay);
   const sortedRows = (g: TLGroup) => sortRowsWithinDay(g.rows);
 
   // a day's entries as a grouped, hairline-separated card + (editable) an add row
@@ -1581,67 +1759,72 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
     );
   };
 
-  const renderSelectedDay = (g: TLGroup) => {
-    const rows = sortedRows(g);
-    const dayCollapsed = collapsed.has(g.key);
+  // The 行程 page: dated days in list order, then the unplanned group last —
+  // and only when something is actually waiting for a day.
+  const pendingGroup = groups.find((group) => group.key === '');
+  const continuousGroups = continuous
+    ? [...groups.filter((group) => group.key !== ''), ...(pendingGroup?.rows.length ? [pendingGroup] : [])]
+    : [];
+  // The last dated day of the journey has no night to sleep out; every earlier
+  // dated day that carries no stay is a hole in the plan.
+  const lastDatedDay = [...continuousGroups].reverse().find((group) => group.key !== '')?.key;
+  const renderContinuousDay = (g: TLGroup, index: number) => {
+    const sorted = sortRowsWithinDay(g.rows);
+    const stayRows = sorted.filter((row) => row.kind === 'stay');
+    // A stay is the day's closing line, so it sits after the steps whatever
+    // order the rows were saved in. One group keeps selection and reorder whole.
+    const rows = stayRows.length ? [...sorted.filter((row) => row.kind !== 'stay'), ...stayRows] : sorted;
+    const savedNote = tl.groupNotes[g.key]?.trim() ? tl.groupNotes[g.key] : undefined;
+    const canEditNote = !readOnly && !preview && !selectionMode;
+    // Tap a note to edit it; an editable day without one offers a quiet 添加备注.
+    const note = savedNote || canEditNote ? (
+      <JourneyGroupNote
+        theme={theme}
+        label={dayLabel(g)}
+        note={savedNote}
+        onSave={canEditNote ? (next) => tl.saveGroupNote(g.key, next) : undefined}
+        inline
+      />
+    ) : null;
     return (
-      <View key={g.key} onLayout={(event) => onGroupLayout?.(g.key, event.nativeEvent.layout.y)} style={{ paddingBottom: space.xl }}>
-        <View style={{ minHeight: 30, marginBottom: space.md, flexDirection: 'row', alignItems: 'center' }}>
-          <Press onPress={rows.length ? () => toggleCollapse(g.key) : undefined} style={{ flexShrink: 1, maxWidth: tl.groupNotes[g.key] || (!readOnly && !preview && !selectionMode) ? '45%' : undefined, minWidth: 0, minHeight: 36, justifyContent: 'center' }}>
-            <Text numberOfLines={1} style={[type.sectionTitle, { color: theme.text, lineHeight: 24 }]}>
-              {dayLabel(g)}
-            </Text>
-          </Press>
-          <JourneyGroupNote theme={theme} label={dayLabel(g)} note={tl.groupNotes[g.key]} onSave={!readOnly && !preview && !selectionMode ? (note) => tl.saveGroupNote(g.key, note) : undefined} />
-          {rows.length ? (
-            <DayCollapseToggle
-              theme={theme}
-              collapsed={dayCollapsed}
-              onPress={() => toggleCollapse(g.key)}
-              label={t(dayCollapsed ? 'journey.timeline.expandAllGroups' : 'journey.timeline.collapseGroups')}
-            />
-          ) : null}
-        </View>
-
+      <View key={g.key} onLayout={(event) => onGroupLayout?.(g.key, event.nativeEvent.layout.y)} style={{ marginTop: index === 0 ? space.lg : space.xxxl }}>
+        {dayHeading?.(g.key, note)}
         {rows.length ? (
-          <DayBody
-            open={!dayCollapsed}
-            keepMounted
-            onHeightChange={(height) => { groupBodyHeights.current.set(g.key, height); }}
-          >
-            <ReorderableTimelineGroup
-              rows={rows}
-              theme={theme}
-              editable={!readOnly && !preview && selectionMode}
-              onSave={(ids) => tl.reorder(g.key, ids)}
-              onError={reportReorderFailure}
-              onDragStateChange={onReorderActiveChange}
-              renderRow={(row, handle) => (
-                <AppCard
+          <ReorderableTimelineGroup
+            rows={rows}
+            theme={theme}
+            gap={0}
+            editable={!readOnly && !preview && selectionMode}
+            onSave={(ids) => tl.reorder(g.key, ids)}
+            onError={reportReorderFailure}
+            onDragStateChange={onReorderActiveChange}
+            renderRow={(row, handle) => {
+              const open = readOnly ? undefined : () => nav.openTimelineEdit(info, row, availableDays);
+              return row.kind === 'stay' ? (
+                <ItineraryStayRow
                   theme={theme}
-                  radius={radius.feature}
-                  style={{ overflow: 'hidden', backgroundColor: theme.fieldSurface, borderWidth: 1, borderColor: 'transparent' }}
-                >
-                  <ItineraryItem
-                    theme={theme}
-                    row={row}
-                    onPress={readOnly ? undefined : () => nav.openTimelineEdit(info, row, availableDays)}
-                    onOpenMedia={selectionMode ? undefined : (media, mediaIndex, item) => setViewer({ rowId: item.id, media, index: mediaIndex })}
-                    selectionMode={selectionMode}
-                    selected={selectedIds.has(row.id)}
-                    onToggleSelected={() => toggleSelectedItem(row.id)}
-                    dayLayout
-                    reorderHandle={handle}
-                  />
-                </AppCard>
-              )}
-            />
-          </DayBody>
-        ) : (
-          <View style={{ alignItems: 'center', paddingVertical: space.xxl }}>
-            <Text style={[type.body, { color: theme.text3 }]}>{t('journey.timeline.emptyTitle')}</Text>
-          </View>
-        )}
+                  row={row}
+                  onPress={open}
+                  selectionMode={selectionMode}
+                  selected={selectedIds.has(row.id)}
+                  onToggleSelected={() => toggleSelectedItem(row.id)}
+                  reorderHandle={handle}
+                />
+              ) : (
+                <ItineraryStep
+                  theme={theme}
+                  row={row}
+                  onPress={open}
+                  selectionMode={selectionMode}
+                  selected={selectedIds.has(row.id)}
+                  onToggleSelected={() => toggleSelectedItem(row.id)}
+                  reorderHandle={handle}
+                />
+              );
+            }}
+          />
+        ) : null}
+        {g.key !== '' && g.key !== lastDatedDay && !stayRows.length ? <ItineraryStayWarn theme={theme} /> : null}
       </View>
     );
   };
@@ -1654,7 +1837,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
           style={[StyleSheet.absoluteFill, { zIndex: 1 }]}
         />
       ) : null}
-      {showDayTabs ? <View style={{ marginBottom: 14, zIndex: 2 }}>
+      {showDayTabs && !continuous ? <View style={{ marginBottom: 14, zIndex: 2 }}>
         <DayChips
           theme={theme}
           items={chips}
@@ -1674,7 +1857,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
           }}
         />
       </View> : null}
-      {readOnly || !showDayTabs ? null : (
+      {readOnly || !showDayTabs || continuous ? null : (
         <View style={{ marginBottom: 16, flexDirection: 'row', gap: 10, alignItems: 'center' }}>
           <Press
             onPress={openJourneyAgent}
@@ -1684,9 +1867,15 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
           </Press>
         </View>
       )}
-      {selectedDay != null
-        ? shownGroups.map(renderSelectedDay)
-        : shownGroups.map((g) => (
+      {continuous ? (
+        <>
+          {continuousGroups.map(renderContinuousDay)}
+          {/* The days still frame the page; one line says nothing is in them yet. */}
+          {!tl.rows.length ? (
+            <Text style={[type.body, { color: theme.text2, paddingTop: space.lg }]}>{t('journey.timeline.emptyTitle')}</Text>
+          ) : null}
+        </>
+      ) : shownGroups.map((g) => (
             <DaySection
               key={g.key}
               theme={theme}

@@ -59,6 +59,9 @@ interface Props {
   onBodyHeightChange?: (height: number) => void;
   /** Reports the grabber/header height above the body for content-based detents. */
   onHeaderHeightChange?: (height: number) => void;
+  /** Called when the body scrolls within about a screen of its end, once per
+      content height - a list grows on it instead of mounting everything up front. */
+  onBodyNearEnd?: () => void;
 }
 
 /** imperative handle so a parent can trigger the animated dismiss (e.g. a tap on
@@ -93,6 +96,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     bottomAccessory,
     onBodyHeightChange,
     onHeaderHeightChange,
+    onBodyNearEnd,
     entranceAnimation = 'spring',
     animatedTranslateY,
   },
@@ -124,6 +128,9 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
   const animatedBodyScrollY = bodyScrollY ?? internalBodyScrollY;
   const compactRef = useRef(compact);
   const expandedRef = useRef(false);
+  const onBodyNearEndRef = useRef(onBodyNearEnd);
+  onBodyNearEndRef.current = onBodyNearEnd;
+  const nearEndHeightRef = useRef(0);
 
   useEffect(() => {
     const id = translateY.addListener(({ value }) => {
@@ -354,7 +361,12 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
         {
           useNativeDriver: true,
           listener: (event: any) => {
-            scrollY.current = event.nativeEvent.contentOffset.y;
+            const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+            scrollY.current = contentOffset.y;
+            if (!onBodyNearEndRef.current || nearEndHeightRef.current === contentSize.height) return;
+            if (contentOffset.y + 2 * layoutMeasurement.height < contentSize.height) return;
+            nearEndHeightRef.current = contentSize.height;
+            onBodyNearEndRef.current();
           },
         },
       ),

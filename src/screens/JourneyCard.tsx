@@ -14,6 +14,7 @@ import { TLRow } from '../data/timeline';
 import { JourneyTimelineCard, MediaViewer } from '../components/overlays/JourneyTimeline';
 import { PhotoTile } from '../components/PhotoTile';
 import { Avatar } from '../components/Avatar';
+import { UnderlineTabs } from '../components/UnderlineTabs';
 import { Icon, IconName } from '../components/Icon';
 import { Press, PressDragGuardContext } from '../components/Press';
 import { Segmented } from '../components/Segmented';
@@ -21,13 +22,11 @@ import { useNav } from '../nav/NavContext';
 import { useInspo } from '../hooks/useInspo';
 import { useTimeline } from '../hooks/useTimeline';
 import { useData } from '../data/DataContext';
+import { useJourneyTrackSave } from '../components/journey/useJourneyTrackSave';
 import { genPhotos } from '../components/overlays/PhotoWall';
 import { useI18n, TKey, ResolvedLang } from '../i18n';
 import { NJBottomSheet } from '../components/overlays/NewJourneyParts';
 import { ElevationStrip } from '../components/overlays/ElevationStrip';
-import { JourneyTrackUploadSheet } from '../components/overlays/JourneyTrackUploadSheet';
-import { PickDialog } from '../components/tracks/PickDialog';
-import { formatTrackAscent, formatTrackDistance } from '../lib/trackParser';
 import { JourneyDateRangePicker } from '../components/overlays/JourneyDateRangePicker';
 import { journeySchedulePatch } from '../lib/journeySchedule';
 import { isWriteBusy } from '../lib/writeErrors';
@@ -35,12 +34,13 @@ import { ParticipantAvatar } from '../components/overlays/ParticipantAvatar';
 import { JourneyChecklistTab, type JourneyChecklistFilterMenuController } from '../components/journey/JourneyChecklistTab';
 import { MomentFilterBar } from '../components/journey/MomentFilterBar';
 import { formatJourneyDetailDate } from '../components/journey/journeyDatePresentation';
-import { AppCard, AppSectionHeader, layout, radius, space, type } from '../design-system';
+import { JourneyOverview } from '../components/journey/JourneyOverview';
+import { JourneyDayChipRow, JourneyDayHeading, useJourneyItineraryDays } from '../components/journey/JourneyItinerary';
+import { AppSectionHeader, layout, radius, space, type } from '../design-system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ReAnimated, { Easing, cancelAnimation, interpolate, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { journeyDayDisplayLabel, journeyDayKey, journeyDayOrdinal, nextJourneyDayKey } from '../lib/journeyDays';
-import { useJourneyVersionSummary, type JourneyVersionSnapshot } from '../hooks/useJourneyVersions';
-import { formatJourneyVersionTime, journeyVersionActivitySummary } from '../components/journey/journeyVersionPresentation';
+import { type JourneyVersionSnapshot } from '../hooks/useJourneyVersions';
 import { regionLabel } from '../lib/regionLabel';
 
 function SectionHeader({ theme, title, action, onAction }: { theme: Theme; title: string; action?: string; onAction?: () => void }) {
@@ -271,7 +271,19 @@ function FactItem({ theme, label, value }: { theme: Theme; label: string; value:
   );
 }
 
-type TabId = 'overview' | 'moments' | 'checklist' | 'plan' | `day:${string}`;
+type TabId = 'overview' | 'moments' | 'checklist' | 'plan';
+
+// Same strip as the track library's tabs: left-aligned labels, the active one
+// bold `text` over a short accent underline, no hairline.
+function JourneyTabBar({ theme, tabs, activeKey, onSelect }: {
+  theme: Theme;
+  tabs: { id: TabId; label: string }[];
+  activeKey: TabId;
+  onSelect: (key: TabId) => void;
+}) {
+  return <UnderlineTabs theme={theme} tabs={tabs} activeKey={activeKey} onSelect={onSelect} style={{ marginTop: -space.xxs }} />;
+}
+
 export type JourneyMomentFilter = 'all' | 'photo' | 'video' | 'livePhoto';
 export type JourneyMomentAuthorOption = {
   key: string;
@@ -583,64 +595,6 @@ function JourneyTimePicker({ theme, poi, onApply, onClose }: { theme: Theme; poi
   );
 }
 
-function JourneyDistanceSheet({
-  theme,
-  initialValue,
-  onSave,
-  onClose,
-}: {
-  theme: Theme;
-  initialValue: string;
-  onSave: (distance: string) => void;
-  onClose: () => void;
-}) {
-  const { t } = useI18n();
-  const initialNumber = (initialValue.match(/[\d.]+/) || [''])[0];
-  const [value, setValue] = useState(initialNumber);
-  const normalized = value.trim().replace(',', '.');
-  const numericValue = Number(normalized);
-  const canSave = normalized.length > 0 && Number.isFinite(numericValue) && numericValue > 0;
-
-  const save = () => {
-    if (!canSave) return;
-    onSave(`${numericValue} km`);
-    onClose();
-  };
-
-  return (
-    <Modal transparent visible animationType="none" onRequestClose={onClose}>
-      <NJBottomSheet theme={theme} onClose={onClose} keyboardAvoiding fillBehindKeyboard borderless backgroundColor={theme.featureSurface}>
-        <View style={{ paddingHorizontal: space.lg, paddingBottom: space.md }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: space.lg }}>
-            <Press onPress={onClose} style={{ minWidth: 52, paddingVertical: space.xs }}>
-              <Text style={[type.body, { color: theme.text2 }]}>{t('common.cancel')}</Text>
-            </Press>
-            <Text style={[type.sectionTitle, { flex: 1, color: theme.text, textAlign: 'center' }]}>{t('journey.stat.distance')}</Text>
-            <Press onPress={save} disabled={!canSave} style={{ minWidth: 52, paddingVertical: space.xs, alignItems: 'flex-end' }}>
-              <Text style={[type.body, { color: canSave ? theme.accent : theme.text3, fontWeight: '700' }]}>{t('common.save')}</Text>
-            </Press>
-          </View>
-          <View style={{ height: 52, borderRadius: radius.card, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.fieldSurface }}>
-            <TextInput
-              autoFocus
-              selectTextOnFocus
-              value={value}
-              onChangeText={setValue}
-              keyboardType="decimal-pad"
-              returnKeyType="done"
-              onSubmitEditing={save}
-              placeholder="0.0"
-              placeholderTextColor={theme.text3}
-              style={{ flex: 1, height: 52, paddingLeft: space.md, color: theme.text, fontSize: 18, fontWeight: '700' }}
-            />
-            <Text style={{ paddingHorizontal: space.md, color: theme.text2, fontSize: 14, fontWeight: '600' }}>km</Text>
-          </View>
-        </View>
-      </NJBottomSheet>
-    </Modal>
-  );
-}
-
 function JourneyGroupRenameSheet({ theme, initialName, onSave, onClose }: { theme: Theme; initialName: string; onSave: (name: string) => void; onClose: () => void }) {
   const { t } = useI18n();
   const [name, setName] = useState(initialName);
@@ -912,11 +866,12 @@ function SelectedPoiContent({ scrollable, interactionBlocked, scrollRef, scrollY
 export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange, planEditorOpen: controlledPlanEditorOpen, onPlanEditorOpenChange, selectedPlanDays: controlledSelectedPlanDays, onSelectedPlanDaysChange, externalPlanEditorControls = false, onSelectedJourneyDayChange, journeyDaySelectionRequest, onSelectedTabChange, momentAddActionRef, momentDeleteActionRef, momentFilterMenuRef, onMomentFilterMenuOpenChange, checklistAddActionRef, checklistDeleteActionRef, checklistFilterActionRef, checklistFilterMenuRef, checklistFilterMenuOpen = false, checklistPickerProgress, onChecklistFilterStateChange, onChecklistFilterMenuOpenChange, checklistSelectionMode = false, selectedChecklistItemIds, onSelectedChecklistItemIdsChange, onChecklistCanEditChange, momentSelectionMode = false, selectedMomentIds, onSelectedMomentIdsChange, onJourneyDaysChange, timelineSelectionMode = false, selectedTimelineItemIds, onSelectedTimelineItemIdsChange, detailScrollY, onRequestDetailScroll, onIdentityHeightChange, pagerBodyHeight = 0, scrollContent = false, scrollContentBottomPadding = 18, readOnly = false, versionSnapshot }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void; planEditorOpen?: boolean; onPlanEditorOpenChange?: (open: boolean) => void; selectedPlanDays?: Set<string>; onSelectedPlanDaysChange?: (days: Set<string>) => void; externalPlanEditorControls?: boolean; onSelectedJourneyDayChange?: (day?: string) => void; journeyDaySelectionRequest?: { day?: string; tab?: 'checklist'; revision: number }; onSelectedTabChange?: (tab: TabId) => void; momentAddActionRef?: React.MutableRefObject<(() => void) | null>; momentDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; momentFilterMenuRef?: React.MutableRefObject<JourneyMomentFilterMenuController | null>; onMomentFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistAddActionRef?: React.MutableRefObject<(() => void) | null>; checklistDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; checklistFilterActionRef?: React.MutableRefObject<(() => void) | null>; checklistFilterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>; checklistFilterMenuOpen?: boolean; checklistPickerProgress?: Animated.Value; onChecklistFilterStateChange?: (label: string, active: boolean) => void; onChecklistFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistSelectionMode?: boolean; selectedChecklistItemIds?: Set<string>; onSelectedChecklistItemIdsChange?: (ids: Set<string>) => void; onChecklistCanEditChange?: (canEdit: boolean) => void; momentSelectionMode?: boolean; selectedMomentIds?: Set<string>; onSelectedMomentIdsChange?: (ids: Set<string>) => void; onJourneyDaysChange?: (days: string[]) => void; timelineSelectionMode?: boolean; selectedTimelineItemIds?: Set<string>; onSelectedTimelineItemIdsChange?: (ids: Set<string>) => void; detailScrollY?: Animated.Value; onRequestDetailScroll?: (y: number) => void; onIdentityHeightChange?: (height: number) => void; /** Visible height of the host sheet body; the tab pager fills down to it so blank space stays swipeable. */ pagerBodyHeight?: number; scrollContent?: boolean; scrollContentBottomPadding?: number; readOnly?: boolean; versionSnapshot?: JourneyVersionSnapshot }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
-  const { userId, profile, sets, items: gearItems, cats: gearCategories, tracks } = useData();
+  const { userId, profile, sets, items: gearItems, cats: gearCategories, routes } = useData();
   const isJourney = poi.kind === 'journey';
-  const versionSummary = useJourneyVersionSummary(isJourney && !readOnly ? poi.id : undefined);
   const momentFilterAnchorRef = useRef<View>(null);
   const isMine = isJourney && !readOnly;
+  // Version previews show a past state; nothing in them is saved from.
+  const trackSave = useJourneyTrackSave(isJourney && !readOnly ? poi.trackId : undefined);
   const momentAuthor = useMemo(() => {
     const host = isJourney ? poi.companionList?.find((c) => c.userId === userId || c.self) : undefined;
     if (host) return { ini: host.ini, name: host.name, color: host.color, avatarUrl: host.avatarUrl };
@@ -1179,27 +1134,24 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   useEffect(() => () => {
     if (momentFilterMenuRef) momentFilterMenuRef.current = null;
   }, [momentFilterMenuRef]);
-  // Peer tabs: 总览 / 瞬间 / 旅程. 轨迹 is no longer a tab — the elevation lives on the
-  // map above (a toggle reveals a scrubbable strip), since the map already is the
-  // track. 同行 is a facepile inside 总览. Routes tab only what applies.
+  // Peer tabs: 总览 / 行程 / 清单 / 瞬间, all four always there — an empty 清单 or
+  // 瞬间 still has something to say. 轨迹 is no longer a tab: the elevation lives on
+  // the map above (a toggle reveals a scrubbable strip), since the map already is
+  // the track. 同行 is a facepile inside 总览. Routes tab only what applies.
   const tabOptions = useMemo<{ id: TabId; label: string }[]>(() => {
     if (isJourney) {
       return [
         { id: 'overview', label: t('journey.tab.overview') },
-        { id: 'moments', label: t('journey.tab.moments') },
+        { id: 'plan', label: t('journey.tab.plan') },
         { id: 'checklist', label: t('journey.tab.checklist') },
-        ...journeyDays.map((day) => ({
-          id: `day:${day}` as TabId,
-          label: journeyDayDisplayLabel(day, resolved),
-        })),
-        { id: 'day:', label: t('journey.timeline.pendingGroup') },
+        { id: 'moments', label: t('journey.tab.moments') },
       ];
     }
     const opts: { id: TabId; label: string }[] = [{ id: 'overview', label: t('journey.tab.overview') }];
     if (poi.routeShowTimeline !== false) opts.push({ id: 'plan', label: t('journey.tab.plan') });
     if (poi.routeShowPhotos !== false && allPhotos.length > 0) opts.push({ id: 'moments', label: t('journey.moments.userPhotos') });
     return opts;
-  }, [isJourney, journeyDays, poi.routeShowTimeline, poi.routeShowPhotos, allPhotos.length, resolved, t]);
+  }, [isJourney, poi.routeShowTimeline, poi.routeShowPhotos, allPhotos.length, t]);
   const [seg, setSeg] = useState<TabId>('overview');
   // Each tab page is a full copy of its feature (every 旅程 page re-renders the
   // whole timeline), so mounting all of them for the opening frame is what
@@ -1226,28 +1178,8 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const programmaticScrollTargetRef = useRef<number | null>(null);
   const programmaticScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [internalPlanEditorOpen, setInternalPlanEditorOpen] = useState(false);
-  const [planOverviewOpen, setPlanOverviewOpen] = useState(false);
-  const planOverviewOpenRef = useRef(false);
-  const planOverviewAnimatingRef = useRef(false);
   const dayCollapseAnimatingRef = useRef(false);
-  const planOverviewCollapsedPagerHeightRef = useRef<number | null>(null);
-  const planOverviewProgress = useSharedValue(0);
-  const planOverviewExtraHeight = useSharedValue(0);
   const pagerHeight = useSharedValue(600);
-  const planOverviewExtraStyle = useAnimatedStyle(() => ({
-    height: planOverviewExtraHeight.value * planOverviewProgress.value,
-    opacity: interpolate(planOverviewProgress.value, [0, 0.2, 1], [0, 0, 1]),
-    transform: [{ translateY: interpolate(planOverviewProgress.value, [0, 1], [-space.xs, 0]) }],
-  }));
-  const planOverviewCollapsedLabelStyle = useAnimatedStyle(() => ({
-    opacity: 1 - planOverviewProgress.value,
-  }));
-  const planOverviewExpandedLabelStyle = useAnimatedStyle(() => ({
-    opacity: planOverviewProgress.value,
-  }));
-  const planOverviewChevronStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${interpolate(planOverviewProgress.value, [0, 1], [0, 180])}deg` }],
-  }));
   const pagerHeightStyle = useAnimatedStyle(() => ({ height: pagerHeight.value }));
   const [internalSelectedPlanDays, setInternalSelectedPlanDays] = useState<Set<string>>(() => new Set());
   const planEditorOpen = controlledPlanEditorOpen ?? internalPlanEditorOpen;
@@ -1255,9 +1187,6 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const setPlanEditorOpen = (open: boolean) => (onPlanEditorOpenChange ? onPlanEditorOpenChange(open) : setInternalPlanEditorOpen(open));
   const setSelectedPlanDays = (days: Set<string>) => (onSelectedPlanDaysChange ? onSelectedPlanDaysChange(days) : setInternalSelectedPlanDays(days));
   const [timePickerOpen, setTimePickerOpen] = useState(false);
-  const [distanceEditorOpen, setDistanceEditorOpen] = useState(false);
-  const [trackUploadOpen, setTrackUploadOpen] = useState(false);
-  const [trackPickOpen, setTrackPickOpen] = useState(false);
   const [renamingPlanDay, setRenamingPlanDay] = useState<string | null>(null);
   // Reuse the same identity for the journey header and moments uploaded here.
   const author = momentAuthor;
@@ -1279,9 +1208,6 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const journeyTimingValue = formatJourneyDetailDate(poi, resolved)
     || poi.days
     || (poi.totalDays ? t('journeyEdit.duration.days', { count: poi.totalDays }) : t('journeyEdit.time.decideLater'));
-  const journeyDurationValue = poi.totalDays
-    ? t('journeyEdit.duration.days', { count: poi.totalDays })
-    : poi.days || t('journeyEdit.time.decideLater');
 
   // Distance + ascent stay as the headline numbers; journeys use highest elevation
   // as the third headline because it is more meaningful here than elapsed time.
@@ -1351,18 +1277,39 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     if (intensity !== '—') stats.push({ label: t('journey.stat.intensity'), value: intensity });
     return stats;
   }, [isJourney, elevationSummary, poi.companionList, poi.companions, poi.rating, poi.reviews, poi.dist, poi.asc, poi.trackDurationMs, allPhotos.length, t]);
-  const selectedJourneyDay = seg.startsWith('day:') ? seg.slice(4) : undefined;
+  // The day currently at the top of the 行程 page. Only that page points the map
+  // at one day; every other tab shows the whole journey.
+  const [itineraryDay, setItineraryDay] = useState<string | undefined>(undefined);
+  const itineraryDayRef = useRef<string | undefined>(undefined);
+  const selectedJourneyDay = seg === 'plan' ? itineraryDay : undefined;
   React.useEffect(() => {
     segRef.current = seg;
     if (visualSegRef.current !== seg) {
       visualSegRef.current = seg;
       setVisualSeg(seg);
     }
-    onSelectedJourneyDayChange?.(selectedJourneyDay);
     onSelectedTabChange?.(seg);
-  }, [onSelectedJourneyDayChange, onSelectedTabChange, seg, selectedJourneyDay]);
+  }, [onSelectedTabChange, seg]);
+  // The map camera is the expensive reader of this value, so it hears about the
+  // day once the scroll settles rather than once per day the flick passed.
+  React.useEffect(() => {
+    if (itineraryDayRef.current === selectedJourneyDay) return undefined;
+    if (seg !== 'plan') {
+      itineraryDayRef.current = selectedJourneyDay;
+      onSelectedJourneyDayChange?.(selectedJourneyDay);
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      itineraryDayRef.current = selectedJourneyDay;
+      onSelectedJourneyDayChange?.(selectedJourneyDay);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [onSelectedJourneyDayChange, seg, selectedJourneyDay]);
   React.useEffect(
-    () => () => onSelectedJourneyDayChange?.(undefined),
+    () => () => {
+      itineraryDayRef.current = undefined;
+      onSelectedJourneyDayChange?.(undefined);
+    },
     [onSelectedJourneyDayChange],
   );
 
@@ -1378,12 +1325,11 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     // day 1 from day 2 (it resolved the tie to the later one and never came back).
     return Math.max(0, pagerTopRef.current + contentTopRef.current + timelineTopRef.current + groupY - fixedHeaderHeight - space.xs);
   };
-  const scrollToPendingDay = () => {
-    const day = pendingScrollDayRef.current;
-    if (day == null) return;
+  /** Puts the given itinerary day at the top of the page. False means its
+   *  offset is not measured yet, so the caller should retry once it is. */
+  const scrollToGroup = (day: string) => {
     const y = groupScrollY(day);
-    if (y == null) return;
-    pendingScrollDayRef.current = null;
+    if (y == null) return false;
     programmaticScrollTargetRef.current = requestDetailScroll ? y : null;
     if (programmaticScrollTimeoutRef.current) clearTimeout(programmaticScrollTimeoutRef.current);
     programmaticScrollTimeoutRef.current = setTimeout(() => {
@@ -1391,48 +1337,87 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       programmaticScrollTimeoutRef.current = null;
     }, 700);
     requestDetailScroll?.(y);
+    return true;
+  };
+  const scrollToPendingDay = () => {
+    const day = pendingScrollDayRef.current;
+    if (day == null) return;
+    if (!scrollToGroup(day)) return;
+    pendingScrollDayRef.current = null;
+  };
+  /** A day chip press: the page is already there, so only the scroll moves. */
+  const goToItineraryDay = (day: string) => {
+    setItineraryDay(day);
+    if (scrollToGroup(day)) return;
+    pendingScrollDayRef.current = day;
+    requestAnimationFrame(scrollToPendingDay);
+  };
+  /** From 总览 or the map: open 行程 with this day at the top. */
+  const openItineraryDay = (day: string) => {
+    pendingScrollDayRef.current = day;
+    selectPagerSegment('plan');
   };
   const selectSegment = (value: TabId) => {
     closePlanEditor();
     mountTab(value);
     segRef.current = value;
     setSeg(value);
-    if (value.startsWith('day:')) {
-      pendingScrollDayRef.current = value.slice(4);
+    if (value === 'plan' && pendingScrollDayRef.current != null) {
+      setItineraryDay(pendingScrollDayRef.current);
       requestAnimationFrame(scrollToPendingDay);
-    } else {
-      pendingScrollDayRef.current = null;
-      programmaticScrollTargetRef.current = requestDetailScroll ? 0 : null;
-      if (programmaticScrollTimeoutRef.current) clearTimeout(programmaticScrollTimeoutRef.current);
-      programmaticScrollTimeoutRef.current = setTimeout(() => {
-        programmaticScrollTargetRef.current = null;
-        programmaticScrollTimeoutRef.current = null;
-      }, 700);
-      requestDetailScroll?.(0);
+      return;
     }
+    pendingScrollDayRef.current = null;
+    if (value === 'plan') setItineraryDay(journeyDays[0]);
+    programmaticScrollTargetRef.current = requestDetailScroll ? 0 : null;
+    if (programmaticScrollTimeoutRef.current) clearTimeout(programmaticScrollTimeoutRef.current);
+    programmaticScrollTimeoutRef.current = setTimeout(() => {
+      programmaticScrollTargetRef.current = null;
+      programmaticScrollTimeoutRef.current = null;
+    }, 700);
+    requestDetailScroll?.(0);
   };
 
   useEffect(() => () => {
     if (programmaticScrollTimeoutRef.current) clearTimeout(programmaticScrollTimeoutRef.current);
   }, []);
 
+  // The 行程 list is every day of the itinerary plus, last, the group that has
+  // no day yet — which only exists once something is waiting in it. Nothing is
+  // derived for it before the page is mounted, so opening a journey never pays
+  // for day facts the reader has not asked for.
+  const itineraryDays = useMemo(() => (
+    !isJourney || !mountedTabs.has('plan')
+      ? []
+      : [...journeyDays, ...(timeline.rows.some((row) => !(row.day || '').trim()) ? [''] : [])]
+  ), [isJourney, journeyDays, mountedTabs, timeline.rows]);
+  // The chips and each day's opening line read the same numbers the 总览 day rows
+  // report, so the two pages can never disagree about a day.
+  const itineraryHeadings = useJourneyItineraryDays({
+    poi,
+    days: itineraryDays,
+    rows: timeline.rows,
+    knownGroups: timeline.knownGroups,
+    routes,
+  });
+
   useEffect(() => {
     if (!effectiveDetailScrollY || !isJourney) return undefined;
     const listener = effectiveDetailScrollY.addListener(({ value }) => {
-      if (!segRef.current.startsWith('day:') || segRef.current === 'day:') return;
+      if (segRef.current !== 'plan') return;
       const programmaticTarget = programmaticScrollTargetRef.current;
       if (programmaticTarget != null) {
         if (Math.abs(programmaticTarget - value) > space.xs) return;
         programmaticScrollTargetRef.current = null;
       }
-      const positions = journeyDays
+      const positions = itineraryDays
         .map((day) => ({ day, y: groupScrollY(day) }))
         .filter((entry): entry is { day: string; y: number } => entry.y != null)
         .sort((a, b) => a.y - b.y);
       if (!positions.length) return;
       const threshold = value + space.sm;
       // Ties go to the earlier day: two days sharing one anchor means a measurement
-      // collapsed, and taking the last match reads as "it jumped to 旅程2 and would
+      // collapsed, and taking the last match reads as "it jumped to 第2天 and would
       // not come back", even at the top of the list.
       let visibleDay = positions[0].day;
       let acceptedY = Number.NEGATIVE_INFINITY;
@@ -1442,23 +1427,52 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
         acceptedY = position.y;
         visibleDay = position.day;
       }
-      const nextSegment = `day:${visibleDay}` as TabId;
-      if (segRef.current !== nextSegment) {
-        segRef.current = nextSegment;
-        setSeg(nextSegment);
-      }
+      // The page stays where it is; only the highlighted chip and the map move.
+      setItineraryDay((current) => (current === visibleDay ? current : visibleDay));
     });
     return () => effectiveDetailScrollY.removeListener(listener);
-  }, [effectiveDetailScrollY, isJourney, journeyDays]);
+  }, [effectiveDetailScrollY, isJourney, itineraryDays]);
 
-  const addJourneyGroup = (select = true) => {
-    const label = nextJourneyDayLabel(journeyDays, resolved, t);
-    timeline.addGroup(label);
-    if (select) selectSegment(`day:${label}`);
+  // The plan editor adds a day without moving the reader off 总览: 行程 lists every
+  // day, so a new one appears in it on its own.
+  const addJourneyGroup = () => {
+    timeline.addGroup(nextJourneyDayLabel(journeyDays, resolved, t));
+  };
+  // Day management lives on the 行程 chips now: "+" adds a day, a long press on
+  // a dated chip renames or deletes it.
+  const showItineraryDayMenu = (day: string) => {
+    nav.openActionSheet({
+      title: journeyDayDisplayLabel(day, resolved),
+      items: [
+        { label: t('journey.itinerary.renameDay'), onPress: () => setRenamingPlanDay(day) },
+        { label: t('common.delete'), destructive: true, onPress: () => deleteItineraryDay(day) },
+      ],
+    });
+  };
+  const deleteItineraryDay = (day: string) => {
+    const itemCount = timeline.rows.filter((row) => row.day === day).length;
+    Alert.alert(
+      t('journey.timeline.deleteGroupTitle', { name: journeyDayDisplayLabel(day, resolved) }),
+      t('journey.timeline.deleteGroupMessage', { count: itemCount }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => {
+            void timeline.removeGroup(day).catch((error) => {
+              Alert.alert(
+                t(isWriteBusy(error) ? 'journey.timeline.saveBusyTitle' : 'journey.timeline.groupFailedTitle'),
+                t(isWriteBusy(error) ? 'journey.timeline.saveBusyMessage' : 'journey.timeline.groupFailedMessage'),
+              );
+            });
+          },
+        },
+      ],
+    );
   };
   const closePlanEditor = () => {
     setPlanEditorOpen(false);
-    setPlanOverviewOpen(false);
     setSelectedPlanDays(new Set());
   };
   const togglePlanEditor = () => {
@@ -1508,44 +1522,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
 
   useEffect(() => {
     if (measuredPageHeight) lastMeasuredPageHeightRef.current = measuredPageHeight;
-    if (planOverviewAnimatingRef.current || dayCollapseAnimatingRef.current) return;
+    if (dayCollapseAnimatingRef.current) return;
     pagerHeight.value = activePagerHeight;
   }, [activePagerHeight, measuredPageHeight, pagerHeight]);
-
-  const finishPlanOverviewAnimation = (open: boolean, targetPagerHeight: number) => {
-    if (planOverviewOpenRef.current !== open) return;
-    planOverviewAnimatingRef.current = false;
-    setPlanOverviewOpen(open);
-    setTabPageHeights((current) => current.overview === targetPagerHeight
-      ? current
-      : { ...current, overview: targetPagerHeight });
-  };
-
-  const togglePlanOverview = () => {
-    const next = !planOverviewOpenRef.current;
-    planOverviewOpenRef.current = next;
-    planOverviewAnimatingRef.current = true;
-
-    const currentOverviewHeight = tabPageHeights.overview || pagerHeight.value;
-    if (planOverviewCollapsedPagerHeightRef.current == null) {
-      planOverviewCollapsedPagerHeightRef.current = next
-        ? currentOverviewHeight
-        : Math.max(1, currentOverviewHeight - planOverviewExtraHeight.value);
-    }
-    const collapsedPagerHeight = planOverviewCollapsedPagerHeightRef.current;
-    const targetPagerHeight = collapsedPagerHeight + (next ? planOverviewExtraHeight.value : 0);
-    const animation = {
-      duration: next ? 460 : 380,
-      easing: next ? Easing.bezier(0.16, 1, 0.3, 1) : Easing.bezier(0.4, 0, 0.2, 1),
-    };
-
-    cancelAnimation(planOverviewProgress);
-    cancelAnimation(pagerHeight);
-    planOverviewProgress.value = withTiming(next ? 1 : 0, animation);
-    pagerHeight.value = withTiming(targetPagerHeight, animation, (finished) => {
-      if (finished) runOnJS(finishPlanOverviewAnimation)(next, targetPagerHeight);
-    });
-  };
 
   // A day group tweens its own body inside JourneyTimeline (DayBody), so the
   // page container has to travel the same distance in the same time — otherwise
@@ -1555,7 +1534,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     setTabPageHeights((current) => ({ ...current, [page]: targetPagerHeight }));
   };
   const animateDayPageCollapse = ({ collapsed, delta }: { collapsed: boolean; delta: number }) => {
-    if (!isJourney || scrollContent || delta <= 0 || planOverviewAnimatingRef.current) return;
+    if (!isJourney || scrollContent || delta <= 0) return;
     // The page under the finger is the one PagerView shows, which the scroll
     // follower may have moved the highlight away from.
     const page = pagerPageRef.current;
@@ -1597,12 +1576,13 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     }
     // A request made while the journey opens can arrive before its itinerary
     // loads; it applies once the day exists.
-    if (request.day && !journeyDays.includes(request.day)) return;
+    if (request.day && request.day !== '' && !journeyDays.includes(request.day)) return;
     appliedDayRequestRef.current = request.revision;
-    // Use the exact same path as a direct tab press so both the selected state
-    // and PagerView's rendered page move to the requested itinerary group.
+    // Use the exact same path as a direct chip press so both the highlighted day
+    // and PagerView's rendered page move to the requested itinerary day.
     // A request without a day is the map asking to go back to the overview.
-    selectPagerSegment(request.day != null ? `day:${request.day}` as TabId : 'overview');
+    if (request.day != null) openItineraryDay(request.day);
+    else selectPagerSegment('overview');
   }, [journeyDaySelectionRequest?.revision, journeyDays.join('\u0000')]);
 
   const [timelineReordering, setTimelineReordering] = useState(false);
@@ -1614,12 +1594,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     || timelineSelectionMode
     || momentViewerIndex != null
     || renamingPlanDay != null
-    || timePickerOpen
-    || distanceEditorOpen
-    || trackUploadOpen;
+    || timePickerOpen;
 
   const renderTabContent = (activeSeg: TabId) => {
-    const activeJourneyDay = activeSeg.startsWith('day:') ? activeSeg.slice(4) : undefined;
     return (
       <>
         {/* 总览 overview — stat tiles, meta chips, 同行 facepile, about */}
@@ -1686,7 +1663,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                       }}
                     >
                     <Press
-                        onPress={() => addJourneyGroup(false)}
+                        onPress={addJourneyGroup}
                       accessibilityRole="button"
                         style={{
                           height: 44,
@@ -1714,274 +1691,26 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                   ) : null}
                 </View>
               ) : (
-                <>
-                  <AppCard theme={theme} radius={radius.feature} style={{ marginTop: space.xxl, backgroundColor: theme.surface }}>
-                    <View style={{ padding: space.md }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}>
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <Text style={[type.sectionTitle, { color: theme.text }]}>{t('journey.section.trackOverview')}</Text>
-                          {!hasTrack ? <Text style={[type.caption, { color: theme.text3, marginTop: space.xxs }]}>{t('journey.track.missing')}</Text> : null}
-                        </View>
-                        {!readOnly ? (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, flexShrink: 0 }}>
-                            <Press
-                              onPress={() => setTrackPickOpen(true)}
-                              accessibilityRole="button"
-                              style={{ minHeight: 34, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
-                            >
-                              <Text numberOfLines={1} style={[type.body, { color: theme.text, fontWeight: '600' }]}>{t('journey.track.pickExisting')}</Text>
-                            </Press>
-                            <Press
-                              onPress={() => setTrackUploadOpen(true)}
-                              accessibilityRole="button"
-                              style={{ minHeight: 34, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
-                            >
-                              <Text numberOfLines={1} style={[type.body, { color: theme.text, fontWeight: '600' }]}>{hasTrack ? t('journey.track.reupload') : t('journey.track.upload')}</Text>
-                            </Press>
-                          </View>
-                        ) : null}
-                      </View>
-
-                      {hasTrack ? (
-                        <>
-                          <View style={{ height: StyleSheet.hairlineWidth, marginVertical: space.md, backgroundColor: theme.hairline }} />
-                          <View style={{ flexDirection: 'row' }}>
-                            {primaryStats.map((stat) => {
-                              const { value, unit } = splitStat(stat.raw);
-                              return <StatTile key={stat.label} theme={theme} value={value} unit={unit} label={stat.label} mono={stat.mono} />;
-                            })}
-                          </View>
-                          <View style={{ marginTop: space.sm }}>
-                            <ElevationStrip theme={theme} poi={poi} bare onScrub={(index, coord) => onTrackSelectionChange?.(index, coord)} />
-                          </View>
-                        </>
-                      ) : (
-                        <Text style={[type.body, { color: theme.text2, lineHeight: 21, marginTop: space.md }]}>{t('journey.track.missingHint')}</Text>
-                      )}
-                    </View>
-                  </AppCard>
-
-                  <AppCard
-                    theme={theme}
-                    radius={radius.feature}
-                    style={{
-                      position: 'relative',
-                      backgroundColor: theme.surface,
-                      marginTop: space.xxl,
-                    }}
-                  >
-                    <View
-                      style={{
-                        paddingHorizontal: space.md,
-                        paddingVertical: space.md,
-                      }}
-                    >
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: space.xs,
-                        }}
-                      >
-                        <Text style={[type.sectionTitle, { flex: 1, color: theme.text }]}>{t('journey.section.planOverview')}</Text>
-                        {journeyDays.length > 1 ? (
-                          <Press
-                            onPress={togglePlanOverview}
-                            accessibilityRole="button"
-                            accessibilityState={{ expanded: planOverviewOpen }}
-                            style={{
-                              height: 36,
-                              paddingHorizontal: space.sm,
-                              borderRadius: radius.pill,
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: space.xxs,
-                              backgroundColor: theme.controlSurface,
-                            }}
-                          >
-                            <View style={{ height: 18, alignItems: 'center', justifyContent: 'center' }}>
-                              <Text
-                                numberOfLines={1}
-                                accessibilityElementsHidden
-                                importantForAccessibility="no-hide-descendants"
-                                style={{ opacity: 0, color: theme.text2, fontSize: 12, fontWeight: '700' }}
-                              >
-                                {t('journey.timeline.expandAllGroups')}
-                              </Text>
-                              <ReAnimated.Text
-                                numberOfLines={1}
-                                style={[
-                                  { position: 'absolute', color: theme.text2, fontSize: 12, fontWeight: '700' },
-                                  planOverviewCollapsedLabelStyle,
-                                ]}
-                              >
-                                {t('journey.timeline.expandAllGroups')}
-                              </ReAnimated.Text>
-                              <ReAnimated.Text
-                                numberOfLines={1}
-                                style={[
-                                  { position: 'absolute', color: theme.text2, fontSize: 12, fontWeight: '700' },
-                                  planOverviewExpandedLabelStyle,
-                                ]}
-                              >
-                                {t('journey.timeline.collapseGroups')}
-                              </ReAnimated.Text>
-                            </View>
-                            <ReAnimated.View style={planOverviewChevronStyle}>
-                              <Icon name="chevronDown" color={theme.text2} size={14} />
-                            </ReAnimated.View>
-                          </Press>
-                        ) : null}
-                        {!externalPlanEditorControls ? (
-                          <Press
-                            onPress={togglePlanEditor}
-                            accessibilityRole="button"
-                            style={{
-                              height: 36,
-                              paddingHorizontal: space.md,
-                              borderRadius: radius.pill,
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              backgroundColor: theme.controlSurface,
-                              borderWidth: StyleSheet.hairlineWidth,
-                              borderColor: theme.fieldBorder,
-                              boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)',
-                            }}
-                          >
-                            <Text
-                              style={{
-                                color: theme.text,
-                                fontSize: 13,
-                                fontWeight: '700',
-                              }}
-                            >
-                              {t('common.edit')}
-                      </Text>
-                  </Press>
-                ) : null}
-              </View>
-                      <View style={{ marginTop: space.xxs }}>
-                        {journeyDays.slice(0, 1).map((day) => {
-                          const rows = timeline.rows.filter((row) => row.day === day);
-                          return (
-                            <Press
-                              key={day}
-                              onPress={() => selectPagerSegment(`day:${day}`)}
-                              style={{
-                                minHeight: rows.length ? 58 : 48,
-                                paddingVertical: space.xs,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                              }}
-                            >
-                              <View style={{ flex: 1, minWidth: 0, paddingRight: space.sm }}>
-                                <Text style={[type.cardTitle, { color: theme.text, fontSize: 18, lineHeight: 24 }]}>
-                                  {journeyDayDisplayLabel(day, resolved)}
-                                </Text>
-                                {rows.length ? (
-                                  <Text
-                                    numberOfLines={1}
-                                    style={[type.body, { color: theme.text2, marginTop: space.xxs, lineHeight: 21 }]}
-                                  >
-                                    {rows.slice(0, 2).map((row) => row.title).join(' → ')}
-                                  </Text>
-                                ) : null}
-                              </View>
-                              <Icon name="chevronR" color={theme.text3} size={17} />
-                            </Press>
-                          );
-                        })}
-                      </View>
-                      <ReAnimated.View
-                        pointerEvents="auto"
-                        style={[{ overflow: 'hidden' }, planOverviewExtraStyle]}
-                      >
-                        <View
-                          onLayout={(event) => {
-                            planOverviewExtraHeight.value = event.nativeEvent.layout.height;
-                          }}
-                          style={{ position: 'absolute', top: 0, left: 0, right: 0 }}
-                        >
-                          {journeyDays.slice(1).map((day) => {
-                            const rows = timeline.rows.filter((row) => row.day === day);
-                            return (
-                              <Press
-                                key={day}
-                                onPress={() => selectPagerSegment(`day:${day}`)}
-                                style={{
-                                  minHeight: rows.length ? 86 : 68,
-                                  paddingVertical: space.md,
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  borderTopWidth: StyleSheet.hairlineWidth,
-                                  borderTopColor: theme.hairline,
-                                }}
-                              >
-                                <View style={{ flex: 1, minWidth: 0, paddingRight: space.sm }}>
-                                  <Text style={[type.cardTitle, { color: theme.text, fontSize: 18, lineHeight: 24 }]}>
-                                    {journeyDayDisplayLabel(day, resolved)}
-                                  </Text>
-                                  {rows.length ? (
-                                    <Text
-                                      numberOfLines={2}
-                                      style={[type.body, { color: theme.text2, marginTop: space.xs, lineHeight: 21 }]}
-                                    >
-                                      {rows.slice(0, 3).map((row) => row.title).join(' → ')}
-                                    </Text>
-                                  ) : null}
-                                </View>
-                                <Icon name="chevronR" color={theme.text3} size={17} />
-                              </Press>
-                            );
-                          })}
-                        </View>
-                      </ReAnimated.View>
-                    </View>
-            </AppCard>
-                </>
+                <JourneyOverview
+                  theme={theme}
+                  poi={poi}
+                  days={journeyDays}
+                  rows={timeline.rows}
+                  knownGroups={timeline.knownGroups}
+                  groupNotes={timeline.groupNotes}
+                  routes={routes}
+                  onSelectDay={openItineraryDay}
+                  onOpenTrack={poi.trackId ? () => nav.openOwnTrack(poi.trackId as string) : undefined}
+                  trackSave={trackSave}
+                  userId={userId}
+                  onOpenChecklist={() => selectPagerSegment('checklist')}
+                  onEditJourney={!readOnly && poi.mine ? () => nav.openJourneySettings(poi) : undefined}
+                  onSaveDesc={!readOnly && poi.mine ? (desc) => nav.patchCurrent({ desc }) : undefined}
+                  onEditDate={!readOnly ? () => setTimePickerOpen(true) : undefined}
+                  onOpenHistory={!readOnly && poi.mine ? () => nav.openJourneyHistory(poi) : undefined}
+                  active={visualSeg === 'overview'}
+                />
               )}
-
-            {poi.desc ? (
-              <>
-                <AppSectionHeader theme={theme} text={t('journey.section.about')} variant="title" marginTop={space.xxl} />
-                <Text style={[type.body, { lineHeight: 23, color: theme.text2 }]}>{poi.desc}</Text>
-              </>
-            ) : null}
-            {!readOnly && versionSummary ? (
-              <Press
-                onPress={() => nav.openJourneyHistory(poi)}
-                accessibilityRole="button"
-                accessibilityLabel={t('journey.version.open')}
-                style={{
-                  minHeight: 68,
-                  marginTop: space.xxl,
-                  paddingVertical: space.md,
-                }}
-              >
-                <Text numberOfLines={2} style={[type.body, { color: theme.text2, lineHeight: 21 }]}>
-                  {journeyVersionActivitySummary(
-                    versionSummary,
-                    versionSummary.changedByName || t('journey.version.unknownEditor'),
-                    resolved,
-                    t,
-                  )}
-                </Text>
-                <View style={{ marginTop: space.xs, flexDirection: 'row', alignItems: 'center' }}>
-                  <Icon name="clock" color={theme.text3} size={14} />
-                  <Text
-                    numberOfLines={1}
-                    style={[type.caption, { flex: 1, color: theme.text3, marginLeft: space.xs }]}
-                  >
-                    {formatJourneyVersionTime(versionSummary.changedAt, resolved, false)}
-                  </Text>
-                  <Text style={[type.caption, { color: theme.text2, fontWeight: '600' }]}>
-                    {t('journey.version.open')}
-                  </Text>
-                  <Icon name="chevronR" color={theme.text3} size={15} />
-                </View>
-              </Press>
-            ) : null}
           </>
         ) : (
           <>
@@ -2045,9 +1774,8 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
           />
         ) : null}
 
-        {/* 旅程 timeline */}
-        {activeSeg === 'plan' ? <JourneyTimelineCard theme={theme} info={poi} readOnly={!isJourney || readOnly} preview={timelinePreview} availableDays={journeyDays} selectionMode={timelineSelectionMode} selectedItemIds={selectedTimelineItemIds} onSelectedItemIdsChange={onSelectedTimelineItemIdsChange} onGroupCollapseChange={animateDayPageCollapse} onReorderActiveChange={setTimelineReordering} /> : null}
-        {activeJourneyDay != null ? (
+        {/* 行程 — one continuous list of every day, unplanned items last. */}
+        {activeSeg === 'plan' && isJourney ? (
           <View
             onLayout={(event) => {
               timelineTopRef.current = event.nativeEvent.layout.y;
@@ -2059,8 +1787,12 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
               info={poi}
               readOnly={readOnly}
               preview={timelinePreview}
-              selectedDay={activeJourneyDay}
+              continuous
               showDayTabs={false}
+              dayHeading={(day, note) => {
+                const heading = itineraryHeadings.find((item) => item.day === day);
+                return heading ? <JourneyDayHeading theme={theme} heading={heading} note={note} /> : null;
+              }}
               availableDays={journeyDays}
               selectionMode={timelineSelectionMode}
               selectedItemIds={selectedTimelineItemIds}
@@ -2069,10 +1801,11 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                 groupOffsetsRef.current.set(day, y);
                 scrollToPendingDay();
               }}
-              onGroupCollapseChange={animateDayPageCollapse} onReorderActiveChange={setTimelineReordering}
+              onReorderActiveChange={setTimelineReordering}
             />
           </View>
         ) : null}
+        {activeSeg === 'plan' && !isJourney ? <JourneyTimelineCard theme={theme} info={poi} readOnly={!isJourney || readOnly} preview={timelinePreview} availableDays={journeyDays} selectionMode={timelineSelectionMode} selectedItemIds={selectedTimelineItemIds} onSelectedItemIdsChange={onSelectedTimelineItemIdsChange} onGroupCollapseChange={animateDayPageCollapse} onReorderActiveChange={setTimelineReordering} /> : null}
 
         {/* 瞬间 moments — a consistent two-column photo wall. */}
         {activeSeg === 'moments' ? (
@@ -2179,7 +1912,8 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
 
   const quickActions = readOnly ? null : (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-      <FloatingIconButton icon={Heart} fill={poi.fav ? theme.trailMine : 'none'} color={poi.fav ? theme.trailMine : '#fff'} onPress={() => nav.toggleFav()} />
+      {/* 收藏只收路线；自己的旅程在「我的旅程」里，不另设收藏。 */}
+      {isJourney ? null : <FloatingIconButton icon={Heart} fill={poi.fav ? theme.trailMine : 'none'} color={poi.fav ? theme.trailMine : '#fff'} onPress={() => nav.toggleFav()} />}
       <FloatingIconButton icon={Share2} onPress={onShare} />
       <FloatingIconButton
         icon={isJourney && poi.mine ? Settings : MoreHorizontal}
@@ -2213,9 +1947,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
         isJourney ? (
         <View
           onLayout={(event) => onIdentityHeightChange?.(event.nativeEvent.layout.height)}
-          style={{ paddingTop: space.xxs, paddingBottom: space.xs }}
+          style={{ paddingTop: space.xxs }}
         >
-          <Text numberOfLines={2} style={[type.pageTitle, { color: theme.text, fontSize: 28, lineHeight: 34 }]}>
+          <Text numberOfLines={2} style={[type.pageTitle, { color: theme.text }]}>
             {poi.name}
           </Text>
           <View style={{ marginTop: space.xxs, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
@@ -2225,22 +1959,8 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
               accessibilityLabel={`${journeyTimingLabel} ${journeyTimingValue}`}
               style={{ minWidth: 0, minHeight: 40, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: space.xs }}
             >
-              <Icon name={hasSpecificJourneyDate ? 'calendar' : 'clock'} color={theme.text3} size={15} />
-              <Text numberOfLines={1} style={[type.body, { flexShrink: 1, color: theme.text2, fontWeight: '600' }]}>{journeyDurationValue}</Text>
-            </Press>
-            {!hasSpecificJourneyDate ? (
-              <Press onPress={readOnly ? undefined : () => setTimePickerOpen(true)} accessibilityRole={readOnly ? undefined : 'button'} style={{ minHeight: 40, justifyContent: 'center' }}>
-                <Text style={[type.body, { color: theme.text2, fontWeight: '600' }]}>{t('journeyEdit.time.datePending')}</Text>
-              </Press>
-            ) : null}
-            <Press
-              onPress={readOnly ? undefined : () => setDistanceEditorOpen(true)}
-              accessibilityRole="button"
-              accessibilityLabel={`${t('journey.stat.distance')} ${poi.dist || '—'}`}
-              style={{ minWidth: 0, minHeight: 40, maxWidth: 108, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: space.xs }}
-            >
-              <Icon name="distance" color={theme.text3} size={15} />
-              <Text numberOfLines={1} style={[type.body, { flexShrink: 1, color: theme.text2, fontWeight: '600' }]}>{poi.dist || '—'}</Text>
+              <Text numberOfLines={1} style={[type.body, { flexShrink: 1, color: theme.text2, fontWeight: '600' }]}>{journeyTimingValue}</Text>
+              {readOnly ? null : <Icon name="chevronR" color={theme.text3} size={15} />}
             </Press>
             <View style={{ marginLeft: 'auto', flexShrink: 0 }}>
               <JourneyParticipantButton
@@ -2354,8 +2074,17 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       </View>
       )}
 
-      {/* Journeys use one clear navigation level: 总览 + each DAY. */}
-      {tabOptions.length > 1 ? (
+      {/* Journeys navigate by section, not by day: 行程 holds every day. The
+          four sit left-aligned like the track library's tabs, in line with the
+          day chips under 行程. A route's handful of tabs stays a quiet row. */}
+      {tabOptions.length > 1 ? (isJourney ? (
+        <JourneyTabBar
+          theme={theme}
+          tabs={tabOptions}
+          activeKey={visualSeg}
+          onSelect={selectPagerSegment}
+        />
+      ) : (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -2365,7 +2094,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
             paddingTop: space.xxs,
             paddingBottom: space.md,
           }}
-            >
+        >
           <Segmented
             variant="underline"
             size="compact"
@@ -2374,18 +2103,19 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
             options={tabOptions}
             onChange={selectPagerSegment}
             animationDuration={180}
-            stretch={false}
-            trailingAction={
-              isJourney && !readOnly
-                ? {
-                    content: <Icon name="plus" color={theme.text2} size={17} />,
-                    onPress: () => addJourneyGroup(!planEditorOpen),
-                    accessibilityLabel: t('journey.timeline.newGroup'),
-                  }
-                : undefined
-            }
           />
         </ScrollView>
+      )) : null}
+      {isJourney && visualSeg === 'plan' ? (
+        <JourneyDayChipRow
+          theme={theme}
+          items={itineraryHeadings}
+          activeDay={itineraryDay ?? journeyDays[0] ?? ''}
+          onSelectDay={goToItineraryDay}
+          editable={!readOnly}
+          onAddDay={addJourneyGroup}
+          onDayMenu={showItineraryDayMenu}
+        />
       ) : null}
       </Animated.View>
 
@@ -2436,12 +2166,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
               <View
                 onLayout={(event) => {
                   const height = Math.ceil(event.nativeEvent.layout.height);
-                  if (height <= 0 || dayCollapseAnimatingRef.current || (option.id === 'overview' && planOverviewAnimatingRef.current)) return;
-                  if (option.id === 'overview') {
-                    planOverviewCollapsedPagerHeightRef.current = planOverviewOpenRef.current
-                      ? Math.max(1, height - planOverviewExtraHeight.value)
-                      : height;
-                  }
+                  if (height <= 0 || dayCollapseAnimatingRef.current) return;
                   setTabPageHeights((current) => {
                     // Monotonic: the page is measured inside the very height this
                     // value sets, so a measurement taken while the container is
@@ -2536,8 +2261,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
             setRenamingPlanDay(null);
             if (!current || name === journeyDayDisplayLabel(current, resolved)) return;
             void timeline.renameGroup(current, name);
-            if (seg === `day:${current}`) setSeg(`day:${name}`);
-            if (pagerPageRef.current === `day:${current}`) setPagerPage(`day:${name}`);
+            if (itineraryDay === current) setItineraryDay(name);
             if (selectedPlanDays.has(current)) {
               const next = new Set(selectedPlanDays);
               next.delete(current);
@@ -2548,45 +2272,6 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
         />
       ) : null}
       {!readOnly && timePickerOpen ? <JourneyTimePicker theme={theme} poi={poi} onApply={(patch) => nav.patchCurrent(patch)} onClose={() => setTimePickerOpen(false)} /> : null}
-      {!readOnly && distanceEditorOpen ? (
-        <JourneyDistanceSheet
-          theme={theme}
-          initialValue={poi.dist}
-          onSave={(dist) => nav.patchCurrent({ dist })}
-          onClose={() => setDistanceEditorOpen(false)}
-        />
-      ) : null}
-      {!readOnly && trackUploadOpen ? <JourneyTrackUploadSheet theme={theme} replacing={hasTrack} onClose={() => setTrackUploadOpen(false)} /> : null}
-      <PickDialog
-        theme={theme}
-        visible={!readOnly && trackPickOpen}
-        title={t('journey.track.pickTitle')}
-        emptyLabel={t('journey.track.pickEmpty')}
-        cancelLabel={t('common.cancel')}
-        options={tracks.map((track) => ({
-          item: track,
-          title: track.name || t('tracks.untitled'),
-          subtitle: [
-            track.distM != null ? formatTrackDistance(track.distM) : null,
-            track.ascM ? formatTrackAscent(track.ascM) : null,
-            track.pointCount ? t('tracks.meta.points', { count: track.pointCount }) : null,
-          ].filter(Boolean).join(' · '),
-          selected: track.id === poi.trackId,
-        }))}
-        onCancel={() => setTrackPickOpen(false)}
-        onSelect={(track) => {
-          setTrackPickOpen(false);
-          if (track.id === poi.trackId) return;
-          // The journey's distance and ascent describe the track it follows, so
-          // linking one overwrites them with the numbers the file actually holds.
-          nav.patchCurrent({
-            trackId: track.id,
-            ...(track.distM != null ? { dist: formatTrackDistance(track.distM) } : {}),
-            ...(track.ascM != null ? { asc: formatTrackAscent(track.ascM) } : {}),
-          });
-          nav.showToast(t('journey.track.applied'));
-        }}
-      />
     </View>
   );
 }

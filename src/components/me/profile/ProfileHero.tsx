@@ -1,10 +1,16 @@
 // ProfileHero.tsx — 主页头部：头像、昵称、简介，以及粉丝和关注数。
 // 头像和昵称横排，简介在下；数字行右侧放关注按钮或找人；不放统计卡。
-import React, { useState, type ReactNode } from 'react';
+import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Text, View } from 'react-native';
+import ReAnimated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { UserPlus } from 'lucide-react-native';
 import type { Theme } from '../../../theme/theme';
-import { layout, radius, space, type } from '../../../design-system';
+import { layout, motion, radius, space, type } from '../../../design-system';
 import { Avatar } from '../../Avatar';
 import { Press } from '../../Press';
 import { useI18n } from '../../../i18n';
@@ -124,26 +130,61 @@ export function ProfileTabs<K extends string>({ theme, tabs, active, onChange }:
   active: K;
   onChange: (key: K) => void;
 }) {
+  // 等宽 tab，所以量一次行宽就能算出滑块位置；行本身不放 padding，
+  // 这样滑块的绝对原点和 tab 的排布原点一致。
+  const [rowWidth, setRowWidth] = useState(0);
+  const index = Math.max(0, tabs.findIndex((tab) => tab.key === active));
+  const tabWidth = rowWidth > 0 && tabs.length > 0 ? rowWidth / tabs.length : 0;
+  const sliderReady = useRef(false);
+  const translateX = useSharedValue(0);
+
+  useEffect(() => {
+    if (!tabWidth) return;
+    const next = index * tabWidth;
+    if (!sliderReady.current) {
+      sliderReady.current = true;
+      translateX.value = next;
+      return;
+    }
+    translateX.value = withTiming(next, {
+      duration: motion.emphasized,
+      easing: Easing.bezier(0.22, 1, 0.36, 1),
+    });
+  }, [index, tabWidth, translateX]);
+
+  const sliderStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+
   return (
-    <View style={{ flexDirection: 'row', backgroundColor: theme.featureSurface, paddingTop: space.xxs, paddingHorizontal: layout.pagePadding }}>
-      {tabs.map((tab) => {
-        const on = tab.key === active;
-        return (
-          <Press
-            key={tab.key}
-            onPress={() => onChange(tab.key)}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: on }}
-            scaleTo={1}
-            style={{ flex: 1, height: 48, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Text style={{ fontSize: 16, fontWeight: on ? '700' : '600', color: on ? theme.text : theme.text3 }}>{tab.label}</Text>
-            {on ? (
-              <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 2.5, borderRadius: 2, backgroundColor: theme.text }} />
-            ) : null}
-          </Press>
-        );
-      })}
+    <View style={{ backgroundColor: theme.featureSurface, paddingTop: space.xxs, paddingHorizontal: layout.pagePadding }}>
+      <View
+        onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
+        style={{ flexDirection: 'row' }}
+      >
+        {tabs.map((tab) => {
+          const on = tab.key === active;
+          return (
+            <Press
+              key={tab.key}
+              onPress={() => onChange(tab.key)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
+              scaleTo={1}
+              style={{ flex: 1, height: 48, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Text style={{ fontSize: 16, fontWeight: on ? '700' : '600', color: on ? theme.text : theme.text3 }}>{tab.label}</Text>
+            </Press>
+          );
+        })}
+        <ReAnimated.View
+          pointerEvents="none"
+          style={[
+            { position: 'absolute', left: 0, bottom: 0, height: 2.5, borderRadius: 2, width: tabWidth, backgroundColor: theme.text },
+            sliderStyle,
+          ]}
+        />
+      </View>
     </View>
   );
 }

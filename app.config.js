@@ -185,6 +185,47 @@ module.exports = ({ config }) => {
     'expo-video',
     'expo-updates',
     'expo-apple-authentication',
+    [
+      'expo-build-properties',
+      {
+        android: {
+          // Real devices are 64-bit ARM; x86 was emulator-only and AMap ships
+          // no x86 libs anyway. RN turns this into ndk.abiFilters, so prebuilt
+          // .so from AARs (AMap, ML Kit barcode) are filtered too.
+          buildArchs: ['arm64-v8a'],
+          enableMinifyInReleaseBuilds: true,
+          enableShrinkResourcesInReleaseBuilds: true,
+          // AMap and the vendor push SDKs ship no consumer rules and reach
+          // their classes by reflection/JNI; keep them whole.
+          extraProguardRules: [
+            '-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod,Exceptions',
+            '-keep class com.amap.api.** { *; }',
+            '-keep class com.autonavi.** { *; }',
+            '-keep class com.loc.** { *; }',
+            '-dontwarn com.amap.api.**',
+            '-dontwarn com.autonavi.**',
+            '-dontwarn com.loc.**',
+            '-keep class com.doopush.** { *; }',
+            '-keep class com.huawei.hms.** { *; }',
+            '-keep class com.huawei.agconnect.** { *; }',
+            '-dontwarn com.huawei.**',
+            '-keep class com.hihonor.push.** { *; }',
+            '-dontwarn com.hihonor.**',
+            '-keep class com.xiaomi.** { *; }',
+            '-dontwarn com.xiaomi.**',
+            '-keep class com.heytap.msp.** { *; }',
+            '-dontwarn com.heytap.**',
+            '-keep class com.vivo.push.** { *; }',
+            '-keep class com.vivo.vms.** { *; }',
+            '-dontwarn com.vivo.push.**',
+            '-keep class com.meizu.cloud.** { *; }',
+            '-dontwarn com.meizu.cloud.**',
+            '-keep class com.umeng.** { *; }',
+            '-dontwarn com.umeng.**',
+          ].join('\n'),
+        },
+      },
+    ],
     './plugins/withIosPodDeploymentTarget',
     // Adds the Xcode targets under targets/, e.g. the trail Live Activity widget.
     '@bacons/apple-targets',

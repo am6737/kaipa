@@ -2,7 +2,7 @@
 // 有轨迹时显示 用时 / 距离 / 均速 / 爬升，只有旅程时显示 天数 / 照片 / 同行。
 // 条目之间只用留白分隔，不画分割线。
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, Text, View } from 'react-native';
+import { GestureResponderEvent, Platform, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import Svg, { Path } from 'react-native-svg';
 import { Globe, Lock, Users } from 'lucide-react-native';
@@ -46,7 +46,7 @@ export function OutingCard({ theme, outing, subject, avatarUri, showVisibility, 
   /** 别人的出行大多打不开（不是同行者），这时不给入口。 */
   onOpen?: () => void;
   /** 只有自己的时间线给这个回调，可见范围标签才可点。 */
-  onChangeVisibility?: () => void;
+  onChangeVisibility?: (event: GestureResponderEvent) => void;
   /** 自己走过、还没评论过的路线，提示写评论。 */
   reviewPrompt?: { route: string; onWrite: () => void };
 }) {
@@ -142,7 +142,7 @@ export function VisibilityChip({ theme, visibility, onChange }: {
   theme: Theme;
   visibility: Visibility;
   /** 给自己的时间线用；不给就是纯展示，别人主页上的标签不可点。 */
-  onChange?: () => void;
+  onChange?: (event: GestureResponderEvent) => void;
 }) {
   const { t } = useI18n();
   const Glyph = visibility === 'public' ? Globe : visibility === 'followers' ? Users : Lock;

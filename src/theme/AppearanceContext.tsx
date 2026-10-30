@@ -1,7 +1,7 @@
 // AppearanceContext — owns theme mode + accent for the whole app, persists them,
 // resolves 'system' against the OS color scheme, and exposes the built Theme.
 // The 我 (Me) screen reads/writes through useAppearance().
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { makeTheme, Theme } from './theme';
@@ -70,4 +70,31 @@ export function useAppearance(): AppearanceValue {
 
 export function useTheme(): Theme {
   return useAppearance().theme;
+}
+
+/**
+ * Hands a hidden tab the theme it was hidden with, so picking a 主题/重点色 stops
+ * re-rendering screens nobody can see. Every tab screen is React.memo and takes
+ * `theme` as a prop, so a new theme object defeats all four at once; showing a
+ * tab again takes the live theme, which unfreezes it in that same render.
+ */
+export function FrozenTheme({
+  frozen,
+  children,
+}: {
+  frozen: boolean;
+  children: (theme: Theme) => React.ReactNode;
+}) {
+  const live = useAppearance().theme;
+  const held = useRef(live);
+  const committedFrozen = useRef(frozen);
+  // The render that hides the tab still gets the live theme, so the screen paints
+  // correctly while it slides out. Refs move only on commit: a transition render
+  // may be thrown away and redone.
+  const value = frozen && committedFrozen.current ? held.current : live;
+  useLayoutEffect(() => {
+    held.current = value;
+    committedFrozen.current = frozen;
+  });
+  return <>{children(value)}</>;
 }

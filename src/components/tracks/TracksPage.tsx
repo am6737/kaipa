@@ -38,6 +38,7 @@ import {
 import { Icon } from '../Icon';
 import type { IconName } from '../Icon';
 import { Press } from '../Press';
+import { UnderlineTabs } from '../UnderlineTabs';
 import { Glass } from '../Glass';
 import { GearMenuTransition, usePendingMenuAction } from '../gear/GearMenuTransition';
 import {
@@ -265,25 +266,13 @@ function TrackTabBar({ theme, tabs, activeKey, onSelect }: {
   onSelect: (key: TrackFilter) => void;
 }) {
   return (
-    <View style={{ height: TAB_BAR_HEIGHT, backgroundColor: theme.featureSurface, paddingHorizontal: layout.pagePadding, flexDirection: 'row', alignItems: 'center', gap: space.lg + 2 }}>
-      {tabs.map((tab) => {
-        const active = tab.key === activeKey;
-        return (
-          <Press
-            key={tab.key}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: active }}
-            onPress={() => onSelect(tab.key)}
-            style={{ height: TAB_BAR_HEIGHT, justifyContent: 'center' }}
-          >
-            <Text style={[type.cardTitle, { fontWeight: active ? '800' : '600', color: active ? theme.text : theme.text2 }]}>{tab.label}</Text>
-            {active ? (
-              <View pointerEvents="none" style={{ position: 'absolute', left: 0, bottom: space.xxs, height: 3, minWidth: space.md, alignSelf: 'flex-start', borderRadius: radius.pill, backgroundColor: theme.accent }} />
-            ) : null}
-          </Press>
-        );
-      })}
-    </View>
+    <UnderlineTabs
+      theme={theme}
+      tabs={tabs.map((tab) => ({ id: tab.key, label: tab.label }))}
+      activeKey={activeKey}
+      onSelect={onSelect}
+      style={{ backgroundColor: theme.featureSurface, paddingHorizontal: layout.pagePadding }}
+    />
   );
 }
 

@@ -15,7 +15,10 @@ export type IconName =
   | 'heartFill'
   | 'share'
   | 'send'
+  | 'navigation'
   | 'download'
+  | 'file'
+  | 'swap'
   | 'more'
   | 'chevronL'
   | 'chevronR'
@@ -201,12 +204,35 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
           <Path d="M3 20V4l19 8-19 8Zm2-3 11.85-5L5 7v4l8 1-8 1v4Z" fill={color} stroke="none" />
         </Svg>
       );
+    case 'navigation':
+      // the location arrow, tilted toward the top right — turn-by-turn 导航
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="M3.5 11 20.5 3.5 13 20.5l-1.9-7.6L3.5 11Z" {...common} />
+        </Svg>
+      );
     case 'download':
       return (
         <Svg width={s} height={s} viewBox="0 0 24 24">
           <Path d="M12 3v12" {...common} />
           <Path d="M8 11l4 4 4-4" {...common} />
           <Path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2" {...common} />
+        </Svg>
+      );
+    case 'file':
+      // a document with a folded corner — an original file as uploaded
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="M14 3H7a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 7 21h10a1.5 1.5 0 0 0 1.5-1.5V7.5L14 3Z" {...common} />
+          <Path d="M14 3v4.5h4.5" {...common} />
+        </Svg>
+      );
+    case 'swap':
+      // two opposed arrows — reverse a route's direction
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="M4 8h15m0 0-3.5-3.5M19 8l-3.5 3.5" {...common} />
+          <Path d="M20 16H5m0 0 3.5-3.5M5 16l3.5 3.5" {...common} />
         </Svg>
       );
     case 'gearSettings':

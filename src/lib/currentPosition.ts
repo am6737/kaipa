@@ -132,3 +132,28 @@ export async function getCurrentPosition(timeoutMs = 15_000): Promise<CurrentPos
     throw new CurrentPositionError('unavailable', error instanceof Error ? error.message : String(error));
   }
 }
+
+export type FramingFix =
+  | { ok: true; position: CurrentPosition }
+  | { ok: false; reason: 'permission' | CurrentPositionFailure };
+
+// For the maps' frame button, whose second tap pulls back to show the track and
+// the reader together. Asks once if it may, and reports a refusal or a failed
+// fix as a reason instead of throwing, so the caller only has to pick a toast.
+export async function locateForFraming(): Promise<FramingFix> {
+  let permission = await Location.getForegroundPermissionsAsync();
+  if (!permission.granted && permission.canAskAgain) permission = await Location.requestForegroundPermissionsAsync();
+  if (!permission.granted) return { ok: false, reason: 'permission' };
+  try {
+    return { ok: true, position: await getCurrentPosition() };
+  } catch (error) {
+    return { ok: false, reason: error instanceof CurrentPositionError ? error.code : 'unavailable' };
+  }
+}
+
+/** The discover.* toast key for a framing fix that did not come back. */
+export function framingFailureKey(reason: Exclude<FramingFix, { ok: true }>['reason']) {
+  return reason === 'permission'
+    ? 'discover.locationPermissionDenied'
+    : reason === 'services_disabled' ? 'discover.locationServicesDisabled' : 'discover.locationFailed';
+}

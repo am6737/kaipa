@@ -3,6 +3,10 @@
 // the tiles); instead it reads elevation off a proper Y axis. Dragging it reports
 // an index/coord up so the map above can move its scrub marker in sync. Optional
 // close/expand buttons (unused in the card; 更多 lives in the section header).
+//
+// `interactive={false}` draws the same curve as a picture: short, no axes, and
+// above all no gesture of its own — the drag has to stay with the tab pager, and
+// whatever owns the tap owns the whole card.
 import React, { useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, PanResponder } from 'react-native';
 import Svg, { Path, Line, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
@@ -16,14 +20,15 @@ import { Icon } from '../Icon';
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
 
 export function ElevationStrip({
-  theme, poi, onScrub, onClose, onExpand, bare = false,
+  theme, poi, onScrub, onClose, onExpand, bare = false, interactive = true,
 }: {
   theme: Theme;
   poi: Poi;
-  onScrub: (index: number | null, coord?: [number, number]) => void;
+  onScrub?: (index: number | null, coord?: [number, number]) => void;
   onClose?: () => void;
   onExpand?: () => void;
   bare?: boolean;
+  interactive?: boolean;
 }) {
   const series = useMemo(() => buildElevation(poi), [poi.id, poi.trackElevation]);
   const coords = poi.trackCoords || [];
@@ -32,7 +37,7 @@ export function ElevationStrip({
   const [idx, setIdx] = useState<number | null>(null);
   const dragging = useRef(false);
 
-  const H = 150, TOP = 14, BOT = 10, PAD_L = 34;
+  const H = interactive ? 150 : 48, TOP = interactive ? 14 : 5, BOT = interactive ? 10 : 5, PAD_L = interactive ? 34 : 0;
   const { minEle, maxEle, totalKm } = series;
   const span = Math.max(maxEle - minEle, 1);
   const minP = minEle, maxP = minEle + span;
@@ -41,8 +46,8 @@ export function ElevationStrip({
   const yOf = (e: number) => TOP + (1 - (e - minP) / span) * (H - TOP - BOT);
 
   const yTicks = useMemo(
-    () => [0, 1 / 3, 2 / 3, 1].map((f) => ({ y: TOP + f * (H - TOP - BOT), ele: minP + (1 - f) * span })),
-    [minP, span]
+    () => interactive ? [0, 1 / 3, 2 / 3, 1].map((f) => ({ y: TOP + f * (H - TOP - BOT), ele: minP + (1 - f) * span })) : [],
+    [interactive, minP, span]
   );
 
   const line = useMemo(() => {
@@ -65,7 +70,7 @@ export function ElevationStrip({
     const i = Math.max(0, Math.min(N - 1, Math.round(frac * (N - 1))));
     dragging.current = true;
     setIdx(i);
-    onScrub(i, coordForIndex(i));
+    onScrub?.(i, coordForIndex(i));
   };
   const scrubRef = useRef(scrubTo); scrubRef.current = scrubTo;
   const pan = useRef(
@@ -77,12 +82,12 @@ export function ElevationStrip({
       onPanResponderRelease: () => {
         dragging.current = false;
         setIdx(null);
-        onScrub(null);
+        onScrub?.(null);
       },
       onPanResponderTerminate: () => {
         dragging.current = false;
         setIdx(null);
-        onScrub(null);
+        onScrub?.(null);
       },
       onPanResponderTerminationRequest: () => true,
     })
@@ -122,7 +127,12 @@ export function ElevationStrip({
         </View>
       ) : null}
 
-      <View onLayout={(e) => setW(e.nativeEvent.layout.width)} {...pan.panHandlers} style={{ height: H }}>
+      <View
+        onLayout={(e) => setW(e.nativeEvent.layout.width)}
+        {...(interactive ? pan.panHandlers : null)}
+        pointerEvents={interactive ? 'auto' : 'none'}
+        style={{ height: H }}
+      >
         <Svg width={w} height={H}>
           <Defs>
             <LinearGradient id={`es-${poi.id}`} x1="0" y1="0" x2="0" y2="1">
@@ -173,10 +183,12 @@ export function ElevationStrip({
         ) : null}
       </View>
 
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, paddingLeft: PAD_L }}>
-        <Text style={{ fontFamily: MONO, fontSize: 9.5, color: theme.text3 }}>0 km</Text>
-        <Text style={{ fontFamily: MONO, fontSize: 9.5, color: theme.text3 }}>{totalKm.toFixed(1)} km</Text>
-      </View>
+      {interactive ? (
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, paddingLeft: PAD_L }}>
+          <Text style={{ fontFamily: MONO, fontSize: 9.5, color: theme.text3 }}>0 km</Text>
+          <Text style={{ fontFamily: MONO, fontSize: 9.5, color: theme.text3 }}>{totalKm.toFixed(1)} km</Text>
+        </View>
+      ) : null}
     </View>
   );
 }

@@ -1,6 +1,8 @@
-import { useEffect } from 'react';
-import { Alert, Platform } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Alert, Linking, Platform } from 'react-native';
 import * as Updates from 'expo-updates';
+import { useI18n } from '../i18n';
+import { unpromptedStoreRelease } from './storeRelease';
 
 export type UpdateMode = 'silent' | 'prompt' | 'next_launch';
 
@@ -10,15 +12,40 @@ function updateModeFor(manifest: unknown): UpdateMode {
 }
 
 /**
- * Checks for an EAS Update after the first render. The check is deliberately
- * best-effort: an unavailable update service must never block app startup.
+ * After the first render, prompts once per new App Store version, then checks
+ * for an EAS Update. Both checks are deliberately best-effort: an unavailable
+ * store or update service must never block app startup.
  */
 export function UpdateManager() {
+  const { t } = useI18n();
+  const tRef = useRef(t);
+  tRef.current = t;
+
   useEffect(() => {
-    if (Platform.OS === 'web' || !Updates.isEnabled) return;
+    if (Platform.OS === 'web') return;
 
     let active = true;
+    // Returns whether a store prompt is on screen, so the EAS Update step
+    // neither stacks a second alert on it nor reloads it away.
+    const checkStore = async () => {
+      try {
+        const release = await unpromptedStoreRelease();
+        if (!active || !release) return false;
+        const tr = tRef.current;
+        Alert.alert(tr('account.about.nativeUpdateTitle'), tr('account.about.nativeUpdateMessage', { version: release.version }), [
+          { text: tr('account.about.updateLater'), style: 'cancel' },
+          { text: tr('account.about.openStore'), onPress: () => { void Linking.openURL(release.url).catch((error) => console.warn('[Updates] open store failed:', error)); } },
+        ]);
+        return true;
+      } catch (error) {
+        console.warn('[Updates] store check failed:', error);
+        return false;
+      }
+    };
+
     const check = async () => {
+      const storePrompted = await checkStore();
+      if (!active || !Updates.isEnabled) return;
       try {
         const result = await Updates.checkForUpdateAsync();
         if (!active || !result.isAvailable) return;
@@ -27,7 +54,8 @@ export function UpdateManager() {
         if (!active || !fetched.isNew) return;
 
         const mode = updateModeFor(fetched.manifest);
-        if (mode === 'next_launch') return;
+        // A downloaded update still applies on the next cold start.
+        if (mode === 'next_launch' || storePrompted) return;
         if (mode === 'prompt') {
           Alert.alert('发现新版本', '更新已经准备好了，重启应用即可使用最新功能。', [
             { text: '稍后', style: 'cancel' },

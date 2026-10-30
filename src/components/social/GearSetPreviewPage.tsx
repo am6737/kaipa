@@ -9,7 +9,7 @@ import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
 import { useData } from '../../data/DataContext';
 import { copyGearSet, fetchGearSetPreview, type GearSetPreview, type GearSetPreviewItem } from '../../hooks/useSocial';
-import { fmtWeight, type WeightUnit } from '../../data/gear';
+import { fmtItemWeight, fmtWeight, type WeightUnit } from '../../data/gear';
 import { KPSpinner, KPState } from '../State';
 import { Press } from '../Press';
 
@@ -168,7 +168,7 @@ function ItemRow({ theme, item, weightUnit, optionalLabel }: {
       </View>
       {/* 备选照样标重量，只是变灰；它不计入上面的清单总重。 */}
       <Text style={[type.caption, { fontVariant: ['tabular-nums'], color: optional ? theme.text3 : theme.text2 }]}>
-        {fmtWeight(item.weightKg * Math.max(1, item.qty), weightUnit, true)}
+        {fmtItemWeight(item.weightKg * Math.max(1, item.qty), weightUnit, true)}
       </Text>
     </View>
   );

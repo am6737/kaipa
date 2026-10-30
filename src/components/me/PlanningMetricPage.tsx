@@ -6,6 +6,7 @@ import { useI18n } from '../../i18n';
 import { AppMeasurementPanel, AppQuestionHeader, AppReadout, radius, space } from '../../design-system';
 import { Press } from '../Press';
 import { MePushPage } from './MePushPage';
+import { PickerConfirmFooter } from './PickerConfirmFooter';
 import { createRulerHaptics, createWheelHaptics } from './rulerHaptics';
 
 export type PlanningMetric = 'heightCm' | 'ageYears';
@@ -41,6 +42,14 @@ export function PlanningMetricPage({ theme, metric, value, onBack }: {
   const rulerHaptics = useMemo(() => createRulerHaptics(), []);
   const wheelHaptics = useMemo(() => createWheelHaptics<number>(), []);
   const initialHeight = useRef(Math.round(selected)).current;
+  const initialSelected = useRef(selected).current;
+  // 还没填过时默认值也算待确认，否则用户想要的恰好是默认值就没法提交。
+  const dirty = !value.trim() || selected !== initialSelected;
+  const reset = () => {
+    lastTick.current = initialSelected;
+    setSelected(initialSelected);
+    if (isHeight) ruler.current?.scrollTo({ y: (MAX_HEIGHT - initialSelected) * TICK_HEIGHT, animated: true });
+  };
   const min = isHeight ? MIN_HEIGHT : currentYear - 100;
   const max = isHeight ? MAX_HEIGHT : currentYear - 10;
   const adjust = (delta: number) => {
@@ -54,7 +63,8 @@ export function PlanningMetricPage({ theme, metric, value, onBack }: {
   const muted = theme.text3;
 
   return (
-    <MePushPage theme={theme} title={t(isHeight ? 'planningProfile.heightTitle' : 'planningProfile.birthYearTitle')} onBack={() => onBack(String(isHeight ? selected : currentYear - selected))}>
+    <MePushPage theme={theme} title={t(isHeight ? 'planningProfile.heightTitle' : 'planningProfile.birthYearTitle')} onBack={() => onBack(value)}
+      footer={dirty ? <PickerConfirmFooter theme={theme} onReset={reset} onConfirm={() => onBack(String(displayValue))} /> : undefined}>
       <View style={styles.content}>
         <AppQuestionHeader theme={theme} question={t(isHeight ? 'planningProfile.heightQuestion' : 'planningProfile.birthYearQuestion')} description={t(isHeight ? 'planningProfile.heightDetail' : 'planningProfile.birthYearDetail')} />
         <View style={[styles.stage, { minHeight: stageHeight }]}>

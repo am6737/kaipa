@@ -5,6 +5,7 @@ import { useI18n } from '../../i18n';
 import { AppMeasurementPanel, AppQuestionHeader, AppReadout, radius, space } from '../../design-system';
 import { Press } from '../Press';
 import { MePushPage } from './MePushPage';
+import { PickerConfirmFooter } from './PickerConfirmFooter';
 import { createRulerHaptics } from './rulerHaptics';
 
 // Integer tenths keep scrolling and fine adjustments free of floating-point drift.
@@ -30,7 +31,15 @@ export function PlanningWeightPage({ theme, value, onBack }: {
   const interacted = useRef(false);
   const lastTick = useRef(selected);
   const rulerHaptics = useMemo(() => createRulerHaptics(), []);
-  const initialOffset = useRef((selected - MIN) * TICK_WIDTH).current;
+  const initialSelected = useRef(selected).current;
+  const initialOffset = (initialSelected - MIN) * TICK_WIDTH;
+  // 还没填过时默认值也算待确认，否则用户想要的恰好是默认值就没法提交。
+  const dirty = !value.trim() || selected !== initialSelected;
+  const reset = () => {
+    lastTick.current = initialSelected;
+    setSelected(initialSelected);
+    ruler.current?.scrollToOffset({ offset: initialOffset, animated: true });
+  };
   const effectiveWidth = rulerWidth || 320;
   const padding = Math.max(0, (effectiveWidth - TICK_WIDTH) / 2);
   const adjust = (delta: number) => {
@@ -42,7 +51,8 @@ export function PlanningWeightPage({ theme, value, onBack }: {
   };
 
   return (
-    <MePushPage theme={theme} title={t('planningProfile.weightTitle')} onBack={() => onBack(String(selected / 10))}>
+    <MePushPage theme={theme} title={t('planningProfile.weightTitle')} onBack={() => onBack(value)}
+      footer={dirty ? <PickerConfirmFooter theme={theme} onReset={reset} onConfirm={() => onBack(String(selected / 10))} /> : undefined}>
       <View style={styles.content}>
         <AppQuestionHeader theme={theme} question={t('planningProfile.weightQuestion')} description={t('planningProfile.weightDetail')} />
         <AppMeasurementPanel theme={theme} style={styles.measurementCard}>

@@ -1,4 +1,4 @@
-import { ruralLocationProvince, geocodeKeywordLadder } from './itinerary-geocoding.ts';
+import { ruralLocationProvince, geocodeKeywordLadder, matchesWaypointName } from './itinerary-geocoding.ts';
 import { presentItinerary } from './itinerary-presentation.ts';
 import { expandItineraryLocations } from './itinerary-locations.ts';
 // @ts-ignore Deno npm specifier
@@ -22,9 +22,11 @@ import { packingItemDisplayName, packingItemIdentityKey, packingValidationError,
 import { missingPackingCoverage, packingCoverageError } from './packing-coverage.ts';
 import type { PackingPlanProfile } from './packing-coverage.ts';
 import { dietaryConflictError, estimatePersonalPackingNeeds, isPlanningFoodItem, normalizePlanningProfile, nutritionPlanError } from './personal-planning.ts';
-import { assertTrackDistanceConsistency, endpointAtDistance, normalizeTrackCoordinates, trackLengthMeters } from './route-endpoints.ts';
+import { assertTrackDistanceConsistency, endpointAtDistance, normalizeTrackCoordinates, trackLengthMeters, type TrackCoordinate } from './route-endpoints.ts';
 import { overnightReviewSchema, resolveHikingEndpoint, validateHikingBoundary } from './hiking-boundaries.ts';
-import { isTrackFilename } from './track.ts';
+import { haversine, isTrackFilename } from './track.ts';
+import { geometryMeters, routeTrackFacts } from './track-metrics.ts';
+import { officialDayEnd, officialStopKms, type PlanStop, type PlanStopRow } from './official-stops.ts';
 import { loadTrackAttachment } from './attachments.ts';
 import { canReplayToolResult } from './tool-replay.ts';
 import { compactToolData, sanitizeSessionItem } from './session-input.ts';
@@ -359,7 +361,10 @@ async function routeTrackId(client: Client, context: AgentContext, route: Record
   if (coords.length < 3) return null;
   const name = String(route.name);
   const fileName = typeof route.track_file_name === 'string' && route.track_file_name ? route.track_file_name : `${name}.gpx`;
-  const existing = await client.from('tracks').select('id').eq('user_id', context.userId).eq('name', name).eq('file_name', fileName).limit(1).maybeSingle();
+  // The journey's copy of a catalog line stays out of 「我的轨迹」; the user saves
+  // it there from the journey page. Only another journey's copy is reused, never
+  // a library entry, which the user may rename or delete.
+  const existing = await client.from('tracks').select('id').eq('user_id', context.userId).eq('in_library', false).eq('name', name).eq('file_name', fileName).limit(1).maybeSingle();
   if (existing.error) throw existing.error;
   if (existing.data) return existing.data.id;
   const extension = fileName.split('.').pop()?.toLocaleLowerCase();
@@ -374,6 +379,7 @@ async function routeTrackId(client: Client, context: AgentContext, route: Record
     duration_ms: Number.isFinite(durationMs) && durationMs > 0 ? durationMs : null,
     waypoints: Array.isArray(route.track_waypoints) ? route.track_waypoints : null,
     point_count: coords.length,
+    in_library: false,
   }).select('id').single();
   if (inserted.error) throw inserted.error;
   return inserted.data.id;
@@ -572,6 +578,9 @@ export const itineraryGroupEndpoint = z.object({
   userDistanceQuote: z.string().trim().min(1).max(500).nullable().default(null).describe('仅当用户本轮明确指定某日累计公里数时，引用包含对应 km/公里数的用户原话；不是 AI 估算或泛泛的规划请求'),
   overnightReview: overnightReviewSchema.nullable().default(null).describe('可选过夜评估；无攻略证据也可保存真实轨迹候选终点，不代表已确认适合扎营或有水'),
   routeId: z.string().max(100).nullable().default(null).describe('该终点所属的目录路线 ID。多路线出行中每天属于不同路线，waypointIndex 与累计里程按该路线自己的轨迹解析；不填表示用当前旅程绑定的轨迹，纯接驳或住宿日不填'),
+  officialStop: z.object({
+    itineraryId: z.string().uuid(), version: z.number().int().min(1), dayIndex: z.number().int().min(0).max(30),
+  }).nullable().default(null).describe('仅供服务端按已发布官方方案设置终点，模型必须省略'),
 });
 
 async function assertDeleteContext(client: Client, context: AgentContext, journeyId: string) {
@@ -639,27 +648,51 @@ export function routeSearchTerms(query: string): string[] {
   return [...new Set(terms)].slice(0, 6);
 }
 
+// "这个月去哪走" names no route or region, so a name/region-only search had
+// nothing to match: the model sent "中国 秋季 10月 徒步", got [] and told the
+// user the catalog covered nothing, although most routes carry best_months.
+// A month filter lists the catalog by season; with a query it narrows those
+// matches, and when the query terms are generic words that hit no name or
+// region, the month listing alone is the answer.
+const MONTH_ROUTE_LIMIT = 40;
+
 export const searchRoutes = tool({
   name: 'search_routes',
-  description: 'Search route catalog by route name or region when planning a journey.',
-  parameters: z.object({ query: z.string().min(1).max(80) }),
-  execute: async ({ query }, runContext) => mutate('search_routes', { query }, runContext as RunContext, async (client, context) => {
-    const columns = 'id,name,region,dist,asc_,diff,desc';
-    const terms = routeSearchTerms(query);
-    const patterns = (terms.length ? terms : [query.trim()]).map(term => `%${term}%`);
-    const [byName, byRegion] = await Promise.all([
-      // One request per term rather than an `or=` filter: route names carry
-      // parentheses and full-width punctuation that PostgREST would need
-      // escaped inside the filter expression.
-      ...patterns.map(pattern => client.from('routes').select(columns).ilike('name', pattern).limit(20)),
-      ...patterns.map(pattern => client.from('routes').select(columns).ilike('region', pattern).limit(20)),
+  description: 'Search the Kaipa route catalog by route name or region, and/or by month. Set month (1-12) for seasonal questions such as where to hike this month; query may then be null or a region such as 四川 or 浙江. Each route returns bestMonths, seasonNote and days (walking-day options). An empty result means no catalog match for those words, not that the catalog is empty.',
+  parameters: z.object({
+    query: z.string().max(80).nullable().default(null).describe('Route name(s) or region; omit generic words like 徒步, 秋季, 中国'),
+    month: z.number().int().min(1).max(12).nullable().default(null).describe('Only routes whose best months include this month'),
+  }),
+  execute: async ({ query, month }, runContext) => mutate('search_routes', { query, month }, runContext as RunContext, async (client) => {
+    const columns = 'id,name,region,dist,asc_,diff,desc,best_months,season_note,days';
+    const select = () => {
+      const request = client.from('routes').select(columns);
+      return month ? request.contains('best_months', [month]) : request;
+    };
+    const text = query?.trim() || '';
+    const terms = routeSearchTerms(text);
+    const patterns = (terms.length ? terms : text ? [text] : []).map(term => `%${term}%`);
+    // One request per term rather than an `or=` filter: route names carry
+    // parentheses and full-width punctuation that PostgREST would need
+    // escaped inside the filter expression.
+    const results = await Promise.all([
+      ...patterns.map(pattern => select().ilike('name', pattern).limit(20)),
+      ...patterns.map(pattern => select().ilike('region', pattern).limit(20)),
     ]);
-    const errors = [byName, byRegion].flat().filter((result: { error?: unknown }) => result.error);
+    const errors = results.filter((result: { error?: unknown }) => result.error);
     if (errors.length) throw errors[0].error;
-    const rows = [byName, byRegion].flat().flatMap((result: { data?: unknown[] }) => (result.data || []) as Array<{ id: string }>);
+    let rows = results.flatMap((result: { data?: unknown[] }) => (result.data || []) as Array<Record<string, unknown>>);
+    let limit = 20;
+    if (month && !rows.length) {
+      const listing = await select().order('name').limit(MONTH_ROUTE_LIMIT);
+      if (listing.error) throw listing.error;
+      rows = listing.data || [];
+      limit = MONTH_ROUTE_LIMIT;
+    }
     // Earlier terms win: for a chain the first named route is the one the model
     // asked for first, and the cap has to drop the tail rather than the head.
-    return [...new Map(rows.map((row: { id: string }) => [row.id, row])).values()].slice(0, 20);
+    return [...new Map(rows.map(row => [row.id, row])).values()].slice(0, limit)
+      .map(({ best_months, season_note, ...row }) => ({ ...row, bestMonths: best_months ?? null, seasonNote: season_note ?? null }));
   }),
 });
 
@@ -733,7 +766,7 @@ export const readRouteGuide = createReadRouteGuide();
 
 export const searchRouteKnowledge = tool({
   name: 'search_route_knowledge',
-  description: 'Search the published route and area knowledge base by keyword. Cite returned sources and state each asOf date. If nothing is found, say so plainly and do not invent information.',
+  description: 'Search the published route and area knowledge base by keyword. regions must be exact catalog region strings such as "四川 · 甘孜", never a country; leave it null otherwise. This is guide text, not the route list: use search_routes to find routes. Cite returned sources and state each asOf date. If nothing is found, say so plainly and do not invent information.',
   parameters: z.object({
     query: z.string().min(1).max(240),
     routeIds: z.array(z.string().min(1).max(100)).max(30).nullable().default(null),
@@ -968,13 +1001,13 @@ export const createJourney = tool({
 
 export const itineraryGroupNote = z.object({
   day: z.string().min(1).max(40),
-  note: z.string().trim().min(1).max(1000).describe('简短当天摘要，通常30—80字、1—2句：怎么走、做什么、在哪里结束。不复述地点列表或交通数据，不解释资料来源、不堆叠常识提醒；已确定的关键限制仅简短提一次；不写“尚未核实”“未纳入查询”“需自行预留”等过程解释'),
+  note: z.string().trim().min(1).max(1000).describe('按行程备注模板写当天 note：徒步日数据行、当天说明、交通：列表（有依据的价格/时长/预约要点）、住宿：列表（名称/类型/海拔/费用参考）、补给、下撤；Day 1 开头概览，最后一天注意事项列表和可靠费用参考。往返交通日只写简短一段和必要交通列表。不确定信息省略，不写资料来源或待核实等过程措辞；itineraryItems.title 保持简洁地点名'),
 });
 export const addItineraryParams = z.object({ journeyId: z.string().min(1).max(100), items: z.array(itineraryItem).min(1).max(80), groupNotes: z.array(itineraryGroupNote).max(30).default([]) });
 export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, runContext?: RunContext): Promise<unknown> => mutate('add_itinerary_items', args, runContext, async (client, context) => {
     await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
     const [journey, existingRows, existingGroups] = await Promise.all([
-      client.from('journeys').select('total_days,region,track_id').eq('id', args.journeyId).single(),
+      client.from('journeys').select('total_days,region,track_id,route_id,lng,lat').eq('id', args.journeyId).single(),
       client.from('timeline_rows').select('id,day,title,time_mins,time_end_mins,item_kind,location').eq('journey_id', args.journeyId),
       client.from('timeline_groups').select('name,note,sort_order,deleted').eq('journey_id', args.journeyId),
     ]);
@@ -1030,9 +1063,14 @@ export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, 
     const candidateTrackIds = new Set([...referenced.filter(id => uuidShape.test(id)), ...aliasToTrack.values()]);
     if (journey.data.track_id) candidateTrackIds.add(journey.data.track_id);
     const trackWaypoints = new Map<string, Array<{ name: string; meters: number }>>();
-    const trackLengths = new Map<string, number>();
+    // Waypoint km and dist_m are the recording's stated distances, while the
+    // app places a row on the stored coordinates and drops it when the length
+    // it was measured against differs by more than 2%. A sampled track is
+    // shorter than its stated length, so anchors move onto the geometry.
+    const trackScales = new Map<string, { stated: number; geometry: number }>();
+    const trackCoordinates = new Map<string, TrackCoordinate[]>();
     if (candidateTrackIds.size) {
-      const anchorTracks = await client.from('tracks').select('id,waypoints,dist_m').in('id', [...candidateTrackIds]);
+      const anchorTracks = await client.from('tracks').select('id,waypoints,dist_m,coords').in('id', [...candidateTrackIds]);
       if (anchorTracks.error) throw anchorTracks.error;
       for (const track of anchorTracks.data || []) {
         const entries: Array<{ name: string; meters: number }> = [];
@@ -1042,21 +1080,37 @@ export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, 
           if (name && Number.isFinite(km)) entries.push({ name, meters: Math.round(km * 1000) });
         }
         trackWaypoints.set(track.id, entries);
-        const length = Number(track.dist_m);
-        if (Number.isFinite(length) && length > 0) trackLengths.set(track.id, length);
+        const coordinates = normalizeTrackCoordinates(track.coords);
+        const geometry = trackLengthMeters(coordinates);
+        const stated = Number(track.dist_m);
+        if (geometry > 0) {
+          trackScales.set(track.id, { geometry, stated: Number.isFinite(stated) && stated > 0 ? stated : geometry });
+          trackCoordinates.set(track.id, coordinates);
+        }
       }
     }
+    // The bound route's published plans name their stops with km on this same
+    // track; they are curated, so they come before recorder waypoint notes.
+    const planStops = journey.data.route_id && journey.data.track_id && candidateTrackIds.has(journey.data.track_id)
+      ? await client.rpc('route_itineraries_published', { p_route_id: journey.data.route_id }) : null;
+    if (planStops?.error) throw planStops.error;
+    const officialKms = officialStopKms((planStops?.data || []) as PlanStopRow[]);
     const confirmedAnchor = (item: typeof uniqueItems[number]) => {
       const location = item.location;
       const name = location?.name.trim();
       if (!location || !name) return null;
       const cited = location.trackId ? aliasToTrack.get(String(location.trackId)) || (uuidShape.test(String(location.trackId)) ? String(location.trackId) : null) : null;
       for (const trackId of cited ? [cited] : [...candidateTrackIds]) {
-        const waypoint = (trackWaypoints.get(trackId) || []).find(entry => entry.name === name);
+        const scale = trackScales.get(trackId);
+        if (!scale) continue;
+        const officialKm = trackId === journey.data.track_id ? officialKms.get(name) : undefined;
+        const entries = trackWaypoints.get(trackId) || [];
+        const waypoint = officialKm != null ? { name, meters: officialKm * 1000 }
+          : entries.find(entry => entry.name === name) ?? entries.find(entry => matchesWaypointName(name, entry.name));
         if (!waypoint) continue;
-        const claimed = location.trackMeters;
-        return { trackId, trackMeters: typeof claimed === 'number' && Number.isFinite(claimed) && claimed >= 0 ? Math.round(claimed) : waypoint.meters,
-          trackLengthMeters: trackLengths.get(trackId) ?? location.trackLengthMeters ?? null };
+        const claimed = officialKm == null ? location.trackMeters : null;
+        const stated = typeof claimed === 'number' && Number.isFinite(claimed) && claimed >= 0 ? claimed : waypoint.meters;
+        return { trackId, trackMeters: Math.round(Math.min(scale.geometry, stated / scale.stated * scale.geometry)), trackLengthMeters: Math.round(scale.geometry) };
       }
       return null;
     };
@@ -1068,13 +1122,28 @@ export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, 
     for (let offset = 0; offset < queries.length; offset += 2) {
       await Promise.all(queries.slice(offset, offset + 2).map(async name => locations.set(name, await maybeGeocodeJourneyMapLocation(name, ruralLocationProvince(name, journey.data.region)))));
     }
+    // The POI index has no entry for many trail hamlets and answers with a
+    // namesake instead (南太行's 韩口 resolves to a Jiangsu harbour, 马武寨 to
+    // Beijing). A sightseeing stop far from the journey's own coordinate is that
+    // namesake, and no coordinate beats a day leg driven across the country.
+    // Transport rows (kind custom) start and end far away by design.
+    const destination = journey.data.lng != null && journey.data.lat != null && Number.isFinite(Number(journey.data.lng)) && Number.isFinite(Number(journey.data.lat))
+      ? { lon: Number(journey.data.lng), lat: Number(journey.data.lat) } : null;
+    const transportNames = new Set(uniqueItems.filter(item => item.kind === 'custom' || item.location?.incomingMode).map(item => item.location?.name));
+    for (const [name, resolved] of locations) {
+      if (destination && resolved && !transportNames.has(name) && haversine(destination, { lon: resolved.lng, lat: resolved.lat }) > 300_000) locations.set(name, null);
+    }
     const rows = uniqueItems.map((item, index) => {
       // Model coordinates never reach the timeline: a place is either anchored on
-      // the walk, resolved by the map provider, or kept as a name only.
+      // the walk, resolved by the map provider, or kept as a name only. A walk
+      // anchor also carries the track's own point at that distance, as a place
+      // picked on the track in the app does; the map chain only joins places
+      // that have one.
       const resolved = item.location ? locations.get(item.location.name) ?? null : null;
       const anchor = item.location ? confirmedAnchor(item) : null;
+      const point = anchor ? trackPointAt(trackCoordinates.get(anchor.trackId), anchor.trackMeters) : null;
       const location = !item.location ? null : anchor
-        ? { ...item.location, longitude: null, latitude: null, source: 'track' as const, trackId: anchor.trackId, trackMeters: anchor.trackMeters, trackLengthMeters: anchor.trackLengthMeters }
+        ? { ...item.location, longitude: point?.[0] ?? null, latitude: point?.[1] ?? null, source: 'track' as const, trackId: anchor.trackId, trackMeters: anchor.trackMeters, trackLengthMeters: anchor.trackLengthMeters }
         : resolved
           ? { ...item.location, longitude: resolved.lng, latitude: resolved.lat, address: resolved.address || null, source: 'map' as const, trackId: null, trackMeters: null, trackLengthMeters: null }
           : item.location.address
@@ -1107,9 +1176,19 @@ export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, 
       { kind: 'add_itinerary_items', journeyId: args.journeyId, rowIds: rows.map((row) => row.id), createdGroupNames, groupNotes: [...notes].map(([name, applied]) => ({ name, previous: (existingGroups.data || []).find((group: { name: string }) => group.name === name)?.note ?? null, applied })) },
     );
 });
+/** The track's own point at a distance along it; the start for 0 m. */
+export function trackPointAt(coordinates: TrackCoordinate[] | undefined, meters: number): TrackCoordinate | null {
+  if (!coordinates?.length || !Number.isFinite(meters)) return null;
+  if (meters <= 0 || coordinates.length < 2) return coordinates[0];
+  try {
+    return endpointAtDistance(coordinates, meters).coordinate;
+  } catch {
+    return null;
+  }
+}
 export const addItinerary = tool({
   name: 'add_itinerary_items',
-  description: 'Add an executable itinerary to an existing journey. Supply one brief groupNotes summary per day, normally 30–80 Chinese characters in 1–2 sentences about the journey, main activity and overnight/end place. Do not repeat the stop list, service times/fares, provider provenance, obvious advice or disclaimers. Mention a known material constraint briefly once; report unresolved feasibility issues separately, not as repeated unverified/not-included/allow-extra-time caveats in the daily note. State planned arrangements without claiming lodging is booked. Keep location and actionable item titles short. Do not create generic city lodging rows or placeholder hotels; lodging is the user’s choice unless they selected a specific hotel. Retain necessary real hiking overnight places. Preserve existing user notes. Each title must identify a specific place, route segment, activity, or transport action; never submit vague titles such as 早餐, 徒步, 游览, or 返程. Keep items in chronological order, use valid time ranges, stay within the journey day count, read journey details first, and avoid duplicates.',
+  description: 'Add an executable itinerary to an existing journey. Supply one groupNotes entry per day using the itinerary-note template: supported hiking metrics, day paragraph, 交通／住宿 lists, 补给 and 下撤; Day 1 overview and final-day 注意事项／可靠费用参考. Transport-only days use a short paragraph. Omit uncertain facts and process wording; keep notes within 1000 characters by dropping whole trailing sections. Do not repeat the stop list or train/flight timetables, provider provenance, obvious advice or disclaimers. Mention a known material constraint briefly once; report unresolved feasibility issues separately, not as repeated unverified/not-included/allow-extra-time caveats in the daily note. State planned arrangements without claiming lodging is booked. Keep location and actionable item titles short. Do not create generic city lodging rows or placeholder hotels; lodging is the user’s choice unless they selected a specific hotel. Retain necessary real hiking overnight places. Preserve existing user notes. Each title must identify a specific place, route segment, activity, or transport action; never submit vague titles such as 早餐, 徒步, 游览, or 返程. Keep items in chronological order, use valid time ranges, stay within the journey day count, read journey details first, and avoid duplicates.',
   parameters: addItineraryParams,
   execute: runAddItinerary,
 });
@@ -1378,6 +1457,32 @@ export const setItineraryGroupEndpointsParams = z.object({
   journeyId: z.string().min(1).max(100),
   endpoints: z.array(itineraryGroupEndpoint).min(1).max(30),
 });
+const officialStopKey = (ref: { itineraryId: string; version: number; dayIndex: number }) => `${ref.itineraryId}@${ref.version}#${ref.dayIndex}`;
+
+/** Day ends of the journey route's published plans, read back from the
+ * database rather than trusted from the call, with the route's stated length
+ * and its stored geometry to place them on. */
+async function officialDayEnds(client: Client, routeId: string | null, endpoints: Array<{ officialStop?: { itineraryId: string; version: number; dayIndex: number } | null }>) {
+  const ends = new Map<string, PlanStop & { totalKm: number; geometryMeters: number }>();
+  const refs = endpoints.flatMap(endpoint => endpoint.officialStop ? [endpoint.officialStop] : []);
+  if (!refs.length) return ends;
+  if (!routeId) throw new Error('旅程没有绑定路线，不能按官方方案设置终点');
+  const [plans, route] = await Promise.all([
+    client.rpc('route_itineraries_published', { p_route_id: routeId }),
+    client.from('routes').select('track_coords,track_elevation,track_waypoints').eq('id', routeId).maybeSingle(),
+  ]);
+  if (plans.error) throw plans.error;
+  if (route.error) throw route.error;
+  const facts = routeTrackFacts(route.data?.track_elevation, route.data?.track_waypoints);
+  const geometry = trackLengthMeters(normalizeTrackCoordinates(route.data?.track_coords));
+  if (!facts || !(geometry > 0)) throw new Error('路线缺少可用于官方方案终点的轨迹');
+  for (const ref of refs) {
+    const end = officialDayEnd((plans.data || []) as PlanStopRow[], ref);
+    if (end) ends.set(officialStopKey(ref), { ...end, totalKm: facts.totalKm, geometryMeters: geometry });
+  }
+  return ends;
+}
+
 export const runSetItineraryGroupEndpoints = async (args: z.infer<typeof setItineraryGroupEndpointsParams>, runContext?: RunContext): Promise<unknown> => mutate('set_itinerary_group_endpoints', args, runContext, async (client, context) => {
     await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
     const [journeyResult, groupsResult, rowsResult] = await Promise.all([
@@ -1423,9 +1528,12 @@ export const runSetItineraryGroupEndpoints = async (args: z.infer<typeof setItin
     // so the ordering rule below does not reset between the two spellings.
     const boundRouteKey = (journeyResult.data.route_id as string | null) ?? null;
     const effectiveRouteKey = (routeId: string | null | undefined) => routeId ?? boundRouteKey;
+    const officialEnds = await officialDayEnds(client, journeyResult.data.route_id ?? null, args.endpoints);
     if (!requestedRouteIds.length) {
       if (boundCoordinates.length < 2) throw new Error('当前旅程没有可用于设置终点的轨迹');
-      assertTrackDistanceConsistency(trackLengthMeters(boundCoordinates), journeyResult.data.dist);
+      // An official stop is converted from the route's stated km below, which
+      // is exactly the comparison a sampled track fails.
+      if (!args.endpoints.every(endpoint => endpoint.officialStop)) assertTrackDistanceConsistency(trackLengthMeters(boundCoordinates), journeyResult.data.dist);
     }
     const guideReceipts = args.endpoints.some(endpoint => endpoint.overnightReview)
       ? await guideHistory(client, context.runId) : [];
@@ -1436,6 +1544,22 @@ export const runSetItineraryGroupEndpoints = async (args: z.infer<typeof setItin
     ].filter(Boolean))];
     const normalized = args.endpoints.map((endpoint) => {
       const track = trackFor(endpoint.routeId);
+      if (endpoint.officialStop) {
+        if (endpoint.routeId && endpoint.routeId !== journeyResult.data.route_id) throw new Error('官方方案终点只能设置在旅程绑定路线上');
+        const end = officialEnds.get(officialStopKey(endpoint.officialStop));
+        if (!end) throw new Error('官方方案当天没有已发布的轨迹终点');
+        if (Math.abs(end.geometryMeters - track.totalMeters) / track.totalMeters > 0.02) throw new Error('当前旅程轨迹不是该官方方案所用的路线轨迹');
+        const meters = end.km >= end.totalKm - 0.001 ? track.totalMeters
+          : Math.max(1, geometryMeters(end.km, end.totalKm, track.totalMeters)!);
+        return {
+          ...endpoint, endDistanceKm: meters / 1000, locationName: end.name,
+          day: resolveJourneyDay(endpoint.day, existingNames),
+          position: endpointAtDistance(track.coordinates, meters),
+          annotation: { source: 'waypoint' as const, locationName: end.name },
+          routeId: track.routeId,
+          trackTotalMeters: track.totalMeters,
+        };
+      }
       const resolved = resolveHikingEndpoint(endpoint, track.totalMeters, track.waypoints);
       return {
         ...resolved,

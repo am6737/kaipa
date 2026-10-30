@@ -126,6 +126,13 @@ export async function runSaveStage(client: Client, context: AgentContext, plan: 
     && pending.some(operation => operation.tool === 'add_itinerary_items')
     && authorized.includes('add_itinerary_items'));
   if (initialLayout) pending.sort((a, b) => Number(b.tool === 'add_itinerary_items') - Number(a.tool === 'add_itinerary_items'));
+  // A longer plan (an official plan with a day to get there) must first
+  // lengthen the empty journey the app bound, or its later days are out of
+  // range. A journey created in this run already has the planned length.
+  const journeyDays = (currentSections.journey as { total_days?: number } | undefined)?.total_days;
+  if (initialLayout && !created && !scheduleDayNames(currentSections).length && plan.schedule && journeyDays != null && journeyDays < plan.schedule.totalDays) {
+    pending.sort((a, b) => Number(b.tool === 'update_journey_schedule') - Number(a.tool === 'update_journey_schedule'));
+  }
 
   let itineraryFailed = false;
   for (const operation of pending) {

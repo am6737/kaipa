@@ -52,8 +52,8 @@ export function travelIntake(request: TravelRequest, location?: AgentLocation, l
   const en = locale.startsWith('en');
   const reason = location ? intakeReasons[location.status] : undefined;
   const question = en
-    ? `${reason?.en ?? ''}${reason ? 'please' : 'Please'} set your departure place so I can plan the round trip.`
-    : `${reason?.zh ?? ''}请设置出发地，我再安排往返交通。`;
+    ? `${reason?.en ?? ''}${reason ? 'please' : 'Please'} set your departure place so I can plan getting there.`
+    : `${reason?.zh ?? ''}请设置出发地，我再安排去程交通。`;
   return { question, quickReplies: [{ label: en ? 'Set departure' : '设置出发地',
     message: en ? 'Use my current location for departure.' : '获取当前位置作为出发地。', action: 'request_location' as const }] };
 }

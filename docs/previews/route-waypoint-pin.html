@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>途经点选中图钉预览</title>
+<style>
+  :root { --accent:#0A84FF; --text:#1C1C1E; --text2:rgba(60,60,67,.62); --text3:rgba(60,60,67,.32); }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif; background:#d9d9de; display:flex; flex-direction:column; align-items:center; gap:12px; padding:24px; color:var(--text); }
+  .cap { font-size:13px; color:#555; max-width:420px; text-align:center; line-height:1.5; }
+  .phone { width:375px; height:812px; border-radius:44px; position:relative; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.25); background:#e8eadf; }
+  .world { position:absolute; left:0; top:0; width:900px; height:1200px; transition:transform .45s cubic-bezier(.2,.8,.2,1); }
+  .world svg { position:absolute; inset:0; }
+  .dot { position:absolute; width:14px; height:14px; margin:-7px 0 0 -7px; border-radius:7px; background:#fff; border:3px solid var(--accent); cursor:pointer; transition:transform .18s, opacity .18s; }
+  .dot.photo { background:var(--accent); border-color:#fff; box-shadow:0 0 0 1.5px var(--accent); }
+  .dot.hidden { transform:scale(.2); opacity:0; }
+  .dot::after { content:""; position:absolute; inset:-15px; } /* 44pt tap target */
+  .end { position:absolute; width:22px; height:22px; margin:-11px 0 0 -11px; border-radius:11px; color:#fff; font-size:11px; font-weight:700; display:grid; place-items:center; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.3); }
+  /* The pin: its tip sits on the waypoint */
+  .pin { position:absolute; width:52px; height:62px; margin:-58px 0 0 -26px; pointer-events:none; transform-origin:50% 100%; }
+  .pin.drop { animation:drop .42s cubic-bezier(.2,.9,.3,1.25); }
+  @keyframes drop { 0% { transform:translateY(-26px) scale(.6); opacity:0; } 60% { opacity:1; } 100% { transform:translateY(0) scale(1); } }
+  .pin .num { position:absolute; left:4.5px; top:2.5px; width:43px; height:43px; display:grid; place-items:center; color:#fff; font-weight:700; font-size:16px; border-radius:50%; }
+  .pin .tag { position:absolute; left:2px; top:0; min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:#0A84FF; color:#fff; font-size:10.5px; font-weight:700; display:grid; place-items:center; border:1.5px solid #fff; }
+  .shadow { position:absolute; width:14px; height:5px; margin:-2.5px 0 0 -7px; border-radius:50%; background:rgba(0,0,0,.28); filter:blur(1px); pointer-events:none; }
+  /* chrome */
+  .chrome { position:absolute; top:54px; left:12px; right:12px; display:flex; justify-content:space-between; pointer-events:none; }
+  .halo { width:44px; height:44px; display:grid; place-items:center; }
+  .halo svg { filter:drop-shadow(0 1px 3px rgba(0,0,0,.35)); }
+  /* bottom sheet card */
+  .sheet { position:absolute; left:0; right:0; bottom:0; background:#fff; border-radius:30px 30px 0 0; box-shadow:0 -2px 16px rgba(0,0,0,.1); transform:translateY(100%); transition:transform .32s cubic-bezier(.2,.8,.2,1); overflow:hidden; }
+  .open .sheet { transform:translateY(0); }
+  .hero { height:200px; position:relative; }
+  .hero .n { position:absolute; top:16px; left:20px; color:#fff; font-weight:700; font-size:17px; text-shadow:0 1px 4px rgba(0,0,0,.5); }
+  .glass { position:absolute; top:12px; right:12px; width:36px; height:36px; border-radius:18px; background:rgba(255,255,255,.82); display:grid; place-items:center; cursor:pointer; }
+  .body { padding:16px 20px 6px; }
+  .body h2 { font-size:20px; font-weight:700; }
+  .body .m { color:var(--text2); font-size:14px; margin-top:6px; }
+  .dots { display:flex; gap:6px; justify-content:center; padding:12px 0 34px; align-items:center; }
+  .pd { width:6px; height:6px; border-radius:3px; background:var(--text3); transition:all .2s; cursor:pointer; }
+  .pd.on { width:18px; background:var(--accent); }
+  .nav { position:absolute; top:200px; width:44px; height:60px; display:grid; place-items:center; cursor:pointer; color:var(--text3); font-size:26px; }
+  .tip { position:absolute; top:120px; left:0; right:0; text-align:center; font-size:13px; color:#3b4a3b; background:rgba(255,255,255,.75); margin:0 60px; padding:6px 10px; border-radius:999px; transition:opacity .2s; }
+  .open .tip { opacity:0; }
+</style>
+</head>
+<body>
+<div class="phone" id="phone">
+  <div class="world" id="world">
+    <svg width="900" height="1200" viewBox="0 0 900 1200">
+      <defs><pattern id="g" width="60" height="60" patternUnits="userSpaceOnUse"><path d="M60 0H0V60" fill="none" stroke="rgba(0,0,0,.04)"/></pattern></defs>
+      <rect width="900" height="1200" fill="url(#g)"/>
+      <path d="M520 160c80 40 160 30 230 90s40 150-30 190" fill="#b9d7e8"/>
+      <ellipse cx="250" cy="700" rx="170" ry="110" fill="#cfe0bd"/>
+      <ellipse cx="560" cy="520" rx="120" ry="90" fill="#d6e4c4"/>
+      <path id="route" d="M200 360 C260 330 300 420 360 430 S450 360 520 400 S600 520 560 600 S430 640 400 720 S470 830 560 820 S660 760 700 700" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round"/>
+      <use href="#route" stroke="#0A84FF" stroke-width="5"/>
+    </svg>
+    <div id="markers"></div>
+  </div>
+  <div class="chrome">
+    <div class="halo"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></div>
+  </div>
+  <div class="tip">点地图上的途经点</div>
+  <div class="sheet" id="sheet">
+    <div id="hero" class="hero"><span class="n" id="hn"></span>
+      <div class="glass" id="close"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1C1C1E" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></div>
+    </div>
+    <div class="body"><h2 id="name"></h2><div class="m" id="meta"></div></div>
+    <div class="dots" id="pdots"></div>
+  </div>
+</div>
+<div class="cap">点一个途经点：圆点换成落下的图钉（复用共享位置的头像图钉造型：有照片的点显示照片，左上角小号编号；没照片的点是强调色加白色编号，例如 #2），地图把它移到卡片上方。在卡片上左右滑（或点圆点），图钉跟着跳到下一个点。点地图空白处或 ✕ 关闭，图钉变回圆点。</div>
+
+<script>
+const route = document.getElementById('route');
+const L = route.getTotalLength();
+const wps = [
+  { f:.12, name:'一级瀑布观景台', km:'2.1', ele:'1,486', photo:true, bg:'linear-gradient(160deg,#9cc9d9,#4f8fa8 50%,#2f5d6e)' },
+  { f:.30, name:'情人谷', km:'4.6', ele:'1,552', photo:false, bg:'linear-gradient(135deg,#7aa37a,#3f6b55 55%,#2d4d43)' },
+  { f:.52, name:'神龙瀑布', km:'7.3', ele:'1,618', photo:true, bg:'linear-gradient(170deg,#d7e8f0,#86b3c4 40%,#3b6b5e 75%,#26443a)' },
+  { f:.74, name:'彩虹桥', km:'10.2', ele:'1,501', photo:true, bg:'linear-gradient(150deg,#f3c98b,#c98b5a 50%,#6d4b3a)' },
+];
+const markers = document.getElementById('markers');
+const at = f => route.getPointAtLength(L * f);
+const s = at(0), e = at(1);
+markers.insertAdjacentHTML('beforeend', `<div class="end" style="left:${s.x}px;top:${s.y}px;background:#34C759">起</div><div class="end" style="left:${e.x}px;top:${e.y}px;background:#FF3B30">终</div>`);
+wps.forEach((w, i) => { const p = at(w.f); w.x = p.x; w.y = p.y;
+  markers.insertAdjacentHTML('beforeend', `<div class="dot ${w.photo ? 'photo' : ''}" data-i="${i}" style="left:${p.x}px;top:${p.y}px"></div>`); });
+const SIL = 'M26 53 C23.65 47.96 17.65 45.62 13.09 42.43 A22.5 22.5 0 1 1 38.91 42.43 C34.35 45.62 28.35 47.96 26 53 Z';
+const pinSvg = `<svg width="52" height="62" viewBox="0 0 52 62"><defs><filter id="ds" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000" flood-opacity=".25"/></filter></defs><g filter="url(#ds)"><path d="${SIL}" fill="#fff" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></g><circle cx="26" cy="58" r="2.4" fill="#48484A" stroke="#fff" stroke-width="1"/></svg>`;
+markers.insertAdjacentHTML('beforeend', `<div class="pin" id="pin" style="display:none">${pinSvg}<div class="num" id="pnum"></div><div class="tag" id="ptag"></div></div>`);
+const pin = document.getElementById('pin'), world = document.getElementById('world'), phone = document.getElementById('phone');
+const pdots = document.getElementById('pdots');
+wps.forEach((_, j) => pdots.insertAdjacentHTML('beforeend', `<div class="pd" data-j="${j}"></div>`));
+let cur = null;
+function center(w) { // keep the pin in the map area above the sheet
+  const visibleH = 812 - 330;
+  const tx = 375 / 2 - w.x, ty = visibleH / 2 + 40 - w.y;
+  world.style.transform = `translate(${tx}px,${ty}px)`;
+}
+function select(i) {
+  cur = i; const w = wps[i];
+  document.querySelectorAll('.dot').forEach(d => d.classList.toggle('hidden', +d.dataset.i === i));
+  pin.style.display = 'block';
+  pin.style.left = w.x + 'px'; pin.style.top = w.y + 'px';
+  const pn = document.getElementById('pnum'), pt = document.getElementById('ptag');
+  if (w.photo) { pn.textContent = ''; pn.style.background = w.bg; pt.style.display = 'grid'; pt.textContent = i + 1; }
+  else { pn.textContent = i + 1; pn.style.background = '#0A84FF'; pt.style.display = 'none'; }
+  pin.classList.remove('drop'); void pin.offsetWidth; pin.classList.add('drop');
+  document.getElementById('hero').style.background = w.bg;
+  document.getElementById('hn').textContent = '#' + (i + 1);
+  document.getElementById('name').textContent = w.name;
+  document.getElementById('meta').textContent = `第 ${w.km} km  海拔 ${w.ele} m`;
+  [...pdots.children].forEach((d, j) => d.classList.toggle('on', j === i));
+  phone.classList.add('open'); center(w);
+}
+function close() {
+  cur = null; phone.classList.remove('open');
+  pin.style.display = 'none';
+  document.querySelectorAll('.dot').forEach(d => d.classList.remove('hidden'));
+  world.style.transform = 'translate(-170px,-160px)';
+}
+markers.addEventListener('click', ev => { const d = ev.target.closest('.dot'); if (d) { ev.stopPropagation(); select(+d.dataset.i); } });
+world.addEventListener('click', ev => { if (!ev.target.closest('.dot') && cur != null) close(); });
+document.getElementById('close').onclick = close;
+pdots.addEventListener('click', ev => { const d = ev.target.closest('.pd'); if (d) select(+d.dataset.j); });
+let sx = null; const sheet = document.getElementById('sheet');
+sheet.addEventListener('pointerdown', ev => sx = ev.clientX);
+sheet.addEventListener('pointerup', ev => { if (sx == null || cur == null) return; const dx = ev.clientX - sx; if (Math.abs(dx) > 40) select(Math.max(0, Math.min(wps.length - 1, cur + (dx < 0 ? 1 : -1)))); sx = null; });
+world.style.transform = 'translate(-170px,-160px)';
+</script>
+</body>
+</html>

@@ -345,8 +345,8 @@ Resolved transport hubs are persisted in `mainTravel.hubs`. The server inserts
 the departure-hub-to-arrival-hub chain on Day 1 and the matching return chain on
 the final day. It omits home-to-hub legs when structured city data says the
 origin and hub are in the same city, and never creates the reverse home leg on
-the last day. Untimed 车次待查/航班待查 rows remain when providers have no dated
-result. Provider names take precedence over model display names; missing flight
+the last day. Untimed hub rows remain when providers have no dated result;
+since 2026-10-30 they show only the hub names, with no 车次待查/航班待查 marker. Provider names take precedence over model display names; missing flight
 names use the model city and IATA code with an unverified disclosure. No airport,
 station or route lookup table is embedded in the function.
 

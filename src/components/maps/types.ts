@@ -133,6 +133,16 @@ export interface NativeMapMarker {
   image?: { uri: string; size: number };
   /** Android (AMap) only, with `image`: degrees clockwise from north, turning with the map. */
   rotation?: number;
+  /**
+   * Android (AMap) only: play the SDK's own entrance (500ms alpha 0→1 plus a
+   * 0.8→1 scale) the first time this marker is shown. AMap bakes `content` into
+   * a bitmap, so a fade has to happen down there rather than in JS. Once per
+   * native marker: a marker that is only re-rendered does not replay it, but one
+   * that is removed and added again does, so the caller decides which markers
+   * are genuinely new. Ignored on iOS, where MapKit animates the annotation
+   * itself.
+   */
+  grow?: boolean;
   onPress?: () => void;
 }
 

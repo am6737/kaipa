@@ -12,6 +12,7 @@ export function providerLabel(provider: GearLinkPreview['provider']) {
   if (provider === 'tmall') return '天猫';
   if (provider === 'jd') return '京东';
   if (provider === 'dewu') return '得物';
+  if (provider === 'douyin') return '抖音';
   return '商品页';
 }
 

@@ -46,6 +46,13 @@ export interface Track {
   ownOuting?: boolean;
   /** Set while the track is published: anyone signed in can find it in search. */
   publishedAt?: string;
+  /**
+   * False for a journey's copy of a catalog route: the journey points at it, but
+   * it is not one of 「我的轨迹」 until the user saves it there. Absent means true.
+   */
+  inLibrary?: boolean;
+  /** On a library entry saved from a journey's track: that track's id. */
+  sourceTrackId?: string;
   createdAt?: string;
   updatedAt?: string;
 }

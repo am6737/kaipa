@@ -1,5 +1,5 @@
 import { newPackingDraft } from './packing-draft.ts';
-import { railCacheTtl, runCommitPackingDraftBestEffort, runAddItinerary, bindRunClient, releaseRunClient, createJourney, addPackingItems, resolvePackingOwner, searchRoutes, searchTransport, addGear, kaipaAllTools, kaipaGlobalTools, kaipaJourneyTools } from './tools.ts';
+import { railCacheTtl, runCommitPackingDraftBestEffort, runAddItinerary, trackPointAt, bindRunClient, releaseRunClient, createJourney, addPackingItems, resolvePackingOwner, searchRoutes, searchTransport, addGear, kaipaAllTools, kaipaGlobalTools, kaipaJourneyTools } from './tools.ts';
 import type { AgentContext } from './types.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -53,27 +53,32 @@ Deno.test('global tool set preserves journey creation and follow-up writes', () 
   assert(names.includes('undo_last_agent_changes'), 'global tools must support natural-language undo');
 });
 
-function planningHarness(message: string, currentJourneyId?: string) {
+type RouteFilters = { contains: unknown[]; ilike: Array<[string, string]> };
+
+function planningHarness(message: string, currentJourneyId?: string, routeRows?: (filters: RouteFilters) => unknown[]) {
   const context: AgentContext = { userId: 'user', threadId: 'thread', runId: crypto.randomUUID(), originalUserMessage: message, currentJourneyId };
   const updates: Array<Record<string, unknown>> = [];
   const reads: string[] = [];
   const client = {
     from(table: string) {
       reads.push(table);
+      const filters: RouteFilters = { contains: [], ilike: [] };
       const chain = {
         select: () => chain,
+        contains: (_column: string, value: unknown[]) => { filters.contains.push(...value); return chain; },
+        order: () => chain,
         eq: () => chain,
         gt: () => chain,
         is: () => chain,
         neq: () => chain,
         in: () => chain,
-        ilike: () => chain,
+        ilike: (column: string, pattern: string) => { filters.ilike.push([column, pattern]); return chain; },
         limit: () => chain,
         upsert: () => chain,
         update: (value: Record<string, unknown>) => { updates.push(value); return chain; },
         maybeSingle: async () => ({ data: null, error: null }),
         single: async () => ({ data: table === 'agent_threads' ? { current_journey_id: null } : { id: 'call' }, error: null }),
-        then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve),
+        then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: table === 'routes' && routeRows ? routeRows(filters) : [], error: null }).then(resolve),
       };
       return chain;
     },
@@ -152,6 +157,39 @@ Deno.test('packing mode mismatch is rejected before receipt replay or database a
     assert(String(result).includes('task_scope_denied'), 'Mode expansion was not rejected');
     assert(h.reads.length === 0, 'Mode guard must precede receipts and business access');
   } finally { h.dispose(); }
+});
+
+// "这个月去哪走" names no route or region. The model sent generic words
+// ("中国 秋季 10月 徒步"), the name/region search matched nothing and the reply
+// said the catalog covered no routes, although most rows carry best_months.
+Deno.test('a month search lists in-season routes even when the query words match nothing', async () => {
+  const catalog = [
+    { id: 'gongga', name: '贡嘎大环线', region: '四川 · 甘孜', best_months: [5, 6, 9, 10], season_note: '10月秋色最佳', days: [6, 7] },
+    { id: 'xiangshan', name: '宁乡香山冲大环线', region: '湖南 · 长沙', best_months: [3, 4, 10, 11], season_note: '春秋最宜', days: [1] },
+    { id: 'summer', name: '夏特古道', region: '新疆 · 伊犁', best_months: [7, 8], season_note: null, days: [3] },
+  ];
+  const rows = ({ contains, ilike }: RouteFilters) => catalog.filter(row =>
+    contains.every(month => row.best_months.includes(month as number))
+    && ilike.every(([column, pattern]) => String(row[column as 'name' | 'region']).includes(pattern.slice(1, -1))));
+  const search = async (args: Record<string, unknown>) => {
+    const h = planningHarness('这个月适合去哪儿徒步？', undefined, rows);
+    try {
+      await searchRoutes.invoke({ context: h.context } as never, JSON.stringify(args));
+      const done = h.updates.find(update => update.status === 'completed');
+      assert(done, `search failed: ${JSON.stringify(h.updates)}`);
+      return done.output as Array<{ id: string; bestMonths: number[] | null; seasonNote: string | null }>;
+    } finally { h.dispose(); }
+  };
+  const generic = await search({ query: '中国 秋季 10月 徒步', month: 10 });
+  assert(JSON.stringify(generic.map(row => row.id).sort()) === '["gongga","xiangshan"]', `generic words must fall back to the month listing, got ${JSON.stringify(generic)}`);
+  assert(generic[0].bestMonths && 'seasonNote' in generic[0], 'season fields must be returned for the reasons');
+  const monthOnly = await search({ month: 11 });
+  assert(JSON.stringify(monthOnly.map(row => row.id)) === '["xiangshan"]', 'a month with no query lists that month');
+  const regional = await search({ query: '四川', month: 10 });
+  assert(JSON.stringify(regional.map(row => row.id)) === '["gongga"]', 'a region narrows the month listing');
+  // Every term's results count, not only the first two requests.
+  const chain = await search({ query: '贡嘎大环线 宁乡香山冲大环线' });
+  assert(chain.length === 2, `results of later terms must not be dropped, got ${JSON.stringify(chain)}`);
 });
 
 // A chain names several routes and the model sends them in one query. The
@@ -285,7 +323,10 @@ Deno.test('model-injected itinerary coordinates are re-resolved, not trusted', a
     } };
     h.context.dataContext = { versions: {}, observed: { journey: { journey: 'v1', track: 'v1', itinerary: 'v1' } }, snapshots: {} } as never;
     const committed: Array<Record<string, any>> = [];
-    const track = { id: '9f1c2b3a-4d5e-4a6b-8c7d-1e2f3a4b5c6d', name: '党岭三湖连穿', waypoints: [{ name: 'D5：卓雍措营地', km: 9.19 }, { name: '终点：卡尔杂', km: 19.46 }] };
+    // A sampled copy: the stored line measures half the recorded 19.46 km.
+    const half = 9731 / (6_371_000 * Math.PI / 180);
+    const track = { id: '9f1c2b3a-4d5e-4a6b-8c7d-1e2f3a4b5c6d', name: '党岭三湖连穿', dist_m: 19462, coords: [[101.35, 31.0], [101.35, 31.0 + half]],
+      waypoints: [{ name: 'D5：卓雍措营地', km: 9.19 }, { name: '终点：卡尔杂', km: 19.46 }] };
     const tracks = [track];
     const trackIds: string[][] = [];
     const amapRequests: URL[] = [];
@@ -339,15 +380,19 @@ Deno.test('model-injected itinerary coordinates are re-resolved, not trusted', a
       assert(JSON.stringify(trackIds) === JSON.stringify([[track.id]]), `only uuid anchors may be queried, got ${JSON.stringify(trackIds)}`);
       // Waypoint anchors are server-verifiable, so they skip geocoding entirely.
       const camp = rows.find((row: any) => row.location?.name === 'D5：卓雍措营地').location;
-      assert(camp.trackMeters === 9193 && camp.trackId === track.id, 'a confirmed waypoint anchor must be preserved');
-      assert(camp.latitude === null && camp.longitude === null, 'an anchor reads its geometry from the track, not from model lat/lng');
+      // The recorded distance moves onto the stored line by its share of the
+      // walk, and the length the app checks against is the line's own.
+      assert(camp.trackMeters === 4597 && camp.trackId === track.id && camp.trackLengthMeters === 9731, `a confirmed waypoint anchor must be preserved on the stored line, got ${camp.trackMeters}/${camp.trackLengthMeters}`);
+      // The point is the stored line's own at that distance (straight north
+      // from 31.0), never the model's swapped lat/lng.
+      assert(camp.longitude === 101.35 && Math.abs(camp.latitude - (31.0 + half * 4597 / 9731)) < 1e-6, `an anchor takes its point from the track, got ${camp.longitude},${camp.latitude}`);
       assert(camp.source === 'track', 'a waypoint anchor is stored the same way the manual track picker stores it');
       assert(!amapNames.includes('D5：卓雍措营地'), 'waypoint anchors must not hit the map provider');
       // A stop named after a waypoint anchors on the walk even when the model only
       // knows the research alias and leaves the distance out.
       const finish = rows.find((row: any) => row.location?.name === '终点：卡尔杂').location;
       assert(finish.source === 'track' && finish.trackId === track.id, 'a waypoint name must anchor on the journey track');
-      assert(finish.trackMeters === 19460 && finish.latitude === null, 'the recorded waypoint distance replaces the missing measurement');
+      assert(finish.trackMeters === 9730 && Math.abs(finish.latitude - (31.0 + half * 9730 / 9731)) < 1e-6, 'the recorded waypoint distance replaces the missing measurement');
       assert(!amapNames.includes('终点：卡尔杂'), 'an anchored finish must not be searched on the map');
       assert(amapNames.filter((name: string | null) => name === '卡尔杂村').length === 1, 'one name resolves once per batch');
       const villageUrl = amapRequests.find(url => url.searchParams.get('keywords') === '卡尔杂村')!;
@@ -460,4 +505,13 @@ Deno.test('identical add_gear calls sent in one batch insert the item once, with
     assert(inserted.length === 1, `inserted ${inserted.length} rows`);
     assert(inserted[0].price === 100, `price ${inserted[0].price}`);
   } finally { releaseRunClient(context.runId); }
+});
+
+Deno.test('trackPointAt reads a place off the stored line', () => {
+  const line: Array<[number, number]> = [[113.6, 35.4], [113.6, 35.5]];
+  assert(JSON.stringify(trackPointAt(line, 0)) === '[113.6,35.4]', 'a stop at 0 m is the start');
+  const middle = trackPointAt(line, 5560)!;
+  assert(middle[0] === 113.6 && middle[1] > 35.449 && middle[1] < 35.451, `midpoint, got ${middle}`);
+  assert(trackPointAt(undefined, 100) === null, 'no line, no point');
+  assert(trackPointAt(line, 999_999) === null, 'past the end is not a point');
 });

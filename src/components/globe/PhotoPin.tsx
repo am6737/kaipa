@@ -6,7 +6,7 @@
 // shot. While it loads — or if it fails offline — the tone palette mid-stop sits
 // behind it so the pin is never blank.
 import React, { useEffect, useRef } from 'react';
-import { View, Text, Animated } from 'react-native';
+import { View, Text, Animated, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { Theme } from '../../theme/theme';
 import { GlobePoi } from './types';
@@ -21,6 +21,18 @@ const PHOTO_RADIUS = 6;
 export const PHOTO_PIN_WIDTH = 112;
 export const PHOTO_PIN_HEIGHT = 58;
 export const PHOTO_PIN_ANCHOR_Y = (PHOTO_SIZE / 2) / PHOTO_PIN_HEIGHT;
+
+// iOS draws a `boxShadow` as a shadow layer behind a CAShapeLayer mask, and the
+// mask renders offscreen. With the whole catalog in view (全国) that was two
+// offscreen passes per pin, enough to drop the tab bar's frames as the map came
+// back on screen. The plain layer shadow over an opaque background gets a
+// shadowPath from RN instead and needs no mask. Android bakes the pin into a
+// bitmap, so it and the web keep `boxShadow`.
+function pinShadow(blur: number, alpha: number) {
+  return Platform.OS === 'ios'
+    ? { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: alpha, shadowRadius: blur / 2 }
+    : { boxShadow: `0px 2px ${blur}px rgba(0,0,0,${alpha})` };
+}
 
 export function photoPinScaleForZoom(zoom: number): number {
   if (!Number.isFinite(zoom)) return 1;
@@ -106,9 +118,11 @@ export function PhotoPin({ theme, poi, active, mapScale = 1, staticRender = fals
           width: PHOTO_SIZE,
           height: PHOTO_SIZE,
           borderRadius: PHOTO_RADIUS,
-          backgroundColor: poi.muted ? theme.fieldSurface : palette[1],
+          // Opaque on iOS so the shadow gets its path (see pinShadow); the photo
+          // and the muted wash cover it either way.
+          backgroundColor: poi.muted && Platform.OS !== 'ios' ? theme.fieldSurface : palette[1],
           zIndex: 2,
-          boxShadow: theme.dark ? '0px 2px 5px rgba(0,0,0,0.4)' : '0px 2px 5px rgba(0,0,0,0.16)',
+          ...pinShadow(5, theme.dark ? 0.4 : 0.16),
         }}
       >
         <Image
@@ -172,12 +186,14 @@ export function PhotoPin({ theme, poi, active, mapScale = 1, staticRender = fals
             paddingHorizontal: 7,
             borderRadius: 999,
             borderCurve: 'continuous',
-            backgroundColor: theme.dark ? theme.surfaceStrong : '#FFFFFF',
+            // groupedBg is surfaceStrong without the 4% see-through, which would
+            // cost the iOS shadow its path.
+            backgroundColor: theme.dark ? (Platform.OS === 'ios' ? theme.groupedBg : theme.surfaceStrong) : '#FFFFFF',
             borderWidth: theme.dark ? 1 : 0,
             borderColor: theme.hairline,
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: theme.dark ? '0px 2px 4px rgba(0,0,0,0.38)' : '0px 2px 4px rgba(0,0,0,0.09)',
+            ...pinShadow(4, theme.dark ? 0.38 : 0.09),
           }}
         >
           <Text

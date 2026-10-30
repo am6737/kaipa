@@ -396,6 +396,9 @@ export function useJourneys(userId: string | undefined, profile?: UserProfile) {
     if (has(resolvedPatch, "days")) row.days = resolvedPatch.days || null;
     if (has(resolvedPatch, "plannedDate"))
       row.planned_date = resolvedPatch.plannedDate || null;
+    if (has(resolvedPatch, "meetDay")) row.meet_day = resolvedPatch.meetDay ?? null;
+    if (has(resolvedPatch, "meetTime")) row.meet_time = resolvedPatch.meetTime ?? null;
+    if (has(resolvedPatch, "meetPlace")) row.meet_place = resolvedPatch.meetPlace ?? null;
     if (has(resolvedPatch, "countdown"))
       row.countdown = resolvedPatch.countdown ?? null;
     if (has(resolvedPatch, "dayIndex")) row.day_index = resolvedPatch.dayIndex;

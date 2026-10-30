@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>旅程详情：现状与改后结构对比</title>
+<style>
+  :root {
+    --accent: #0A84FF;
+    --accent-soft: rgba(10,132,255,0.12);
+    --accent-softer: rgba(10,132,255,0.06);
+    --bg: #F4F4F5;
+    --feature: #FFFFFF;
+    --field: rgba(0,0,0,0.045);
+    --surface: rgba(245,245,247,0.95);
+    --text: #000;
+    --text2: rgba(60,60,67,0.62);
+    --text3: rgba(60,60,67,0.32);
+    --hairline: rgba(0,0,0,0.08);
+    --danger: #FF3B30;
+    --shadow: 0 6px 18px rgba(0,0,0,0.08);
+    --issue: #E5484D;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1480px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 25px; font-weight: 800; margin: 0 0 6px; }
+  .lead { font-size: 14px; line-height: 23px; color: var(--text2); margin: 0 0 28px; max-width: 760px; }
+  .section-title { font-size: 18px; font-weight: 800; margin: 36px 0 4px; display: flex; align-items: center; gap: 10px; }
+  .tag { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px; }
+  .tag.now { background: rgba(229,72,77,0.12); color: var(--issue); }
+  .tag.new { background: var(--accent-soft); color: var(--accent); }
+  .section-lead { font-size: 13px; color: var(--text2); margin: 0 0 18px; }
+  .row { display: flex; flex-wrap: wrap; gap: 36px; align-items: flex-start; }
+  .col { width: 330px; }
+  .col-title { font-size: 15px; font-weight: 700; margin: 0 0 10px; }
+
+  /* phone */
+  .phone {
+    width: 330px; height: 700px; border-radius: 44px; background: #111; padding: 9px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.18);
+  }
+  .screen { position: relative; width: 100%; height: 100%; border-radius: 36px; overflow: hidden; background: var(--feature); }
+  .status { position: absolute; top: 0; left: 0; right: 0; height: 40px; display: flex; justify-content: space-between; align-items: center; padding: 0 26px; font-size: 13px; font-weight: 600; z-index: 5; }
+  .map { position: absolute; inset: 0; background: #E8EDE4; }
+  .map svg { width: 100%; height: 100%; display: block; }
+  .chrome { position: absolute; top: 44px; left: 10px; right: 10px; display: flex; justify-content: space-between; z-index: 6; }
+  .ico { width: 40px; height: 40px; display: grid; place-items: center; }
+  .ico svg { width: 22px; height: 22px; stroke: #000; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 2px rgba(255,255,255,0.9)); }
+  .mapbtns { position: absolute; right: 12px; display: flex; flex-direction: column; gap: 8px; z-index: 4; }
+  .mapbtn { width: 38px; height: 38px; border-radius: 19px; background: #fff; box-shadow: var(--shadow); display: grid; place-items: center; }
+  .mapbtn svg { width: 17px; height: 17px; stroke: #000; fill: none; stroke-width: 2; }
+  .sharepill { position: absolute; left: 12px; z-index: 4; height: 34px; padding: 0 12px; border-radius: 17px; background: #fff; box-shadow: var(--shadow); display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; }
+  .switch { width: 30px; height: 18px; border-radius: 9px; background: rgba(0,0,0,0.12); position: relative; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 7px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+  .switch.on { background: #34C759; }
+  .switch.on::after { left: 14px; }
+
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--feature); border-radius: 30px 30px 0 0; box-shadow: 0 -4px 18px rgba(0,0,0,0.08); z-index: 3; overflow: hidden; }
+  .handle { width: 30px; height: 4px; border-radius: 2px; background: rgba(0,0,0,0.15); margin: 8px auto 6px; }
+  .sheet-body { padding: 0 16px; }
+  .title { font-size: 25px; font-weight: 800; line-height: 31px; margin: 2px 0 0; }
+  .title.big { font-size: 28px; line-height: 34px; }
+  .meta-row { display: flex; align-items: center; gap: 12px; margin-top: 4px; min-height: 36px; font-size: 13.5px; font-weight: 600; color: var(--text2); }
+  .meta-row .m { display: flex; align-items: center; gap: 5px; }
+  .meta-row svg { width: 14px; height: 14px; stroke: var(--text3); fill: none; stroke-width: 2; }
+  .faces { margin-left: auto; display: flex; }
+  .face { width: 30px; height: 30px; border-radius: 15px; border: 2px solid #fff; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: #fff; }
+  .face + .face { margin-left: -9px; }
+  .tabs { display: flex; gap: 16px; white-space: nowrap; overflow: hidden; margin: 6px -16px 0; padding: 0 16px; font-size: 13.5px; font-weight: 600; color: var(--text2); position: relative; }
+  .tabs span { padding: 8px 0 9px; flex-shrink: 0; }
+  .tabs .on { color: var(--text); box-shadow: inset 0 -2px 0 var(--text); }
+  .tabs .fade { position: absolute; right: 0; top: 0; bottom: 0; width: 40px; background: linear-gradient(90deg, rgba(255,255,255,0), #fff); }
+  .tabs.eq { justify-content: space-around; gap: 0; }
+  .tabs.eq span { flex: 1; text-align: center; }
+
+  .card { background: var(--surface); border-radius: 24px; padding: 14px 16px; margin-top: 22px; }
+  .card h3 { font-size: 18px; font-weight: 800; margin: 0; display: flex; align-items: center; gap: 6px; }
+  .card h3 .sp { flex: 1; }
+  .minibtn { font-size: 12px; font-weight: 700; padding: 0 10px; height: 30px; border-radius: 15px; background: #fff; border: .5px solid rgba(0,0,0,0.06); box-shadow: 0 4px 12px rgba(0,0,0,0.08); display: inline-flex; align-items: center; color: var(--text); }
+  .hr { height: .5px; background: var(--hairline); margin: 12px 0; }
+  .stats { display: flex; }
+  .stat { flex: 1; }
+  .stat b { font: 800 17px/22px ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; }
+  .stat small { font-size: 11px; color: var(--text2); margin-left: 2px; }
+  .stat div { font-size: 11.5px; color: var(--text2); margin-top: 2px; }
+  .elev { height: 46px; margin-top: 10px; }
+  .dayrow { padding: 10px 0; display: flex; align-items: center; }
+  .dayrow .t { font-size: 17px; font-weight: 700; }
+  .dayrow .s { font-size: 13px; color: var(--text2); margin-top: 3px; }
+  .dayrow .chev { margin-left: auto; color: var(--text3); font-size: 18px; }
+
+  .footer { position: absolute; left: 14px; right: 14px; bottom: 16px; display: flex; gap: 8px; z-index: 7; align-items: center; }
+  .pill { height: 42px; padding: 0 15px; border-radius: 21px; background: #fff; box-shadow: var(--shadow); display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; }
+  .pill svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2.2; }
+  .pill.primary { background: var(--accent); color: #fff; }
+  .pill.right { margin-left: auto; }
+
+  /* issue badges */
+  .b { position: absolute; z-index: 20; width: 20px; height: 20px; border-radius: 10px; background: var(--issue); color: #fff; font-size: 11.5px; font-weight: 800; display: grid; place-items: center; box-shadow: 0 0 0 2px #fff; }
+  .b.g { background: var(--accent); }
+  .notes { margin: 14px 0 0; padding: 0; list-style: none; font-size: 13px; line-height: 20px; color: var(--text2); }
+  .notes li { display: flex; gap: 8px; margin-bottom: 8px; }
+  .notes li i { flex: 0 0 18px; height: 18px; border-radius: 9px; background: var(--issue); color: #fff; font-style: normal; font-size: 11px; font-weight: 800; display: grid; place-items: center; margin-top: 1px; }
+  .notes.g li i { background: var(--accent); }
+  .notes b { color: var(--text); font-weight: 600; }
+
+  /* proposed pieces */
+  .phase { margin-top: 14px; }
+  .phase .eyebrow { font-size: 12px; font-weight: 600; color: var(--accent); }
+  .summary { display: flex; gap: 22px; margin-top: 6px; }
+  .summary .v { font: 800 26px/30px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: -0.8px; font-variant-numeric: tabular-nums; }
+  .summary .v small { font: 600 13px -apple-system, sans-serif; color: var(--text2); margin-left: 3px; letter-spacing: 0; }
+  .summary .l { font-size: 12px; color: var(--text2); font-weight: 500; margin-top: 2px; }
+  .progress { height: 4px; border-radius: 2px; background: rgba(0,0,0,0.07); margin-top: 6px; overflow: hidden; width: 74px; }
+  .progress i { display: block; height: 100%; background: var(--accent); }
+  .hint { font-size: 12.5px; color: var(--text2); margin-top: 10px; display: flex; align-items: center; gap: 6px; }
+  .hint a { color: var(--accent); font-weight: 600; text-decoration: none; }
+  .daychips { display: flex; gap: 6px; margin: 14px -16px 0; padding: 0 16px; overflow: hidden; }
+  .daychip { flex-shrink: 0; height: 30px; padding: 0 12px; border-radius: 15px; background: var(--field); font-size: 12.5px; font-weight: 600; color: var(--text2); display: flex; align-items: center; }
+  .daychip.on { background: var(--accent-soft); color: var(--accent); }
+  .day { margin-top: 18px; }
+  .day .lbl { font-size: 15px; font-weight: 800; letter-spacing: .3px; display: flex; align-items: baseline; gap: 8px; }
+  .day .lbl span { font-size: 12px; font-weight: 500; color: var(--text3); letter-spacing: 0; }
+  .day .sum { font-size: 15px; font-weight: 600; line-height: 25px; margin-top: 2px; }
+  .step { display: flex; gap: 10px; font-size: 13px; line-height: 23px; color: var(--text2); }
+  .step em { font-style: normal; color: var(--text3); font: 12px/23px ui-monospace, Menlo, monospace; width: 18px; }
+  .step .time { margin-left: auto; color: var(--text3); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .now-step { background: var(--accent-softer); border-radius: 16px; padding: 10px 12px; margin: 6px -12px; }
+  .now-step .k { font-size: 12px; color: var(--accent); font-weight: 600; }
+  .now-step .n { font-size: 15px; font-weight: 700; margin-top: 2px; }
+  .now-step .d { font-size: 12.5px; color: var(--text2); margin-top: 2px; }
+  .ck { display: flex; align-items: center; gap: 10px; padding: 9px 0; font-size: 14px; }
+  .ck .box { width: 20px; height: 20px; border-radius: 10px; border: 1.5px solid var(--text3); flex-shrink: 0; }
+  .ck .box.done { background: var(--accent); border-color: var(--accent); }
+  .ck .w { margin-left: auto; font: 11px ui-monospace, Menlo, monospace; color: var(--text2); }
+  .ck.done span:not(.w) { color: var(--text3); text-decoration: line-through; }
+  .grp { font-size: 12px; font-weight: 600; color: var(--text2); margin-top: 16px; }
+
+  .compare { margin-top: 40px; background: #fff; border-radius: 24px; padding: 20px 24px; }
+  .compare table { width: 100%; border-collapse: collapse; font-size: 13.5px; line-height: 21px; }
+  .compare th { text-align: left; font-size: 12px; color: var(--text2); font-weight: 600; padding: 0 12px 10px 0; }
+  .compare td { padding: 10px 12px 10px 0; vertical-align: top; }
+  .compare td:first-child { font-weight: 600; width: 120px; }
+  .compare td:nth-child(2) { color: var(--text2); }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>旅程详情：现状与改后结构对比</h1>
+  <p class="lead">示例旅程是武功山三天穿越。上面两台是现在的结构，红色编号是问题点；下面三台是建议的结构，蓝色编号是对应的改动。只示意结构和层级，像素细节以 DESIGN.md 为准。</p>
+
+  <svg width="0" height="0" style="position:absolute">
+    <defs>
+      <symbol id="map" viewBox="0 0 330 700">
+        <rect width="330" height="700" fill="#E6ECE1"/>
+        <path d="M0 120 C80 90 140 160 230 120 S330 150 330 150 V0 H0Z" fill="#DCE5D5"/>
+        <path d="M0 300 C70 260 160 330 330 270 V360 C200 400 100 350 0 390Z" fill="#D5DFCD"/>
+        <path d="M-10 200 C60 180 120 230 200 210 S300 230 340 220" stroke="#fff" stroke-width="3" fill="none"/>
+        <path d="M120 0 C130 80 110 160 140 240 S150 360 130 420" stroke="#fff" stroke-width="2" fill="none"/>
+        <ellipse cx="250" cy="330" rx="40" ry="20" fill="#C9DCEB"/>
+        <path d="M60 330 C90 290 110 250 150 230 S200 170 230 160 S270 120 280 100" stroke="#FFFFFF" stroke-width="7" fill="none" stroke-linecap="round"/>
+        <path d="M60 330 C90 290 110 250 150 230 S200 170 230 160 S270 120 280 100" stroke="#FF6A3D" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <circle cx="60" cy="330" r="6" fill="#2EB85C" stroke="#fff" stroke-width="2"/>
+        <circle cx="280" cy="100" r="6" fill="#FF3B30" stroke="#fff" stroke-width="2"/>
+        <circle cx="150" cy="230" r="5" fill="#fff" stroke="#FF6A3D" stroke-width="2.5"/>
+        <circle cx="230" cy="160" r="5" fill="#fff" stroke="#FF6A3D" stroke-width="2.5"/>
+      </symbol>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+      <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 3v13M7 8l5-5 5 5M5 14v5a2 2 0 002 2h10a2 2 0 002-2v-5"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H3a2 2 0 110-4h.1a1.6 1.6 0 001.5-1 1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V3a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H21a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"/></symbol>
+      <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
+      <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></symbol>
+      <symbol id="i-dist" viewBox="0 0 24 24"><path d="M4 19c4 0 4-6 8-6s4-6 8-6"/><circle cx="4" cy="19" r="1.5"/><circle cx="20" cy="7" r="1.5"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></symbol>
+      <symbol id="i-focus" viewBox="0 0 24 24"><path d="M3 8V5a2 2 0 012-2h3M16 3h3a2 2 0 012 2v3M21 16v3a2 2 0 01-2 2h-3M8 21H5a2 2 0 01-2-2v-3"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5"/></symbol>
+      <symbol id="i-max" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol>
+      <symbol id="elev" viewBox="0 0 300 46" preserveAspectRatio="none">
+        <defs><linearGradient id="eg" x1="0" x2="1"><stop offset="0" stop-color="#2EB85C"/><stop offset=".35" stop-color="#F5C400"/><stop offset=".55" stop-color="#FF8A00"/><stop offset=".7" stop-color="#F5C400"/><stop offset="1" stop-color="#2EB85C"/></linearGradient></defs>
+        <path d="M0 40 C30 38 50 30 80 24 S120 8 150 6 S190 12 210 18 S260 30 300 34 V46 H0Z" fill="url(#eg)" opacity=".22"/>
+        <path d="M0 40 C30 38 50 30 80 24 S120 8 150 6 S190 12 210 18 S260 30 300 34" stroke="url(#eg)" stroke-width="2.2" fill="none"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <!-- ============ CURRENT ============ -->
+  <div class="section-title"><span class="tag now">现状</span>地图浏览器里挂了一个旅程文档</div>
+  <p class="section-lead">标签栏把功能和日期混在一起；总览是一摞卡片，管理操作在前，概览信息缺席。</p>
+  <div class="row">
+
+    <div class="col">
+      <div class="col-title">总览标签</div>
+      <div class="phone"><div class="screen">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="map"><svg><use href="#map"/></svg></div>
+        <div class="chrome">
+          <div class="ico"><svg><use href="#i-back"/></svg></div>
+          <div style="display:flex"><div class="ico"><svg><use href="#i-share"/></svg></div><div class="ico"><svg><use href="#i-gear"/></svg></div></div>
+        </div>
+        <div class="sharepill" style="bottom:450px">共享位置 <span class="switch"></span></div>
+        <span class="b" style="left:120px;bottom:458px">7</span>
+        <div class="mapbtns" style="bottom:450px">
+          <div class="mapbtn"><svg><use href="#i-max"/></svg></div>
+          <div class="mapbtn"><svg><use href="#i-focus"/></svg></div>
+        </div>
+        <div class="sheet" style="height:440px">
+          <div class="handle"></div>
+          <div class="sheet-body">
+            <div class="title big">武功山三天穿越</div>
+            <div class="meta-row" style="position:relative">
+              <span class="m"><svg><use href="#i-cal"/></svg>11月14日–16日</span>
+              <span class="m"><svg><use href="#i-dist"/></svg>32.6 km</span>
+              <span class="faces"><span class="face" style="background:#5E5CE6">林</span><span class="face" style="background:#0EAFB1">周</span><span class="face" style="background:#ccc;color:#555">+2</span></span>
+              <span class="b" style="left:-8px;top:-6px">3</span>
+            </div>
+            <div class="tabs" style="position:relative">
+              <span class="on">总览</span><span>瞬间</span><span>清单</span><span>第1天</span><span>第2天</span><span>第3天</span><span>待计划</span><span>＋</span>
+              <div class="fade"></div>
+            </div>
+            <span class="b" style="left:290px;top:120px">1</span>
+            <div class="card" style="position:relative">
+              <h3>轨迹概览<span class="sp"></span><span class="minibtn">选择已有</span><span class="minibtn">重新上传</span></h3>
+              <span class="b" style="right:-4px;top:-8px">2</span>
+              <div class="hr"></div>
+              <span class="b" style="left:-8px;top:40px">6</span>
+              <div class="stats">
+                <div class="stat"><b>32.6</b><small>km</small><div>距离</div></div>
+                <div class="stat"><b>2140</b><small>m</small><div>累计爬升</div></div>
+                <div class="stat"><b>18</b><small>h</small><div>预计用时</div></div>
+              </div>
+              <div class="elev" style="position:relative"><svg width="100%" height="46"><use href="#elev"/></svg><span class="b" style="right:6px;top:10px">5</span></div>
+            </div>
+            <div class="card" style="position:relative">
+              <h3>计划概览<span class="sp"></span><span class="minibtn" style="box-shadow:none;border:0;background:rgba(0,0,0,0.04);color:var(--text2)">展开全部 ⌄</span></h3>
+              <div class="dayrow"><div><div class="t">第1天</div><div class="s">龙山村 → 发云界</div></div><span class="chev">›</span></div>
+              <span class="b" style="right:30px;bottom:18px">2</span>
+            </div>
+          </div>
+        </div>
+        <div class="footer" style="position:absolute">
+          <div class="pill"><svg><use href="#i-sliders"/></svg>编辑</div>
+          <div class="pill right"><svg><use href="#i-spark"/></svg>问 AI</div>
+          <span class="b" style="left:62px;top:-8px">4</span>
+        </div>
+      </div></div>
+      <ul class="notes">
+        <li><i>1</i><span><b>功能和日期挤在一条标签栏</b>，还夹着「＋」。天数一多，日期就被挤到屏幕外。</span></li>
+        <li><i>2</i><span><b>总览先摆管理操作</b>（选择已有、重新上传）；计划概览只露第1天，其余每一行都只是跳去日期标签，和标签栏重复。</span></li>
+        <li><i>3</i><span><b>日期、距离、头像点了都会弹编辑</b>，看着像信息，实际是按钮；距离要手填。</span></li>
+        <li><i>4</i><span><b>「编辑」在总览里打开计划编辑器</b>，换到别的标签又变成多选；图标是筛选用的 sliders。</span></li>
+        <li><i>5</i><span><b>海拔图一碰就抢手势</b>，从图上横滑会拖动海拔，翻不了页。</span></li>
+        <li><i>6</i><span>卡片叠在白底上，卡里有发丝线，卡里的按钮带浮层阴影，都违反 DESIGN.md。</span></li>
+        <li><i>7</i><span><b>共享位置开关常驻地图上</b>，出发前几周也在，容易误触。</span></li>
+      </ul>
+    </div>
+
+    <div class="col">
+      <div class="col-title">第2天标签（抽屉拉到顶）</div>
+      <div class="phone"><div class="screen">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="map"><svg><use href="#map"/></svg></div>
+        <div class="chrome">
+          <div class="ico"><svg><use href="#i-back"/></svg></div>
+          <div style="display:flex"><div class="ico"><svg><use href="#i-share"/></svg></div><div class="ico"><svg><use href="#i-gear"/></svg></div></div>
+        </div>
+        <div class="sheet" style="height:600px">
+          <div class="handle"></div>
+          <div class="sheet-body">
+            <div class="title big">武功山三天穿越</div>
+            <div class="meta-row">
+              <span class="m"><svg><use href="#i-cal"/></svg>11月14日–16日</span>
+              <span class="m"><svg><use href="#i-dist"/></svg>32.6 km</span>
+              <span class="faces"><span class="face" style="background:#5E5CE6">林</span><span class="face" style="background:#0EAFB1">周</span><span class="face" style="background:#ccc;color:#555">+2</span></span>
+            </div>
+            <div class="tabs">
+              <span>瞬间</span><span>清单</span><span>第1天</span><span class="on">第2天</span><span>第3天</span><span>待计划</span><span>＋</span>
+              <div class="fade"></div>
+            </div>
+            <div style="position:relative">
+              <span class="b" style="left:-8px;top:-30px">1</span>
+              <div style="margin-top:14px">
+                <div style="font-size:12px;font-weight:600;color:var(--text2)">08:00–09:30</div>
+                <div style="font-size:15px;font-weight:700;margin-top:3px">发云界出发，沿山脊上金顶</div>
+                <div style="font-size:11.5px;color:var(--text2);margin-top:10px">📍 发云界</div>
+              </div>
+              <div style="margin-top:18px">
+                <div style="font-size:12px;font-weight:600;color:var(--text2)">11:30–12:30</div>
+                <div style="font-size:15px;font-weight:700;margin-top:3px">金顶午饭，看云海</div>
+                <div style="display:flex;gap:6px;margin-top:8px">
+                  <div style="flex:1;aspect-ratio:1;border-radius:11px;background:linear-gradient(135deg,#B8C9D9,#E4E9EE)"></div>
+                  <div style="flex:1;aspect-ratio:1;border-radius:11px;background:linear-gradient(135deg,#C8D6B9,#EEF0E6)"></div>
+                  <div style="flex:1;aspect-ratio:1;border-radius:11px;background:linear-gradient(135deg,#D9C9B8,#F0EAE2)"></div>
+                </div>
+                <div style="font-size:11.5px;color:var(--text2);margin-top:10px">📍 金顶</div>
+              </div>
+              <div style="margin-top:18px">
+                <div style="font-size:12px;font-weight:600;color:var(--text2)">15:00</div>
+                <div style="font-size:15px;font-weight:700;margin-top:3px">到吊马桩扎营</div>
+              </div>
+              <div style="margin-top:22px;font-size:12.5px;color:var(--text3)">要看第3天，得回到标签栏横滑再点</div>
+              <span class="b" style="right:0;top:332px">8</span>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <div class="pill"><svg><use href="#i-plus"/></svg>添加</div>
+          <div class="pill"><svg><use href="#i-sliders"/></svg>编辑</div>
+          <div class="pill right"><svg><use href="#i-spark"/></svg>问 AI</div>
+          <span class="b" style="left:150px;top:-8px">4</span>
+        </div>
+      </div></div>
+      <ul class="notes">
+        <li><i>8</i><span><b>每一天是一个独立页面</b>，看全程得逐页切换；为了让每页高度跟着内容走，代码里堆了测高补丁。</span></li>
+        <li><i>4</i><span>这里的「编辑」是多选，和总览里的「编辑」不是一回事。</span></li>
+        <li><i>1</i><span>标题和元信息占着抽屉顶部，切到哪个标签都在，日期标签却要滚动才找得到。</span></li>
+      </ul>
+    </div>
+
+  </div>
+
+  <!-- ============ PROPOSED ============ -->
+  <div class="section-title"><span class="tag new">改后</span>三个同级标签，头部随旅程阶段变化</div>
+  <p class="section-lead">行程 / 清单 / 瞬间。所有天连成一页，靠吸顶的日期跳转导航；头部摘要回答「现在该关心什么」。</p>
+  <div class="row">
+
+    <div class="col">
+      <div class="col-title">行程（出发前）</div>
+      <div class="phone"><div class="screen">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="map"><svg><use href="#map"/></svg></div>
+        <div class="chrome">
+          <div class="ico"><svg><use href="#i-back"/></svg></div>
+          <div style="display:flex"><div class="ico"><svg><use href="#i-share"/></svg></div><div class="ico"><svg><use href="#i-more"/></svg></div></div>
+        </div>
+        <div class="mapbtns" style="bottom:470px">
+          <div class="mapbtn"><svg><use href="#i-focus"/></svg></div>
+        </div>
+        <div class="sheet" style="height:460px">
+          <div class="handle"></div>
+          <div class="sheet-body">
+            <div class="title">武功山三天穿越</div>
+            <div class="meta-row" style="font-weight:500">
+              <span>11月14日–16日</span><span>32.6 km</span><span>爬升 2140 m</span>
+              <span class="faces"><span class="face" style="background:#5E5CE6">林</span><span class="face" style="background:#0EAFB1">周</span><span class="face" style="background:#ccc;color:#555">+2</span></span>
+            </div>
+            <div class="phase" style="position:relative">
+              <span class="b g" style="left:-10px;top:-4px">1</span>
+              <div class="eyebrow">准备中</div>
+              <div class="summary">
+                <div><div class="v">16<small>天</small></div><div class="l">距出发</div></div>
+                <div><div class="v">18<small>/ 24</small></div><div class="progress"><i style="width:75%"></i></div><div class="l">清单已备</div></div>
+                <div><div class="v">晴<small>4°</small></div><div class="l">金顶预报</div></div>
+              </div>
+              <div class="hint">第3天还没安排住宿 <a href="#">去补上</a></div>
+            </div>
+            <div class="tabs eq" style="margin-top:12px;position:relative">
+              <span class="on">行程</span><span>清单</span><span>瞬间</span>
+              <span class="b g" style="right:6px;top:4px;flex:none">2</span>
+            </div>
+            <div class="daychips" style="position:relative">
+              <span class="daychip on">第1天</span><span class="daychip">第2天</span><span class="daychip">第3天</span><span class="daychip">待计划 2</span>
+              <span class="b g" style="right:18px;top:5px">3</span>
+            </div>
+            <div class="day">
+              <div class="lbl">第1天<span>11月14日 周五</span></div>
+              <div class="sum">龙山村 → 发云界</div>
+              <div class="step"><em>01</em>龙山村停车场集合<span class="time">07:30</span></div>
+              <div class="step"><em>02</em>沿石阶上九龙山<span class="time">08:00</span></div>
+              <div class="step"><em>03</em>发云界扎营<span class="time">16:00</span></div>
+            </div>
+            <div class="day" style="opacity:.55">
+              <div class="lbl">第2天<span>11月15日 周六</span></div>
+              <div class="sum">发云界 → 金顶 → 吊马桩</div>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <div class="pill primary"><svg><use href="#i-plus"/></svg>添加</div>
+          <div class="pill"><svg><use href="#i-check"/></svg>选择</div>
+          <div class="pill right"><svg><use href="#i-spark"/></svg>问 AI</div>
+          <span class="b g" style="left:170px;top:-8px">4</span>
+        </div>
+      </div></div>
+      <ul class="notes g">
+        <li><i>1</i><span><b>头部摘要按阶段显示</b>：出发前是倒计时、清单进度、天气，再加一条最该补的缺口。元信息只展示不可点，编辑都收进 ⋯。</span></li>
+        <li><i>2</i><span><b>三个同级标签</b>，宽度相等，不再横向滚动。</span></li>
+        <li><i>3</i><span><b>日期跳转吸顶</b>，点了滚到对应那天；滚动时高亮跟着走，地图同时显示当天的段落。所有天连成一页，参照攻略详情的行程写法。</span></li>
+        <li><i>4</i><span><b>底部语义统一</b>：「添加」是主操作，多选叫「选择」；改天数、改名放到日期跳转的长按菜单。</span></li>
+      </ul>
+    </div>
+
+    <div class="col">
+      <div class="col-title">行程（进行中）</div>
+      <div class="phone"><div class="screen">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="map"><svg><use href="#map"/></svg></div>
+        <div class="chrome">
+          <div class="ico"><svg><use href="#i-back"/></svg></div>
+          <div style="display:flex"><div class="ico"><svg><use href="#i-share"/></svg></div><div class="ico"><svg><use href="#i-more"/></svg></div></div>
+        </div>
+        <div class="sharepill" style="bottom:470px">共享位置 <span class="switch on"></span></div>
+        <span class="b g" style="left:118px;bottom:478px">5</span>
+        <div class="mapbtns" style="bottom:470px">
+          <div class="mapbtn"><svg><use href="#i-focus"/></svg></div>
+        </div>
+        <div class="sheet" style="height:460px">
+          <div class="handle"></div>
+          <div class="sheet-body">
+            <div class="title">武功山三天穿越</div>
+            <div class="meta-row" style="font-weight:500">
+              <span>11月14日–16日</span><span>32.6 km</span>
+              <span class="faces"><span class="face" style="background:#5E5CE6">林</span><span class="face" style="background:#0EAFB1">周</span><span class="face" style="background:#ccc;color:#555">+2</span></span>
+            </div>
+            <div class="phase">
+              <div class="eyebrow">第2天 进行中</div>
+              <div class="summary">
+                <div><div class="v">6.2<small>km</small></div><div class="l">今日剩余</div></div>
+                <div><div class="v">480<small>m</small></div><div class="l">剩余爬升</div></div>
+                <div><div class="v">15:00</div><div class="l">预计到营地</div></div>
+              </div>
+            </div>
+            <div class="tabs eq" style="margin-top:12px">
+              <span class="on">行程</span><span>清单</span><span>瞬间</span>
+            </div>
+            <div class="daychips">
+              <span class="daychip">第1天</span><span class="daychip on">第2天 今天</span><span class="daychip">第3天</span><span class="daychip">待计划 2</span>
+            </div>
+            <div class="day" style="position:relative">
+              <span class="b g" style="left:-10px;top:60px">6</span>
+              <div class="lbl">第2天<span>11月15日 周六</span></div>
+              <div class="sum">发云界 → 金顶 → 吊马桩</div>
+              <div class="step" style="color:var(--text3)"><em>01</em><s>发云界出发，沿山脊上金顶</s><span class="time">08:00</span></div>
+              <div class="now-step">
+                <div class="k">下一站</div>
+                <div class="n">金顶午饭，看云海</div>
+                <div class="d">还有 1.8 km，约 50 分钟</div>
+              </div>
+              <div class="step"><em>03</em>到吊马桩扎营<span class="time">15:00</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <div class="pill primary"><svg><use href="#i-plus"/></svg>记一笔</div>
+          <div class="pill"><svg><use href="#i-check"/></svg>选择</div>
+          <div class="pill right"><svg><use href="#i-spark"/></svg>问 AI</div>
+        </div>
+      </div></div>
+      <ul class="notes g">
+        <li><i>5</i><span><b>共享位置只在旅程期间出现</b>，出发前和结束后都隐藏。</span></li>
+        <li><i>6</i><span><b>打开就定位到今天</b>，已走过的步骤变淡，「下一站」单独突出。摘要换成今日剩余距离、爬升和到营地时间。</span></li>
+        <li><i>1</i><span>结束后，摘要再换成总里程、照片数和做回顾的入口。</span></li>
+      </ul>
+    </div>
+
+    <div class="col">
+      <div class="col-title">清单（抽屉自动拉满）</div>
+      <div class="phone"><div class="screen">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="sheet" style="height:100%;border-radius:0;box-shadow:none">
+          <div style="height:44px"></div>
+          <div class="chrome" style="position:relative;top:0;left:-6px;right:-6px;margin:0 16px">
+            <div class="ico"><svg><use href="#i-back"/></svg></div>
+            <div style="display:flex"><div class="ico"><svg><use href="#i-share"/></svg></div><div class="ico"><svg><use href="#i-more"/></svg></div></div>
+          </div>
+          <div class="sheet-body">
+            <div class="title">武功山三天穿越</div>
+            <div class="tabs eq" style="margin-top:10px;position:relative">
+              <span>行程</span><span class="on">清单</span><span>瞬间</span>
+              <span class="b g" style="left:6px;top:4px;flex:none">7</span>
+            </div>
+            <div class="summary" style="margin-top:16px">
+              <div><div class="v">18<small>/ 24</small></div><div class="l">已备</div></div>
+              <div><div class="v">8.4<small>kg</small></div><div class="l">背负重量</div></div>
+            </div>
+            <div class="grp">睡眠系统</div>
+            <div class="ck done"><span class="box done"></span><span>帐篷</span><span class="w">1.6 kg</span></div>
+            <div class="ck done"><span class="box done"></span><span>睡袋 舒适 0°</span><span class="w">0.9 kg</span></div>
+            <div class="ck"><span class="box"></span><span>防潮垫</span><span class="w">0.4 kg</span></div>
+            <div class="grp">衣物</div>
+            <div class="ck done"><span class="box done"></span><span>羽绒服</span><span class="w">0.5 kg</span></div>
+            <div class="ck"><span class="box"></span><span>冲锋衣</span><span class="w">0.4 kg</span></div>
+            <div class="ck"><span class="box"></span><span>保暖手套</span><span class="w">0.1 kg</span></div>
+            <div class="grp">共用（林 负责）</div>
+            <div class="ck"><span class="box"></span><span>炉头和气罐</span><span class="w">0.6 kg</span></div>
+          </div>
+        </div>
+        <div class="footer">
+          <div class="pill primary"><svg><use href="#i-plus"/></svg>添加</div>
+          <div class="pill"><svg><use href="#i-check"/></svg>选择</div>
+          <div class="pill right"><svg><use href="#i-spark"/></svg>问 AI</div>
+        </div>
+      </div></div>
+      <ul class="notes g">
+        <li><i>7</i><span><b>清单和瞬间用不到地图</b>，切过来时抽屉自动拉满，地图让开；切回行程时恢复到中间档。</span></li>
+        <li><i>4</i><span>底部和行程标签一致：添加、选择、问 AI，意思不随标签变。</span></li>
+      </ul>
+    </div>
+
+  </div>
+
+  <div class="compare">
+    <table>
+      <tr><th>方面</th><th>现状</th><th>改后</th></tr>
+      <tr><td>导航</td><td>总览 / 瞬间 / 清单 / 第N天… / 待计划 / ＋，一条横滚标签栏</td><td>行程 / 清单 / 瞬间；日期是行程内的吸顶跳转</td></tr>
+      <tr><td>概览</td><td>轨迹卡（带上传按钮）＋ 计划卡（只露第1天）＋ 简介 ＋ 版本记录</td><td>头部摘要按出发前、进行中、结束后切换；版本记录和简介放进 ⋯</td></tr>
+      <tr><td>海拔</td><td>内嵌可拖动，和翻页手势冲突</td><td>只读，整块点进轨迹详情页，和路线卡一致</td></tr>
+      <tr><td>编辑入口</td><td>日期、距离、头像点了就改；「编辑」在不同标签做不同的事</td><td>元信息只展示；字段编辑在 ⋯；底部是添加和选择</td></tr>
+      <tr><td>距离</td><td>手填文本</td><td>由轨迹或计划推算</td></tr>
+      <tr><td>共享位置</td><td>常驻地图</td><td>只在旅程期间出现</td></tr>
+      <tr><td>版式</td><td>白底上叠卡片，卡内发丝线和带阴影的按钮</td><td>开放布局，只靠留白分组，沿用攻略详情的阅读字号</td></tr>
+    </table>
+  </div>
+</div>
+</body>
+</html>

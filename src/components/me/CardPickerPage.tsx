@@ -1,8 +1,9 @@
 // CardPickerPage — shared card-style single-choice page (语言 / 主题 / 重点色 /
 // 重量单位). Each option is a standalone rounded card: optional leading tile,
-// title + description, and a circular radio on the right. Selecting updates in
-// place; the page stays open.
-import React from "react";
+// title plus optional per-option description, and a circular radio on the right.
+// Text shared by every option goes in `subtitle` instead of repeating it.
+// Selecting updates in place; the page stays open.
+import React, { useState } from "react";
 import { View, Text } from "react-native";
 import { Theme } from "../../theme/theme";
 import { MePushPage } from "./MePushPage";
@@ -13,7 +14,7 @@ import { radius, space, type } from "../../design-system";
 export interface CardPickerOption {
   id: string;
   title: string;
-  description: string;
+  description?: string;
   leading?: React.ReactNode;
 }
 
@@ -38,6 +39,15 @@ export function CardPickerPage({
   onSelect: (id: string) => void;
   onBack: () => void;
 }) {
+  // onSelect rebuilds the app-wide theme/i18n context, which re-renders every
+  // screen behind this page; paint the radio first and commit a frame later so
+  // the tap response isn't stuck behind that render.
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const shownId = pendingId ?? selectedId;
+  const commit = (id: string) => {
+    setPendingId(id);
+    requestAnimationFrame(() => requestAnimationFrame(() => onSelect(id)));
+  };
   return (
     <MePushPage theme={theme} title={navTitle} onBack={onBack}>
       <View style={{ paddingHorizontal: space.xl, paddingTop: space.lg }}>
@@ -61,11 +71,11 @@ export function CardPickerPage({
           </Text>
         ) : null}
         {options.map((option) => {
-          const selected = option.id === selectedId;
+          const selected = option.id === shownId;
           return (
             <Press
               key={option.id}
-              onPress={() => onSelect(option.id)}
+              onPress={() => commit(option.id)}
               scaleTo={1}
               opacityTo={0.9}
             >
@@ -93,14 +103,16 @@ export function CardPickerPage({
                   >
                     {option.title}
                   </Text>
-                  <Text
-                    style={[
-                      type.body,
-                      { color: theme.text2, marginTop: space.xs },
-                    ]}
-                  >
-                    {option.description}
-                  </Text>
+                  {option.description ? (
+                    <Text
+                      style={[
+                        type.body,
+                        { color: theme.text2, marginTop: space.xs },
+                      ]}
+                    >
+                      {option.description}
+                    </Text>
+                  ) : null}
                 </View>
                 {selected ? (
                   <View

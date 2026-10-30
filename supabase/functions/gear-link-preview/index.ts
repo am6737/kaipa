@@ -1,4 +1,18 @@
 import { protectEndpoint } from '../_shared/resource-guard.ts';
+import {
+  DOUYIN_IMAGE_HOSTS,
+  DOUYIN_SHARE_HOSTS,
+  douyinGoodsDetail,
+  douyinProduct,
+  douyinProductId,
+  douyinSharedTitle,
+  douyinSourceUrl,
+  isDouyinDetailHost,
+  isDouyinShareHost,
+  parseDouyinTarget,
+} from './douyin.ts';
+import type { DouyinGoodsDetail, DouyinProduct } from './douyin.ts';
+
 declare const Deno: { env: { get(name: string): string | undefined }; serve(handler: (req: Request) => Response | Promise<Response>): void };
 
 // Supabase Edge Functions resolve npm: imports at deploy time. The app's root
@@ -8,7 +22,7 @@ import md5 from 'npm:js-md5@0.8.3';
 // @ts-ignore Deno npm specifier
 import { createClient } from 'npm:@supabase/supabase-js@2.108.1';
 
-type Provider = 'taobao' | 'tmall' | 'jd' | 'dewu' | 'generic';
+type Provider = 'taobao' | 'tmall' | 'jd' | 'dewu' | 'douyin' | 'generic';
 
 type Preview = {
   provider: Provider;
@@ -52,6 +66,9 @@ const PLATFORM_HOSTS = [
   'taobao.com', 'tmall.com', 'tb.cn',
   'jd.com', '3.cn', 'jd.hk',
   'dw4.co', 'dewu.com',
+  // haohuo.jinritemai.com is left out on purpose: its data comes from the share
+  // link's Location header, so the function never fetches it.
+  ...DOUYIN_SHARE_HOSTS,
 ];
 
 const DEWU_IMAGE_HOSTS = ['cdn.poizon.com', 'webimg.dewucdn.com'];
@@ -93,6 +110,7 @@ function providerFor(url: URL): Provider {
   if (hostMatches(url.hostname, 'taobao.com') || hostMatches(url.hostname, 'tb.cn')) return 'taobao';
   if (hostMatches(url.hostname, 'jd.com') || hostMatches(url.hostname, '3.cn') || hostMatches(url.hostname, 'jd.hk')) return 'jd';
   if (hostMatches(url.hostname, 'dw4.co') || hostMatches(url.hostname, 'dewu.com')) return 'dewu';
+  if (isDouyinShareHost(url.hostname) || isDouyinDetailHost(url.hostname)) return 'douyin';
   return 'generic';
 }
 
@@ -118,6 +136,7 @@ function externalId(provider: Provider, url: URL) {
     return url.searchParams.get('sku') || url.searchParams.get('skuId') || url.searchParams.get('wareId') || url.pathname.match(/^\/(?:product\/)?(\d{5,})\.html$/i)?.[1];
   }
   if (provider === 'dewu') return url.searchParams.get('spuId') || undefined;
+  if (provider === 'douyin') return douyinProductId(url) || undefined;
   return undefined;
 }
 
@@ -696,10 +715,16 @@ function imageExtension(contentType: string) {
   return 'jpg';
 }
 
-async function persistDewuImage(sourceUrl: string, spuId: string, propertyValueId?: string) {
+async function persistProductImage(
+  sourceUrl: string,
+  provider: 'dewu' | 'douyin',
+  productId: string,
+  allowedHosts: string[],
+  variantId?: string,
+) {
   const source = validateUrl(sourceUrl);
-  if (!DEWU_IMAGE_HOSTS.some((host) => hostMatches(source.hostname, host))) {
-    throw new PreviewError('image_host_not_allowed', '得物商品图片域名不受支持');
+  if (!allowedHosts.some((host) => hostMatches(source.hostname, host))) {
+    throw new PreviewError('image_host_not_allowed', '商品图片域名不受支持');
   }
   const response = await fetchWithTimeout(source.toString(), {
     headers: {
@@ -707,14 +732,14 @@ async function persistDewuImage(sourceUrl: string, spuId: string, propertyValueI
       Accept: 'image/avif,image/webp,image/png,image/jpeg,image/gif',
     },
   }, 10_000);
-  if (!response.ok) throw new PreviewError('image_fetch_failed', `得物商品图片下载失败（${response.status}）`);
+  if (!response.ok) throw new PreviewError('image_fetch_failed', `商品图片下载失败（${response.status}）`);
   const contentType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
   const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-  if (!allowedTypes.includes(contentType)) throw new PreviewError('unsupported_image', '得物商品图片格式不受支持');
+  if (!allowedTypes.includes(contentType)) throw new PreviewError('unsupported_image', '商品图片格式不受支持');
   const contentLength = Number(response.headers.get('content-length') || 0);
-  if (contentLength > 8_000_000) throw new PreviewError('image_too_large', '得物商品图片体积过大');
+  if (contentLength > 8_000_000) throw new PreviewError('image_too_large', '商品图片体积过大');
   const bytes = await readBytesLimited(response, 8_000_000);
-  if (!bytes.byteLength) throw new PreviewError('empty_image', '得物商品图片内容为空');
+  if (!bytes.byteLength) throw new PreviewError('empty_image', '商品图片内容为空');
 
   const supabaseUrl = env('SUPABASE_URL');
   const serviceRoleKey = env('SUPABASE_SERVICE_ROLE_KEY');
@@ -730,8 +755,8 @@ async function persistDewuImage(sourceUrl: string, spuId: string, propertyValueI
     });
     if (created.error && !/already exists|duplicate/i.test(created.error.message)) throw created.error;
   }
-  const suffix = propertyValueId?.replace(/[^0-9]/g, '') || 'cover';
-  const storagePath = `dewu/${spuId.replace(/[^0-9]/g, '')}/${suffix}.${imageExtension(contentType)}`;
+  const suffix = variantId?.replace(/[^0-9]/g, '') || 'cover';
+  const storagePath = `${provider}/${productId.replace(/[^0-9]/g, '')}/${suffix}.${imageExtension(contentType)}`;
   const uploaded = await client.storage.from(bucket).upload(storagePath, bytes, {
     contentType,
     cacheControl: '2592000',
@@ -789,7 +814,7 @@ async function dewuPreview(url: URL, id: string): Promise<Preview> {
   let imageUrl: string | undefined;
   if (sourceImageUrl) {
     try {
-      imageUrl = await persistDewuImage(sourceImageUrl, resolvedId, propertyValueId);
+      imageUrl = await persistProductImage(sourceImageUrl, 'dewu', resolvedId, DEWU_IMAGE_HOSTS, propertyValueId);
     } catch (error) {
       console.error('[gear-link-preview] dewu image persistence failed', error instanceof Error ? error.message : error);
       warnings.push('商品图片暂未保存到 Kaipa 存储，请稍后重试');
@@ -806,6 +831,99 @@ async function dewuPreview(url: URL, id: string): Promise<Preview> {
     brand: brand || undefined,
     category: category || undefined,
     attrs,
+    warnings,
+  };
+}
+
+// One manual hop: Douyin's 302 Location holds the product record, and the page
+// it points at is an empty SPA shell, so following the redirect would only cost
+// a request. The Location is never fetched, so it needs no allowlist entry.
+async function douyinRedirectLocation(url: URL) {
+  const response = await fetchWithTimeout(url.toString(), {
+    method: 'GET',
+    redirect: 'manual',
+    headers: {
+      'User-Agent': env('GEAR_LINK_USER_AGENT') || 'Mozilla/5.0 KaipaGearPreview/1.0',
+      Accept: 'text/html,application/xhtml+xml',
+      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.6',
+    },
+  }, 8500);
+  const status = response.status;
+  const location = response.headers.get('location') || '';
+  try { await response.body?.cancel(); } catch {}
+  if (![301, 302, 303, 307, 308].includes(status)) {
+    console.error('[gear-link-preview] douyin share link did not redirect', status);
+    return '';
+  }
+  return location;
+}
+
+async function douyinPreview(shareUrl: URL, shareText: string): Promise<Preview> {
+  let id = externalId('douyin', shareUrl);
+  let goods = id ? douyinGoodsDetail(shareUrl) : undefined;
+
+  if (!id && isDouyinShareHost(shareUrl.hostname)) {
+    const target = parseDouyinTarget(await douyinRedirectLocation(shareUrl), shareUrl);
+    if (target) {
+      id = target.id;
+      goods = target.goodsDetail;
+    }
+  }
+
+  if (id) {
+    const cached = await readPreviewCache('douyin', id);
+    if (cached) return cached;
+  }
+
+  const pastedTitle = douyinSharedTitle(shareText);
+  const product = goods ? douyinProduct(goods) : undefined;
+
+  if (id && product) {
+    const preview = await buildDouyinPreview(id, product);
+    await writePreviewCache(preview);
+    return preview;
+  }
+
+  // goods_detail is undocumented, so other share entry points (live rooms and
+  // the like) can redirect without it. The share text still names the product.
+  if (pastedTitle) {
+    return {
+      provider: 'douyin',
+      sourceUrl: id ? douyinSourceUrl(id) : shareUrl.toString(),
+      externalId: id,
+      name: pastedTitle,
+      attrs: [],
+      warnings: [id
+        ? '抖音商品链接暂未返回商品数据，已使用分享文案预填，请手动确认图片、重量和价格'
+        : '抖音商品链接没有解析到商品，已使用分享文案预填，请手动确认图片、重量和价格'],
+    };
+  }
+
+  throw new PreviewError('product_not_found', '抖音商品链接中没有找到商品信息');
+}
+
+async function buildDouyinPreview(id: string, product: DouyinProduct): Promise<Preview> {
+  const warnings = [...product.warnings];
+  let imageUrl: string | undefined;
+  if (product.imageSourceUrl) {
+    try {
+      imageUrl = await persistProductImage(product.imageSourceUrl, 'douyin', id, DOUYIN_IMAGE_HOSTS);
+    } catch (error) {
+      console.error('[gear-link-preview] douyin image persistence failed', error instanceof Error ? error.message : error);
+      // ByteDance serves these without a Referer, so the original address still
+      // shows the product until it rotates.
+      imageUrl = product.imageSourceUrl;
+      warnings.push('商品图片暂未保存到 Kaipa 存储，外部链接失效后需要重新识别');
+    }
+  }
+  return {
+    provider: 'douyin',
+    sourceUrl: douyinSourceUrl(id),
+    externalId: id,
+    name: product.name,
+    priceCny: product.priceCny,
+    imageUrl,
+    attrs: [],
     warnings,
   };
 }
@@ -856,6 +974,11 @@ async function resolvePreview(rawUrl: string, shareText = ''): Promise<Preview> 
   let url = validateUrl(rawUrl);
   let provider = providerFor(url);
   let id = externalId(provider, url);
+
+  // Douyin keeps its data in the share link's 302 Location, which is far longer
+  // than validateUrl allows for a hop it would then fetch, so it resolves on its
+  // own single hop instead of following redirects below.
+  if (provider === 'douyin') return await douyinPreview(url, shareText);
 
   // Resolve short share links before selecting an official provider adapter.
   if (!id && allowedFetchHost(url.hostname)) {

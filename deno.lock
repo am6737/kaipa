@@ -4443,6 +4443,7 @@
         "npm:expo-apple-authentication@~56.0.4",
         "npm:expo-audio@~56.0.13",
         "npm:expo-blur@~56.0.4",
+        "npm:expo-build-properties@~56.0.27",
         "npm:expo-camera@~56.0.8",
         "npm:expo-clipboard@~56.0.4",
         "npm:expo-constants@~56.0.25",

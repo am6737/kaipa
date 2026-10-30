@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { CalendarDays, ChevronDown, ChevronUp, Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, Droplets, Eye, Info, Sunrise, Sunset, Sun, Thermometer, Wind } from 'lucide-react-native';
+import { CalendarDays, ChevronDown, ChevronUp, Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, Droplets, Eye, Sunrise, Sunset, Sun, Thermometer, Wind } from 'lucide-react-native';
 import { radius, space } from '../../design-system';
 import { useI18n } from '../../i18n';
 import { weatherDescription, type RouteWeatherForecast } from '../../lib/routeWeather';
@@ -11,7 +11,7 @@ import { routeGuideCopy } from './routeGuideCopy';
 
 // Daily forecasts are not current conditions. Keep the date and high/low labels
 // visible even when using the large temperature treatment of a weather app.
-function WeatherIcon({ code, size = 24, color }: { code: number; size?: number; color: string }) {
+export function WeatherIcon({ code, size = 24, color }: { code: number; size?: number; color: string }) {
   const Glyph = code === 0 ? Sun : [1, 2, 3].includes(code) ? Cloud
     : [45, 48].includes(code) ? CloudFog : [95, 96, 99].includes(code) ? CloudLightning
     : [71, 73, 75, 77, 85, 86].includes(code) ? CloudSnow
@@ -20,7 +20,7 @@ function WeatherIcon({ code, size = 24, color }: { code: number; size?: number; 
   return <Glyph size={size} color={color} strokeWidth={1.6} />;
 }
 
-function weatherColor(code: number, dark: boolean) {
+export function weatherColor(code: number, dark: boolean) {
   if (code === 0) return dark ? '#FFD45A' : '#F2A51A';
   if ([1, 2, 3, 45, 48].includes(code)) return dark ? '#C8D7E3' : '#66849A';
   if ([71, 73, 75, 77, 85, 86].includes(code)) return dark ? '#C6F0FF' : '#55A7C8';
@@ -173,7 +173,6 @@ export function RouteWeatherDetails({ theme, forecast, routeName }: { theme: The
 
     <View style={[styles.viewingCard, card]}>
       <Text style={[styles.viewingTitle, { color: theme.text }]}>{zh ? '观景条件' : 'Viewing conditions'}</Text>
-      <Text style={[styles.small, { color: theme.text2, marginTop: space.xxs }]}>{zh ? '根据公开预报数据估算，仅供出发前参考' : 'Estimated from public forecast data for planning'}</Text>
       <View style={styles.viewingRow}>
         <Sunrise color={theme.dark ? '#FFD45A' : '#F2A51A' } size={19} /><View style={styles.viewingCopy}><Text style={[styles.viewingLabel, { color: theme.text }]}>{zh ? '朝霞潜力' : 'Sunrise glow'}</Text><View style={styles.viewingMeta}><Text style={[styles.small, { color: theme.text2 }]}>{timeLabel(selected.sunrise)}</Text><Text style={[styles.small, { color: theme.text2 }]}>{zh ? '日出前后云量' : 'Cloud around sunrise'}</Text></View></View><Text style={[styles.viewingValue, { color: scoreColor(dawnGlow) }]}>{scoreLabel(dawnGlow)}</Text>
       </View>
@@ -188,7 +187,6 @@ export function RouteWeatherDetails({ theme, forecast, routeName }: { theme: The
       </View>
     </View>
 
-    <View style={styles.note}><View style={styles.noteIcon}><Info size={15} color={theme.text2} /></View><Text style={[styles.noteText, { color: theme.text2 }]}>{c.weatherScope}</Text></View>
     <Text style={[styles.source, { color: theme.text2 }]}>{c.weatherSource}{'\n'}{c.updated} {new Date(forecast.fetchedAt).toLocaleString(locale)}</Text>
   </View>;
 }
@@ -240,8 +238,5 @@ const styles = StyleSheet.create({
   rainTrack: { height: 5, borderRadius: radius.pill, overflow: 'hidden', marginVertical: space.sm },
   rainFill: { height: 5, borderRadius: radius.pill },
   windUnit: { fontSize: 12, marginTop: space.xxs, marginBottom: space.xs },
-  note: { flexDirection: 'row', alignItems: 'flex-start', gap: space.xs, paddingHorizontal: space.xxs },
-  noteIcon: { marginTop: 3 },
-  noteText: { flex: 1, fontSize: 12, lineHeight: 20 },
   source: { fontSize: 11, lineHeight: 19, textAlign: 'center' },
 });

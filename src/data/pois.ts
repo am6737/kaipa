@@ -44,6 +44,27 @@ export function orderCompanionsForDisplay(companions: Companion[]): Companion[] 
   );
 }
 
+/** One annotation along a recorded track, in the order it was marked. `km` is
+ *  mileage along the track as recorded; `photo` is a public URL for the shot
+ *  taken there; `highlight` marks the spots worth pulling out of the list. */
+export interface TrackWaypoint {
+  name: string;
+  km: number;
+  lng?: number;
+  lat?: number;
+  ele?: number;
+  at?: string;
+  photo?: string;
+  highlight?: true;
+}
+
+export interface JourneyMeetPlace {
+  name: string;
+  address?: string;
+  lng: number;
+  lat: number;
+}
+
 export interface Poi {
   id: string;
   kind: "route" | "journey";
@@ -69,6 +90,12 @@ export interface Poi {
   inviteEnabled?: boolean;
   fav?: boolean;
   plannedDate?: string;
+  /** 集合 day relative to the first day: 0 that day, -1 the day before; unset means 0. */
+  meetDay?: number;
+  /** 集合 time in minutes after midnight, the clock timeline rows use. */
+  meetTime?: number;
+  /** 集合 place, as picked with the place search (GCJ-02). */
+  meetPlace?: JourneyMeetPlace;
   /** Last server-side edit time, used for journey list sorting. */
   updatedAt?: string;
   countdown?: number;
@@ -84,7 +111,7 @@ export interface Poi {
   trackCoords?: [number, number][];
   trackElevation?: { km: number; ele: number }[];
   trackDurationMs?: number;
-  trackWaypoints?: { name: string; km: number }[];
+  trackWaypoints?: TrackWaypoint[];
   trackFileUrl?: string;
   trackFileName?: string;
   heroMode?: "track" | "cover"; // visual shown above the journey detail sheet

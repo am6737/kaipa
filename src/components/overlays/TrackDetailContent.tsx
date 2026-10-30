@@ -120,6 +120,7 @@ export function FullscreenTrackMap({
   const [mapStyle, setMapStyle] = useState<MapStyleId>('standard');
   const [panel, setPanel] = useState<FullMapPanel>(null);
   const [showWaypoints, setShowWaypoints] = useState(Boolean(info.trackWaypoints?.length));
+  const [showDistanceMarkers, setShowDistanceMarkers] = useState(false);
   const [showMapLabels, setShowMapLabels] = useState(true);
   const [summaryExpanded, setSummaryExpanded] = useState(false);
 
@@ -136,6 +137,27 @@ export function FullscreenTrackMap({
   const layerOptions: { id: MapStyleId; label: string }[] = [
     { id: 'standard', label: t('journey.map.layerStandard') },
     { id: 'satellite', label: t('journey.map.layerSatellite') },
+  ];
+  const displayOptions = [
+    {
+      id: 'distance-markers',
+      label: t('journey.map.trackDistanceMarkers'),
+      value: showDistanceMarkers,
+      onChange: setShowDistanceMarkers,
+    },
+    {
+      id: 'waypoints',
+      label: t('journey.map.trackWaypointMarkers'),
+      value: showWaypoints,
+      disabled: !mapWaypoints.length,
+      onChange: setShowWaypoints,
+    },
+    {
+      id: 'map-labels',
+      label: t('journey.map.showLabels'),
+      value: showMapLabels,
+      onChange: setShowMapLabels,
+    },
   ];
 
   const togglePanel = (next: 'layers') => {
@@ -156,6 +178,7 @@ export function FullscreenTrackMap({
         mapStyle={mapStyle}
         waypoints={mapWaypoints}
         showWaypoints={showWaypoints}
+        showDistanceMarkers={showDistanceMarkers}
         showMapLabels={showMapLabels}
         routePadding={routePadding}
       />
@@ -174,24 +197,13 @@ export function FullscreenTrackMap({
           theme={theme}
           title={t('journey.map.layerTitle')}
           closeLabel={t('common.close')}
-          options={layerOptions}
+          styleOptions={layerOptions}
           value={mapStyle}
-          detailsTitle={t('journey.map.displayTitle')}
-          details={[
-            {
-              id: 'waypoints',
-              label: t('journey.map.showWaypoints'),
-              value: showWaypoints,
-              disabled: !mapWaypoints.length,
-              onChange: setShowWaypoints,
-            },
-            {
-              id: 'map-labels',
-              label: t('journey.map.showLabels'),
-              value: showMapLabels,
-              onChange: setShowMapLabels,
-            },
-          ]}
+          sections={[{
+            id: 'track-display',
+            title: t('journey.map.displayTitle'),
+            options: displayOptions,
+          }]}
           bottomInset={insets.bottom}
           onChange={setMapStyle}
           onClose={() => setPanel(null)}

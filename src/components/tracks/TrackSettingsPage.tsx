@@ -15,7 +15,7 @@ import type { Track } from '../../data/tracks';
 import type { Visibility } from '../../hooks/useSocial';
 import { MeCard, MeRow, MeSection, SwitchRow } from '../me/parts';
 import { MePushPage } from '../me/MePushPage';
-import { openVisibilityPicker, visibilityLabel } from '../social/VisibilityPicker';
+import { useVisibilityPicker, visibilityLabel } from '../social/VisibilityPicker';
 import { RenameTrackDialog } from './RenameTrackDialog';
 
 export function TrackSettingsPage({ theme, track, onBack }: { theme: Theme; track: Track; onBack: () => void }) {
@@ -56,6 +56,8 @@ export function TrackSettingsPage({ theme, track, onBack }: { theme: Theme; trac
       .catch(() => nav.showToast(t('profile.actionFailed')));
   };
 
+  const visibilityPicker = useVisibilityPicker(theme);
+
   return (
     <MePushPage theme={theme} title={t('tracks.settings.title')} onBack={onBack}>
       <MeSection theme={theme} title={t('tracks.settings.basicSection')} first>
@@ -89,11 +91,13 @@ export function TrackSettingsPage({ theme, track, onBack }: { theme: Theme; trac
               theme={theme}
               label={t('profile.visibilityTitle')}
               detail={visibilityLabel(t, track.visibility ?? 'private')}
-              onPress={() => openVisibilityPicker(nav, t, track.visibility ?? 'private', changeVisibility)}
+              onPress={(event) => visibilityPicker.open(event, track.visibility ?? 'private', changeVisibility)}
             />
           </MeCard>
         </MeSection>
       ) : null}
+
+      {visibilityPicker.menu}
 
       <RenameTrackDialog
         theme={theme}

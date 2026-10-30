@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Alert, Animated, Easing, Linking, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { AccessibilityInfo, Alert, Animated, Easing, Linking, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { NativeMap, type NativeMapHandle, type NativeMapMarker, type NativeMapPolyline } from '../maps/NativeMap';
 import { isValidMapCoordinate, keepValidCoordinates, withColorAlpha, type MapCoordinate } from '../maps/types';
 import { simplifyTrack, trackSpanOnScreen, trackWorldSpan, zoomToFitSpan } from '../maps/extent';
 import { PhotoPin, PHOTO_PIN_ANCHOR_Y, PHOTO_PIN_HEIGHT, PHOTO_PIN_WIDTH, PHOTO_SIZE, photoPinScaleForZoom } from './PhotoPin';
 import { platformLocationImage } from '../maps/locationImage';
 import { pickPinUnderPress } from '../../lib/pinOverlap';
+import { staggerRevealPlan, staggerStepMs } from '../../lib/pinVisibility';
 import { useCompassHeading } from '../../lib/compassHeading';
 import { STAGGER_MAX_DELAY_MS, STAGGER_STEP_MS } from '../StaggerIn';
 import type { GlobePoi, GlobeProps } from './types';
@@ -16,9 +17,8 @@ import { cappedStepKm } from '../maps/distanceMarkers';
 // The camera the native map is created with. Needed to judge a press before the
 // map has ever reported a zoom change.
 const MAP_INITIAL_ZOOM = 3;
-// Reveal rhythm for the visibility rail: same step and cap as the first screen's pin
-// entrance, so a switch arrives the way the catalog did the first time.
-const ENTRANCE_LAST_INDEX = Math.floor(STAGGER_MAX_DELAY_MS / STAGGER_STEP_MS);
+// How long a revealed pin takes to fade in. The gaps between them come from
+// `staggerStepMs`, which fits them all inside STAGGER_MAX_DELAY_MS.
 const ENTRANCE_REVEAL_MS = 180;
 
 const MIN_TRACK_ENDPOINT_PIXELS = 100;
@@ -92,6 +92,7 @@ export default function MapGlobe({
   showWalkingAttribution = false,
   autoFrameRoute = true,
   staggerPins = false,
+  pinEntranceKey,
   onCameraOrientationChange,
   onCameraGestureStart,
   onCameraPositionChange,
@@ -114,6 +115,26 @@ export default function MapGlobe({
   // because walking 148 markers *is* the cost. `pinScale` above already solved the
   // identical problem for zoom the same way, for the identical reason.
   const pinAlphasRef = useRef(new Map<string, Animated.Value>());
+  /** Where each pin of the current marker list sits, for the outward sweep of a
+      staggered reveal. Filled by the same memo as the alphas above. */
+  const pinCoordsRef = useRef(new Map<string, [number, number]>());
+  /** The OS 'reduce motion' setting: a cascade is exactly the motion it asks out.
+      Read once and then followed, because the check is asynchronous and a render
+      cannot wait on it. */
+  const reduceMotionRef = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    void AccessibilityInfo.isReduceMotionEnabled()
+      .then((reduce) => { if (!cancelled) reduceMotionRef.current = reduce; })
+      .catch(() => undefined);
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', (reduce) => {
+      reduceMotionRef.current = reduce;
+    });
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
+  }, []);
   /** The set `applyVisibility` was last given, or null before the first call -
       read at press time, because a pin at alpha 0 is still hit-testable (verified
       on device: the card opened from an invisible pin). */
@@ -123,36 +144,55 @@ export default function MapGlobe({
       can mount *after* the set was last applied, and then the set says it should be
       shown while nothing has ever told its value so. */
   const revealedPinsRef = useRef(new Set<string>());
+  /** Cascade steps still waiting on their delay. `setValue` only stops an animation
+      already driving the value, not one parked in `Animated.delay`, so a pin hidden
+      by a quick second switch would otherwise fade back in when its turn came. */
+  const pendingRevealsRef = useRef(new Map<string, Animated.CompositeAnimation>());
   const applyVisibility = useCallback((keys: Set<string>, options?: { stagger?: boolean }) => {
     visiblePinsRef.current = keys;
     visibilityOptionsRef.current = options;
     const revealed = revealedPinsRef.current;
-    let staggerIndex = 0;
+    const pending = pendingRevealsRef.current;
+    const cascade = options?.stagger === true && !reduceMotionRef.current;
+    const entering: string[] = [];
     pinAlphasRef.current.forEach((value, key) => {
       const on = keys.has(key);
       if (on === revealed.has(key)) return;
-      if (on) revealed.add(key); else revealed.delete(key);
-      if (on) {
-        if (!options?.stagger) {
-          value.setValue(1);
-          return;
-        }
+      pending.get(key)?.stop();
+      pending.delete(key);
+      if (!on) {
+        revealed.delete(key);
+        // Hiding is immediate: that is the layer the user just walked away from, and
+        // animating it out would only delay the new one arriving.
         value.setValue(0);
-        Animated.sequence([
-          Animated.delay(Math.min(staggerIndex++, ENTRANCE_LAST_INDEX) * STAGGER_STEP_MS),
+        return;
+      }
+      revealed.add(key);
+      entering.push(key);
+      // A cascaded pin starts hidden and waits for its turn in the sweep below.
+      value.setValue(cascade ? 0 : 1);
+    });
+    if (!cascade || !entering.length) return;
+    // Nearest-first from the middle of the group outward, one compressed step
+    // apart: a province's pins then read as one arrival rather than a scatter.
+    staggerRevealPlan(entering, pinCoordsRef.current, STAGGER_STEP_MS, STAGGER_MAX_DELAY_MS)
+      .forEach(({ key, delayMs }) => {
+        const value = pinAlphasRef.current.get(key);
+        if (!value) return;
+        const reveal = Animated.sequence([
+          Animated.delay(delayMs),
           Animated.timing(value, {
             toValue: 1,
             duration: ENTRANCE_REVEAL_MS,
             easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
           }),
-        ]).start();
-        return;
-      }
-      // Hiding is immediate: that is the layer the user just walked away from, and
-      // animating it out would only delay the new one arriving.
-      value.setValue(0);
-    });
+        ]);
+        pending.set(key, reveal);
+        reveal.start(() => {
+          if (pending.get(key) === reveal) pending.delete(key);
+        });
+      });
   }, []);
   useEffect(() => {
     if (!pinVisibilityApi) return;
@@ -359,7 +399,14 @@ export default function MapGlobe({
       return;
     }
     if (cameraAction.type === 'locate') {
-      mapRef.current?.moveCamera(cameraAction.coordinate, 14, 650, { resetOrientation: true });
+      // A spot read by the card has to land in the same band the route was
+      // fitted to, not the middle of the view under the card.
+      mapRef.current?.moveCamera(
+        cameraAction.coordinate,
+        cameraAction.zoom ?? 14,
+        650,
+        cameraAction.inFrame ? { edgePadding: routePadding } : { resetOrientation: true },
+      );
       return;
     }
     if (cameraAction.type === 'restore') {
@@ -484,6 +531,16 @@ export default function MapGlobe({
     return values;
   }, [distanceStepKm, showDistanceMarkers, theme, validFocusCoords, validFocusSegments]);
 
+  // Android has no rail to animate: the marker's own fade has to be played by the
+  // native SDK (`grow` below), and it fires the first time a marker is shown. A
+  // marker gets shown again for plenty of reasons that must not replay an
+  // entrance — the `:muted` suffix in its id remounts it, and opening a card
+  // unmounts the whole layer — so the map remembers which pin keys it already put
+  // on screen and only asks for the animation for keys that are new *and* while
+  // the caller still has an entrance unspent. Both are refs, for the same reason
+  // the alphas above are: the answer must not be a dependency of the marker memo.
+  const shownPinsRef = useRef(new Set<string>());
+  const spentEntranceKeyRef = useRef<string | null>(null);
   // Split in two because the pin layer is the expensive one (one offscreen
   // snapshot per pin on iOS, a baked bitmap each on Android) and nothing in the
   // overlay layer should be able to ask for it to be rebuilt. Measured: opening
@@ -499,8 +556,22 @@ export default function MapGlobe({
     // hide a pin without a render also has to be the one that shows it with the
     // cascade); the mount-time entrance is for the callers without it.
     const alphas = new Map<string, Animated.Value>();
+    const coords = new Map<string, [number, number]>();
     if (showPoiMarkers) {
-      [...pois].sort((a, b) => Number(Boolean(a.muted)) - Number(Boolean(b.muted))).forEach((poi, index) => {
+      const ordered = [...pois].sort((a, b) => Number(Boolean(a.muted)) - Number(Boolean(b.muted)));
+      // The mount-time entrance keeps the same compressed total as the rail's
+      // sweep, so both paths rhythm the same way.
+      const entranceStep = staggerPins && !pinVisibilityApi && !reduceMotionRef.current
+        ? staggerStepMs(ordered.length, STAGGER_STEP_MS, STAGGER_MAX_DELAY_MS)
+        : undefined;
+      // An arrival the caller has not spent yet: first paint, and each region
+      // swap. Reduced motion drops it here too — the native animation is exactly
+      // the motion that setting asks out.
+      const entranceAllowed = Platform.OS === 'android'
+        && !reduceMotionRef.current
+        && pinEntranceKey != null
+        && pinEntranceKey !== spentEntranceKeyRef.current;
+      ordered.forEach((poi, index) => {
         if (!isValidMapCoordinate([poi.lng, poi.lat])) return;
         // Inlined `pinKey` - see the note in ./types about the framing test's
         // dependency whitelist.
@@ -516,14 +587,18 @@ export default function MapGlobe({
               : 0,
           );
         alphas.set(key, alpha);
-        const delay = staggerPins && !pinVisibilityApi
-          ? Math.min(index, ENTRANCE_LAST_INDEX) * STAGGER_STEP_MS
-          : undefined;
+        coords.set(key, [poi.lng, poi.lat]);
+        const delay = entranceStep == null ? undefined : index * entranceStep;
+        const grow = entranceAllowed && !shownPinsRef.current.has(key);
         values.push({
           id: `poi-${key}${poi.muted ? ':muted' : ''}`,
           coordinate: [poi.lng, poi.lat],
           anchor: { x: 0.5, y: PHOTO_PIN_ANCHOR_Y },
           title: poi.label,
+          // Android only, and only for pins that just arrived: the marker fades
+          // and grows in once, in the SDK, because everything drawn into its
+          // snapshot bitmap is frozen by the time RN could animate it.
+          ...(grow ? { grow: true } : {}),
           onPress: () => {
             // Alpha 0 does not make a pin un-tappable - verified on device, the card
             // opened from a pin nobody could see. So the press is judged by the same
@@ -557,10 +632,17 @@ export default function MapGlobe({
           ),
         });
       });
+      // Spent whether or not any of these pins were new: everything that comes
+      // after an arrival is an edit to it, and an empty or hidden layer has not
+      // played anything yet — the same rule the rail applies to a catalog that
+      // has not loaded.
+      if (entranceAllowed && values.length) spentEntranceKeyRef.current = pinEntranceKey ?? null;
     }
     // Pins that left the array take their value with them; the ones that stayed keep
     // the same Animated.Value, which is what makes a switch cost nothing here.
     pinAlphasRef.current = alphas;
+    pinCoordsRef.current = coords;
+    shownPinsRef.current = new Set(alphas.keys());
     return values;
     // staggerPins is deliberately not a dependency: it only picks the
     // mount-time entrance, and rebuilding markers when it flips would
@@ -568,6 +650,10 @@ export default function MapGlobe({
     // revealed at once by the wrapper swap). Later rebuilds — chip
     // switches, edits — run with the latest render's value, so pins mount
     // instantly once the entrance has played.
+    // `pinEntranceKey` is left out for the same reason: it only picks which
+    // markers ask the native SDK for an entrance, and the render that changes
+    // the region always carries the region's pins too, so the key never has to
+    // rebuild the layer by itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activePoiId, pois, showPoiMarkers, theme]);
 

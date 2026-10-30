@@ -32,6 +32,30 @@ export async function signUpWithEmail(email: string, password: string) {
   return supabase.auth.signUp({ email, password });
 }
 
+/** 发找回密码邮件。GoTrue 默认的 recovery 模板带 `{{ .Token }}`，App 内用验证码重置，不依赖深链。 */
+export async function sendPasswordResetCode(email: string) {
+  return withNetworkRetry(() => supabase.auth.resetPasswordForEmail(email));
+}
+
+/**
+ * 校验找回密码邮件里的验证码，返回持有恢复会话的临时客户端，交给 `setPasswordAfterReset`。
+ * 用不落盘的临时客户端：在主客户端验证会直接建立会话，AppRoot 会跳进 App，用户还没来得及设新密码。
+ */
+export async function verifyPasswordResetCode(email: string, token: string) {
+  const client = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+  const { error } = await withNetworkRetry(() => client.auth.verifyOtp({ email, token, type: 'recovery' }));
+  return error ? { client: null, error } : { client, error: null };
+}
+
+/** 在恢复会话里写入新密码，成功后丢掉这段会话，用户回登录页用新密码登录。 */
+export async function setPasswordAfterReset(client: SupabaseClient, password: string) {
+  const result = await withNetworkRetry(() => client.auth.updateUser({ password }));
+  if (!result.error) await client.auth.signOut({ scope: 'local' }).catch(() => {});
+  return result;
+}
+
 /** Send a Supabase GoTrue SMS OTP. The phone must be E.164 (for example +8613812345678). */
 export async function sendPhoneOtp(phone: string) {
   return withNetworkRetry(() => supabase.auth.signInWithOtp({

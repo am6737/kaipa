@@ -56,7 +56,13 @@ export interface DataValue {
   createRouteRequest: ReturnType<typeof useRouteRequests>['createRequest'];
   deleteRouteRequest: (id: string) => Promise<void>;
   refetchRouteRequests: () => Promise<void>;
+  /** 「我的轨迹」: the library entries only. */
   tracks: Track[];
+  /**
+   * Every track row the user owns, including journeys' copies of catalog routes
+   * that are not in the library. For looking a track up by id, never for lists.
+   */
+  allTracks: Track[];
   tracksLoading: boolean;
   createTrack: (draft: TrackDraft) => Promise<Track | null>;
   /** False when the write didn't reach the server (offline, error). */
@@ -67,6 +73,8 @@ export interface DataValue {
   /** Published tracks show up in search for everyone; throws when the server refuses. */
   setTrackPublished: (id: string, published: boolean) => Promise<void>;
   deleteTracks: (ids: string[]) => Promise<void>;
+  /** Saves a journey's track into 「我的轨迹」 as its own copy; the saved copy when there already is one. */
+  saveTrackToLibrary: (id: string) => Promise<Track | null>;
   refetchTracks: () => Promise<Track[]>;
   cats: GearCat[];
   items: GearItem[];
@@ -109,10 +117,11 @@ export function DataProvider({ userId, children }: { userId: string; children: R
   } = useProfile(userId);
   const { routes, loading: routesLoading, updateRoute, toggleFavorite: toggleRouteFavorite, refetch: refetchRoutes } = useRoutes(userId);
   const {
-    tracks, loading: tracksLoading,
-    createTrack, updateTrack, deleteTrack, deleteTracks, setTrackVisibility, setTrackPublished,
+    tracks: allTracks, loading: tracksLoading,
+    createTrack, updateTrack, deleteTrack, deleteTracks, saveTrackToLibrary, setTrackVisibility, setTrackPublished,
     refetch: refetchTracks,
   } = useTracks(userId);
+  const tracks = useMemo(() => allTracks.filter((track) => track.inLibrary !== false), [allTracks]);
   const {
     journeys, trashedJourneys, loading: journeysLoading,
     createJourney, updateJourney, setJourneyVisibility, deleteJourney, restoreJourney, permanentlyDeleteJourney, leaveJourney, toggleFav,
@@ -164,6 +173,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     setTrackVisibility: useStable(setTrackVisibility),
     setTrackPublished: useStable(setTrackPublished),
     deleteTracks: useStable(removeTracks),
+    saveTrackToLibrary: useStable(saveTrackToLibrary),
     refetchTracks: useStable(refetchTracks),
     createJourney: useStable(createJourney),
     updateJourney: useStable(updateJourney),
@@ -202,7 +212,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     planningProfile, planningProfileLoading,
     routes, routesLoading,
     routeRequests, routeRequestsLoading,
-    tracks, tracksLoading,
+    tracks, allTracks, tracksLoading,
     journeys, trashedJourneys, journeysLoading,
     journeyHomeContent, journeyHomeContentLoading,
     cats, items, sets, gearLoading,
@@ -213,7 +223,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     planningProfile, planningProfileLoading,
     routes, routesLoading,
     routeRequests, routeRequestsLoading,
-    tracks, tracksLoading,
+    tracks, allTracks, tracksLoading,
     journeys, trashedJourneys, journeysLoading,
     journeyHomeContent, journeyHomeContentLoading,
     cats, items, sets, gearLoading,

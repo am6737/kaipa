@@ -21,6 +21,7 @@ import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useStat
 import { AccessibilityInfo, Animated, BackHandler, Linking, PanResponder, Platform, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { platformLocationImage } from '../maps/locationImage';
+import { useDropPinPhoto, waypointDropPinMarker } from '../maps/DropPin';
 import { AppActionDialog, AppProgressBar, layout, motion, radius, space, type } from '../../design-system';
 import { useData } from '../../data/DataContext';
 import { useI18n } from '../../i18n';
@@ -274,24 +275,52 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
     return { ...layer, idPrefix: `trail-wp-${hashString(signature)}-${layer.list.length}` };
   }, [showRouteLayers, route, overlayTracks]);
   useEffect(() => setOpenWaypoint(null), [waypointLayer, layers.waypoints]);
+  // The named spot the card is reading wears the drop pin in place of its dot.
+  const openWaypointItem = openWaypoint != null ? waypointLayer.details[openWaypoint] : undefined;
+  const {
+    photoReady: waypointPinReady,
+    photoRevision: waypointPinRevision,
+    onPhotoLoad: waypointPinLoad,
+  } = useDropPinPhoto(openWaypointItem?.photo);
   const waypointMarkers = useMemo(() => (layers.waypoints && waypointLayer.list.length
     ? buildRouteWaypointMarkers({
       theme,
       waypoints: waypointLayer.list,
       zoom: layerZoom,
       idPrefix: waypointLayer.idPrefix,
+      hideIndex: openWaypoint,
       onWaypointPress: setOpenWaypoint,
       onClusterPress: (coordinates) => {
         setFollowing(false);
         mapRef.current?.fitCoordinates(coordinates, cameraPadding(), motion.emphasized * 2);
       },
+      clusterSpotsLabel: (n) => t('journey.map.clusterSpots', { n }),
     })
-    : NO_MARKERS), [layers.waypoints, waypointLayer, layerZoom, theme]);
+    : NO_MARKERS), [layers.waypoints, openWaypoint, t, waypointLayer, layerZoom, theme]);
   const waypointLine = openWaypoint != null ? waypointLayer.lines.find((line) => openWaypoint >= line.start && openWaypoint < line.end) : undefined;
   const waypointItems = useMemo(
     () => (waypointLine ? waypointLayer.details.slice(waypointLine.start, waypointLine.end) : []),
     [waypointLayer, waypointLine],
   );
+  const waypointPin = useMemo<NativeMapMarker[]>(() => {
+    const item = openWaypointItem;
+    if (openWaypoint == null || !item || item.lng == null || item.lat == null) return NO_MARKERS;
+    return [waypointDropPinMarker({
+      theme,
+      pinKey: `trail-waypoint-${openWaypoint}`,
+      coordinate: [item.lng, item.lat],
+      // The number the card wears: its place in the line's own page list.
+      number: waypointLine ? openWaypoint - waypointLine.start + 1 : openWaypoint + 1,
+      photo: item.photo,
+      photoReady: waypointPinReady,
+      photoRevision: waypointPinRevision,
+      onPhotoLoad: waypointPinLoad,
+      // Over the walker's own dot and the kilometre labels: this is what the
+      // card is reading.
+      zIndex: 20,
+      title: item.name,
+    })];
+  }, [openWaypoint, openWaypointItem, theme, waypointLine, waypointPinLoad, waypointPinReady, waypointPinRevision]);
 
   // "You are here", drawn from the recorder's fix on both platforms, so it
   // holds still while the phone lies still (AMap's own location layer would
@@ -301,16 +330,40 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
   // Marked spots, numbered in the order they were marked: the number is what
   // the saved track names them by (标注点 1, 2, …).
   const marks = session?.marks;
+  // The mark the card is reading, and the photo its pin wears.
+  const openMarkItem = openMark != null ? marks?.[openMark] : undefined;
+  const {
+    photoReady: markPinReady,
+    photoRevision: markPinRevision,
+    onPhotoLoad: markPinLoad,
+  } = useDropPinPhoto(openMarkItem?.photo);
   // Android snapshots marker views by id, so the number is part of it: a
-  // deleted mark renumbers the ones after it.
-  const markMarkers = useMemo<NativeMapMarker[]>(() => (marks ?? []).map((mark, index) => ({
+  // deleted mark renumbers the ones after it. The open one is dropped as a pin
+  // instead, so its badge goes.
+  const markMarkers = useMemo<NativeMapMarker[]>(() => (marks ?? []).flatMap((mark, index) => (index === openMark ? [] : [{
     id: `trail-mark-${mark.id}-${index + 1}`,
-    coordinate: [mark.lng, mark.lat],
+    coordinate: [mark.lng, mark.lat] as [number, number],
     anchor: { x: 0.5, y: 0.5 },
     zIndex: 5,
     onPress: () => setOpenMark(index),
     content: <MarkBadge theme={theme} label={String(index + 1)} />,
-  })), [marks, theme]);
+  }])), [marks, openMark, theme]);
+  const markPin = useMemo<NativeMapMarker[]>(() => {
+    const mark = openMarkItem;
+    if (openMark == null || !mark) return NO_MARKERS;
+    return [waypointDropPinMarker({
+      theme,
+      pinKey: `trail-mark-${mark.id}`,
+      coordinate: [mark.lng, mark.lat],
+      number: openMark + 1,
+      photo: mark.photo,
+      photoReady: markPinReady,
+      photoRevision: markPinRevision,
+      onPhotoLoad: markPinLoad,
+      zIndex: 20,
+      title: mark.name ?? t('trail.mark.defaultName', { n: openMark + 1 }),
+    })];
+  }, [markPinLoad, markPinReady, markPinRevision, openMark, openMarkItem, t, theme]);
   // Only worked out while the detail is open: it walks the whole recording.
   const markItems = useMemo<MarkDetailItem[]>(() => {
     if (openMark == null || !session?.marks?.length) return [];
@@ -329,7 +382,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openMark != null, session?.marks, t]);
   const markers = useMemo<NativeMapMarker[]>(() => {
-    const base = [...kmMarkers, ...waypointMarkers, ...endpointMarkers, ...markMarkers];
+    const base = [...kmMarkers, ...waypointMarkers, ...endpointMarkers, ...markMarkers, ...waypointPin, ...markPin];
     if (!fix) return base;
     const image = platformLocationImage(theme.accent, headingKey != null);
     return [...base, {
@@ -340,7 +393,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
       ...(image ? { image, rotation: headingKey ?? 0 } : {}),
       content: <CurrentLocationMarker theme={theme} heading={headingKey ?? undefined} />,
     }];
-  }, [kmMarkers, waypointMarkers, endpointMarkers, markMarkers, fix, headingKey, theme]);
+  }, [kmMarkers, waypointMarkers, waypointPin, endpointMarkers, markMarkers, markPin, fix, headingKey, theme]);
 
   const topChrome = insets.top + space.xs + MAP_CONTROL_SIZE;
 
@@ -428,6 +481,19 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
   // re-centring for it slid the map each time.
   const followBottom = live ? snapsFor(false)[Math.min(sheetIndex, 1)] : bottomInset;
   const followPadding = useCallback((): [number, number, number, number] => [topChrome + space.lg, 40, followBottom + space.lg, 40], [followBottom, topChrome]);
+  // The card and the pin read the same spot, so the map keeps that spot in the
+  // part of itself the card does not cover, at the zoom the walker was already
+  // looking at. Following stops while a spot is being read — the card is about
+  // somewhere other than here — and the locate control turns it back on.
+  // Keyed on the two indexes alone: a photo arriving in the pin, or the sheet
+  // being dragged, must not move the map under the card.
+  useEffect(() => {
+    const spot = openWaypoint == null ? openMarkItem : openWaypointItem;
+    if (!spot || spot.lng == null || spot.lat == null) return;
+    setFollowing(false);
+    mapRef.current?.moveCamera([spot.lng, spot.lat], zoomRef.current, motion.emphasized, { edgePadding: cameraPadding() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openMark, openWaypoint]);
 
   const liveFooter = (
     <Animated.View
@@ -794,6 +860,8 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
         items={markItems}
         index={openMark}
         onClose={() => setOpenMark(null)}
+        // Swiping the card moves the pin, and the map with it.
+        onPageChange={(page) => setOpenMark(page)}
         onRename={(item, name) => void renameTrailMark(item.key, name)}
         onDelete={(item) => void removeTrailMark(item.key)}
       />
@@ -802,6 +870,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
         items={waypointItems}
         index={waypointLine && openWaypoint != null ? openWaypoint - waypointLine.start : null}
         onClose={() => setOpenWaypoint(null)}
+        onPageChange={(page) => setOpenWaypoint((waypointLine?.start ?? 0) + page)}
       />
 
       <TrailOverlaySheet

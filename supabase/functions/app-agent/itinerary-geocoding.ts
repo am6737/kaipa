@@ -24,7 +24,9 @@ export function journeyProvince(region?: string | null): string | undefined {
  * rural place to the destination province; explicit city/station names still
  * resolve independently for travel. */
 export function ruralLocationProvince(name: string, region?: string | null): string | undefined {
-  if (!/(?:村|乡|镇|营地|牧场|垭口)/.test(name)) return undefined;
+  // At least two characters before the marker: 新乡 and 新乡东 are a city and its
+  // station, and scoping them to a Shanxi journey lands on a Shanxi road.
+  if (!/.{2,}(?:村|乡|镇|营地|牧场|垭口)/.test(name)) return undefined;
   if (/省|自治区|特别行政区|市|县/.test(name)) return undefined;
   return journeyProvince(region);
 }
@@ -36,4 +38,13 @@ export function geocodeKeywordLadder(name: string): string[] {
   const trimmed = name.trim();
   const stem = trimmed.match(/^(.{2,}?)(?:村|寨|乡|镇|营地|驿站|垭口|牧场)$/)?.[1];
   return stem && stem !== trimmed ? [trimmed, stem] : [trimmed];
+}
+
+/** Route waypoints are written for walkers ("起点·马武寨", "张沟（第1天住宿）"),
+ * while a plan names the place alone. A stop matches the whole name or one of
+ * its segments, never a substring, so 张沟 does not claim 张沟梯. */
+export function matchesWaypointName(name: string, waypoint: string): boolean {
+  const target = name.trim();
+  if (!target) return false;
+  return waypoint.trim() === target || waypoint.split(/[·・（）()\s,，、:：]+/).some(part => part.trim() === target);
 }

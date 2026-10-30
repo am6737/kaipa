@@ -32,6 +32,9 @@ function draftToRow(draft: Partial<TrackDraft>) {
   set('region', 'region');
   set('visibility', 'visibility');
   set('ownOuting', 'own_outing');
+  set('sourceTrackId', 'source_track_id');
+  // Not null in the table: left out, the column default (in the library) holds.
+  if (draft.inLibrary != null) row.in_library = draft.inLibrary;
   return row;
 }
 
@@ -105,11 +108,14 @@ export function useTracks(userId: string | undefined) {
   const deleteTracks = useCallback(async (ids: string[]): Promise<void> => {
     if (!ids.length) return;
     const removing = new Set(ids);
-    // The file and any photos marked along the walk go with the row.
-    const urls = tracks.filter((t) => removing.has(t.id)).flatMap((t) => [
+    // The file and any photos marked along the walk go with the row, unless a
+    // row that stays still shows them (a copy saved from a journey's track).
+    const media = (t: Track) => [
       ...(t.fileUrl ? [t.fileUrl] : []),
       ...(t.waypoints ?? []).flatMap((waypoint) => (waypoint.photo && /^https?:/i.test(waypoint.photo) ? [waypoint.photo] : [])),
-    ]);
+    ];
+    const kept = new Set(tracks.filter((t) => !removing.has(t.id)).flatMap(media));
+    const urls = tracks.filter((t) => removing.has(t.id)).flatMap(media).filter((url) => !kept.has(url));
     const { error } = await supabase.from('tracks').delete().in('id', ids);
     if (error) {
       console.warn('[deleteTracks] delete error:', error.message);
@@ -127,6 +133,33 @@ export function useTracks(userId: string | undefined) {
 
   const deleteTrack = useCallback((id: string) => deleteTracks([id]), [deleteTracks]);
 
+  // Copies a journey's track into 「我的轨迹」 as an entry of its own, so renaming
+  // or deleting it there never touches the journey. Only the user's tap does
+  // this. The stored file is not shared: deleting the copy would take it from
+  // the journey too, and export rebuilds a GPX from the geometry anyway.
+  const saveTrackToLibrary = useCallback(async (id: string): Promise<Track | null> => {
+    const saved = tracksRef.current.find((t) => t.sourceTrackId === id && t.inLibrary !== false);
+    if (saved) return saved;
+    const source = tracksRef.current.find((t) => t.id === id);
+    if (!source) return null;
+    return createTrack({
+      name: source.name,
+      fileName: source.fileName,
+      fileFormat: source.fileFormat,
+      coords: source.coords,
+      elevation: source.elevation,
+      durationMs: source.durationMs,
+      waypoints: source.waypoints,
+      distM: source.distM,
+      ascM: source.ascM,
+      pointCount: source.pointCount,
+      startedAt: source.startedAt,
+      region: source.region,
+      sourceTrackId: source.id,
+      inLibrary: true,
+    });
+  }, [createTrack]);
+
   const setTrackVisibility = useCallback(async (id: string, visibility: NonNullable<Track['visibility']>) => {
     await setOutingVisibility({ journeyId: null, trackId: id }, visibility);
     setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, visibility } : t)));
@@ -140,5 +173,5 @@ export function useTracks(userId: string | undefined) {
     setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, publishedAt: (data as string | null) ?? undefined } : t)));
   }, []);
 
-  return { tracks, loading: loading && !cached, createTrack, updateTrack, deleteTrack, deleteTracks, setTrackVisibility, setTrackPublished, refetch };
+  return { tracks, loading: loading && !cached, createTrack, updateTrack, deleteTrack, deleteTracks, saveTrackToLibrary, setTrackVisibility, setTrackPublished, refetch };
 }

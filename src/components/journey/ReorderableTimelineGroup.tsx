@@ -65,12 +65,15 @@ function ReorderHandle({ theme, disabled, onStart, onMove, onEnd, onStep }: {
 }
 
 /** Keep layout slots stable during the gesture; only the floating item and the
- * displaced neighbours translate. Variable-height text/photo cards retain size. */
-export function ReorderableTimelineGroup({ rows, theme, editable, renderRow, onSave, onError, onDragStateChange }: {
+ * displaced neighbours translate. Variable-height text/photo cards retain size.
+ * `gap` defaults to the card rhythm; the compact 行程 steps pass 0 and carry
+ * their spacing in the row padding instead. */
+export function ReorderableTimelineGroup({ rows, theme, editable, renderRow, onSave, onError, onDragStateChange, gap = space.md }: {
   rows: TLRow[]; theme: Theme; editable: boolean;
   renderRow: (row: TLRow, handle?: React.ReactNode) => React.ReactNode;
   onSave: (ids: string[]) => Promise<void>; onError: (error: unknown) => void;
   onDragStateChange?: (active: boolean) => void;
+  gap?: number;
 }) {
   const blockSheet = useContext(SheetInteractionContext);
   const layouts = useRef(new Map<string, Layout>());
@@ -109,12 +112,12 @@ export function ReorderableTimelineGroup({ rows, theme, editable, renderRow, onS
     if (current && (!editable || current.rows.length !== rows.length || current.rows.some((row, index) => row.id !== rows[index]?.id))) end(true);
   }, [rows, editable]);
   return (
-    <View style={{ gap: space.md }}>
+    <View style={{ gap }}>
       {(session.current?.rows ?? rows).map((row, index) => {
         let offset = 0;
         if (drag && row.id !== drag.id) {
-          if (drag.to > drag.from && index > drag.from && index <= drag.to) offset = -(drag.height + space.md);
-          if (drag.to < drag.from && index >= drag.to && index < drag.from) offset = drag.height + space.md;
+          if (drag.to > drag.from && index > drag.from && index <= drag.to) offset = -(drag.height + gap);
+          if (drag.to < drag.from && index >= drag.to && index < drag.from) offset = drag.height + gap;
         }
         const handle = editable ? (
           <ReorderHandle

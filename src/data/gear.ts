@@ -50,6 +50,9 @@ export type WeightUnit = 'kg' | 'g' | 'oz' | 'lb';
 
 export const WEIGHT_UNITS: WeightUnit[] = ['kg', 'g', 'oz', 'lb'];
 
+// Pickers clamp to this and guard_resource_payload rejects anything above it.
+export const GEAR_PHOTO_LIMIT = 5;
+
 export const GEAR_STATUS: { id: GearCarryStatus; label: string; short: string }[] = [
   { id: 'packed', label: '包内', short: 'Base' },
   { id: 'worn', label: '穿戴', short: 'Worn' },
@@ -202,6 +205,25 @@ export function splitWeight(kg: number, unit: WeightUnit = 'kg', compact = false
   const text = fmtWeight(kg, unit, compact);
   const i = text.lastIndexOf(' ');
   return i > 0 ? { value: text.slice(0, i), unit: text.slice(i + 1) } : { value: text, unit };
+}
+
+// A single piece of gear reads in grams for metric profiles; totals and stats
+// keep the profile's unit via fmtWeight().
+export function itemWeightUnit(unit: WeightUnit = 'kg'): WeightUnit {
+  return unit === 'kg' || unit === 'g' ? 'g' : unit;
+}
+
+export function fmtItemWeight(kg: number, unit: WeightUnit = 'kg', compact = false): string {
+  return fmtWeight(kg, itemWeightUnit(unit), compact);
+}
+
+export function splitItemWeight(kg: number, unit: WeightUnit = 'kg', compact = false): { value: string; unit: string } {
+  return splitWeight(kg, itemWeightUnit(unit), compact);
+}
+
+// New gear is typed in grams (ounces for imperial profiles).
+export function itemEntryUnit(unit: WeightUnit = 'kg'): WeightUnit {
+  return unit === 'kg' || unit === 'g' ? 'g' : 'oz';
 }
 
 // ── Weight entry: the editors keep kg in the model and only ever show one unit.

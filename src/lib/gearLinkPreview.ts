@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 
-export type GearLinkProvider = 'taobao' | 'tmall' | 'jd' | 'dewu' | 'generic';
+export type GearLinkProvider = 'taobao' | 'tmall' | 'jd' | 'dewu' | 'douyin' | 'generic';
 
 export interface GearLinkPreview {
   provider: GearLinkProvider;

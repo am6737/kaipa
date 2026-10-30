@@ -10,10 +10,17 @@ const readable = (text: string) => text.replace(/ResearchBrief/g, '路线资料'
 // Feasibility issues remain in the plan/task metadata and the final planning response.
 const briefSummary = (text: string) => text.split(/(?<=[。；;])/).filter((sentence, index) => index === 0
   || !/(?:未纳入.*查询|未构成预订|查询参考|尚缺.*(?:安排|核对)|(?:接驳|班次|道路耗时|落脚点|过夜点).*(?:未核实|未确定|尚未确定|未核定|未能从.*标注.*定位)|具体终点安排取决于)/.test(sentence)).join('').trim().replace(/[；;]$/, '。');
-// An undated hub skeleton carries a pending marker instead of a service code;
-// keep it beside the station name so the stop does not read as settled.
-const serviceCode = (title: string) => /\b(?:[GDKTZCY]\d{1,6}|[A-Z0-9]{2}\d{2,5})\b/.exec(title.replace(/D\d+[：:]/gi, ''))?.[0]
-  ?? /车次待查|航班待查/.exec(title)?.[0];
+const fitNote = (text: string) => {
+  const sections = text.split(/\n\s*\n/).map(section => briefSummary(section.trim())).filter(Boolean);
+  let note = '';
+  for (const section of sections) {
+    const next = note ? `${note}\n\n${section}` : section;
+    if (next.length <= 1000) note = next;
+    else break;
+  }
+  return note;
+};
+const serviceCode = (title: string) => /\b(?:[GDKTZCY]\d{1,6}|[A-Z0-9]{2}\d{2,5})\b/.exec(title.replace(/D\d+[：:]/gi, ''))?.[0];
 const placeKey = (name: string) => name.replace(/^D\d+[：:]\s*|^(?:终点|起点)[：:]\s*/i, '').trim();
 
 /** Keep generated prose in the daily note while preserving map/time metadata.
@@ -25,7 +32,7 @@ export function presentItinerary(items: Item[], groupNotes: GroupNote[] = [], to
   const notes = new Map<string, string>();
   for (const entry of groupNotes) {
     if (notes.has(entry.day)) throw new Error('同一个旅程日只能输出一份摘要');
-    notes.set(entry.day, briefSummary(readable(entry.note.trim())));
+    notes.set(entry.day, readable(entry.note.trim()));
   }
   const additions = new Map<string, string[]>();
   const result: Item[] = [];
@@ -36,7 +43,7 @@ export function presentItinerary(items: Item[], groupNotes: GroupNote[] = [], to
     const descriptive = original.length > 40 || /[；;]| · /.test(original);
     let title = original;
     if (item.location && (isMarker || descriptive || original.includes('→'))) {
-      title = `${placeKey(item.location.name)}${service ? ` · ${service}` : ''}`.slice(0, 120);
+      title = `${placeKey(item.location.name)}${service ? ` ${service}` : ''}`.slice(0, 120);
     } else if (descriptive) {
       title = item.kind === 'activity' && item.routeId
         ? (/徒步\s*(?:第\s*)?\d+\s*天/.exec(original)?.[0] || '沿线徒步')
@@ -63,7 +70,7 @@ export function presentItinerary(items: Item[], groupNotes: GroupNote[] = [], to
     // Remove adjacent repeated stop markers; prefer the measured GPX place.
     // Separate actionable text (e.g. collecting bags) remains its own item.
     const simpleStop = (entry: Item) => entry.location && (entry.title === placeKey(entry.location.name)
-      || entry.title === `${placeKey(entry.location.name)} · ${serviceCode(entry.title)}`);
+      || entry.title === `${placeKey(entry.location.name)} ${serviceCode(entry.title)}`);
     const previousService = previous && serviceCode(previous.title);
     if (previous?.day === next.day && previous.kind === 'custom' && next.kind === 'custom'
       && previous.location && next.location && simpleStop(previous) && simpleStop(next)
@@ -84,6 +91,17 @@ export function presentItinerary(items: Item[], groupNotes: GroupNote[] = [], to
       result[result.length - 1] = preferred;
       continue;
     }
+    // An official plan opens and closes with its town; when the transport hub
+    // is that town itself (郑州东 to 新乡), the bare marker repeats the hub row.
+    const bareMarker = (entry: Item) => entry.kind === 'activity' && simpleStop(entry) && !entry.timeStart && !entry.location!.trackId;
+    if (previous?.day === next.day && previous.location && next.location
+      && placeKey(previous.location.name) === placeKey(next.location.name)) {
+      if (previous.kind === 'custom' && bareMarker(next)) continue;
+      if (next.kind === 'custom' && bareMarker(previous)) {
+        result[result.length - 1] = next;
+        continue;
+      }
+    }
     result.push(next);
   }
   const seenTitles = new Set<string>();
@@ -102,8 +120,7 @@ export function presentItinerary(items: Item[], groupNotes: GroupNote[] = [], to
       .filter((name, index, all) => index === 0 || all[index - 1] !== name);
     const fallback = places.length > 1 ? `当天从${places[0]}出发，经${places.slice(1).join('、')}。`
       : places.length === 1 ? `当天在${places[0]}安排活动。` : dayItems.map(item => item.title).join('；');
-    const note = readable([notes.get(day) || fallback, ...(additions.get(day) ?? [])].filter(Boolean).join('\n'));
-    if (note.length > 1000) throw new Error(`${day} 摘要超过1000字，请概括当天安排并精简重复说明后重试`);
+    const note = fitNote(readable([notes.get(day) || fallback, ...(additions.get(day) ?? [])].filter(Boolean).join('\n\n')));
     notes.set(day, note);
   }
   return { items: result, groupNotes: [...notes].map(([day, note]) => ({ day, note })) };

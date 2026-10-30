@@ -14,12 +14,16 @@ interface Props {
   right?: React.ReactNode;
   showBack?: boolean;
   showTitle?: boolean;
+  /** 替换标题位置的自定义内容（如引导页的步骤条），优先于 title。 */
+  center?: React.ReactNode;
   footer?: React.ReactNode;
   children: React.ReactNode;
   scroll?: boolean;
+  /** 页面底色，默认 groupedBg；没有卡片的列表页用 featureSurface。 */
+  background?: string;
 }
 
-export function MePushPage({ theme, title, onBack, right, showBack = true, showTitle = true, footer, children, scroll = true }: Props) {
+export function MePushPage({ theme, title, onBack, right, showBack = true, showTitle = true, center, footer, children, scroll = true, background }: Props) {
   const insets = useSafeAreaInsets();
   const width = Dimensions.get('window').width;
   const tx = useRef(new Animated.Value(width)).current;
@@ -41,7 +45,7 @@ export function MePushPage({ theme, title, onBack, right, showBack = true, showT
 
   return (
     <Animated.View
-      style={[StyleSheet.absoluteFill, { backgroundColor: theme.groupedBg, transform: [{ translateX: tx }] }]}
+      style={[StyleSheet.absoluteFill, { backgroundColor: background ?? theme.groupedBg, transform: [{ translateX: tx }] }]}
     >
       <Body {...bodyProps}>{children}</Body>
 
@@ -54,7 +58,11 @@ export function MePushPage({ theme, title, onBack, right, showBack = true, showT
             </Press>
           </View>
         ) : null}
-        {showTitle ? (
+        {center ? (
+          <View pointerEvents="none" style={{ position: 'absolute', left: 72, right: 72, top: insets.top + 10, height: 30, alignItems: 'center', justifyContent: 'center' }}>
+            {center}
+          </View>
+        ) : showTitle ? (
           <View
             pointerEvents="none"
             style={{ position: 'absolute', left: 72, right: 72, top: insets.top + 10, height: 30, justifyContent: 'center' }}

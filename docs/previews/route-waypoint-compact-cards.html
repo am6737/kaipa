@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>途经点矮卡片</title>
+<style>
+  :root { --accent:#0A84FF; --start:#34C759; }
+  * { box-sizing:border-box; margin:0; }
+  body { font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif; background:#e4e4e9; padding:24px 16px 40px; display:flex; flex-direction:column; align-items:center; gap:20px; color:#1C1C1E; }
+  h1 { font-size:20px; font-weight:700; text-align:center; }
+  .sub { font-size:13px; color:rgba(60,60,67,.62); margin-top:6px; text-align:center; max-width:720px; line-height:1.55; }
+  .switch { display:flex; gap:6px; background:#fff; padding:4px; border-radius:999px; }
+  .switch button { border:0; background:none; font:inherit; font-size:13px; font-weight:600; padding:6px 14px; border-radius:999px; cursor:pointer; color:#3c3c43; }
+  .switch button.on { background:var(--accent); color:#fff; }
+  .row { display:flex; gap:20px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  .col { display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .label { font-size:13px; font-weight:700; padding:4px 12px; border-radius:999px; background:#fff; }
+  .label.new { background:var(--accent); color:#fff; }
+
+  .phone { width:360px; border-radius:30px; padding:20px 16px 26px; box-shadow:0 8px 28px rgba(0,0,0,.14); overflow:hidden; }
+  .light { background:#fff; --text:#000; --text2:rgba(60,60,67,.62); --text3:rgba(60,60,67,.32); --field:rgba(0,0,0,.045); --danger:#FF3B30; --ctrl:#fff; --ctrlBorder:rgba(60,60,67,.18); }
+  .dark { background:#1C1C1E; --text:#fff; --text2:rgba(235,235,245,.62); --text3:rgba(235,235,245,.30); --field:rgba(255,255,255,.07); --danger:#FF453A; --ctrl:#2C2C2E; --ctrlBorder:rgba(235,235,245,.16); }
+
+  .secHead { display:flex; align-items:baseline; gap:6px; }
+  .secHead h3 { font-size:20px; font-weight:800; color:var(--text); }
+  .secHead span { font-size:15px; font-weight:600; color:var(--text3); }
+
+  .ep { display:flex; align-items:center; gap:12px; }
+  .ep .g { width:32px; height:32px; border-radius:16px; color:#fff; font-size:13px; font-weight:800; display:grid; place-items:center; flex:none; }
+  .ep .t { flex:1; min-width:0; }
+  .ep .t b { display:block; font-size:16px; font-weight:700; color:var(--text); }
+  .ep .t i { display:block; font-style:normal; font-size:13px; color:var(--text2); margin-top:2px; }
+  .go { height:36px; padding:0 14px; border-radius:999px; border:1px solid var(--ctrlBorder); background:var(--ctrl); color:var(--text); font-size:14px; font-weight:700; display:flex; align-items:center; gap:4px; }
+
+  .scroller { display:flex; gap:8px; overflow-x:auto; margin:20px -16px 0; padding:0 16px; scrollbar-width:none; }
+  .scroller::-webkit-scrollbar { display:none; }
+
+  /* Photo card (current) */
+  .pc { flex:none; width:240px; }
+  .pc .ph { position:relative; height:150px; border-radius:16px; overflow:hidden; background:var(--field); }
+  .pc .ph .img { position:absolute; inset:0; }
+  .pc .ph .n { position:absolute; left:10px; top:10px; font-size:14px; font-weight:700; }
+  .pc .ph .n.w { color:#fff; text-shadow:0 1px 3px rgba(0,0,0,.45); }
+  .pc .ph .n.m { color:var(--text2); }
+  .pc .ph .ic { position:absolute; inset:0; display:grid; place-items:center; }
+  .pc .nm { font-size:16px; font-weight:700; color:var(--text); margin-top:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pc .km { font-size:13px; color:var(--text2); margin-top:2px; }
+
+  /* Compact card (proposed) */
+  .cc { flex:none; width:156px; border-radius:16px; background:var(--field); padding:12px; }
+  .cc .top { display:flex; align-items:center; gap:8px; }
+  .cc .num { width:24px; height:24px; border-radius:12px; background:var(--accent); color:#fff; font-size:13px; font-weight:700; display:grid; place-items:center; flex:none; }
+  .cc .nm { font-size:15px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cc .km { font-size:13px; color:var(--text2); margin-top:8px; white-space:nowrap; }
+
+  /* Compact card with a thumbnail when the spot has a photo */
+  .tc { flex:none; width:196px; height:84px; border-radius:16px; background:var(--field); padding:10px; display:flex; gap:10px; align-items:center; }
+  .tc.nophoto { width:156px; }
+  .tc .txt { flex:1; min-width:0; align-self:stretch; display:flex; flex-direction:column; justify-content:center; }
+  .tc .top { display:flex; align-items:center; gap:8px; min-width:0; }
+  .tc .num { width:24px; height:24px; border-radius:12px; background:var(--accent); color:#fff; font-size:13px; font-weight:700; display:grid; place-items:center; flex:none; }
+  .tc .nm { font-size:15px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tc .km { font-size:12px; color:var(--text2); margin-top:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tc .th { width:64px; height:64px; border-radius:12px; flex:none; }
+  .more { font-size:13px; color:var(--accent); font-weight:600; margin-top:12px; }
+  .next { margin-top:32px; }
+  .next h3 { font-size:20px; font-weight:800; color:var(--text); }
+  .next p { font-size:14px; color:var(--text2); margin-top:8px; line-height:1.6; }
+  .ruler { font-size:11px; color:var(--text3); margin-top:6px; }
+
+  .legend { background:#fff; border-radius:18px; padding:16px 18px; width:min(760px,100%); font-size:14px; line-height:1.55; display:grid; gap:10px; }
+  .legend b { font-weight:700; }
+  .legend .d { color:rgba(60,60,67,.62); font-size:13px; }
+  .hide { display:none !important; }
+</style>
+</head>
+<body>
+  <div>
+    <h1>路线详情的途经点：没照片时用矮卡片</h1>
+    <p class="sub">同一条路线的途经点区块。左边是现在的样子（全是空灰块），中间是整排都没照片时的矮卡片，右边是有照片时（混着几张没照片的）。卡片都可以左右滑。下面的“路线简介”用来对比区块占了多高。</p>
+  </div>
+  <div class="switch" id="sw">
+    <button data-m="light" class="on">浅色</button>
+    <button data-m="dark">深色</button>
+  </div>
+  <div class="row" id="phones"></div>
+
+  <div class="legend">
+    <div><b>整排都没照片：</b>去掉 150pt 照片位，每张卡大约 80pt 高、156pt 宽，一屏露出两张多。左上是和地图一样的编号圆，旁边是名字，下面是“第 x km  海拔 y m”。浅底色区分卡片，不加分割线。</div>
+    <div><b>有的有照片、有的没有，方案 A：</b>整排用照片卡片，没照片的用浅灰底加图钉补位。问题是 10 个里只有 1 个有照片时，又回到一排灰块。</div>
+    <div><b>方案 B（推荐）：</b>永远用矮卡片，高度统一 84pt。有照片的卡片右边多一张 64pt 方形缩略图，卡片相应宽一点；没照片的就是纯文字卡，不放任何占位。照片多少都不会出现空灰块，以后照片补齐了也自然好看。点卡片仍然打开带大图的途经点卡片。</div>
+    <div class="d">按整排统一切换，不会出现同一排里高矮不齐。点卡片打开途经点卡片的行为不变；“查看全部”逻辑不变。</div>
+  </div>
+
+<script>
+  const wps = [
+    ['金顶', 3.2, 1918], ['吊马桩', 7.8, 1640], ['发云界', 12.1, 1580],
+    ['九龙山', 17.4, 1420], ['沈子村', 21.9, 860], ['龙山村', 24.0, 420],
+  ];
+  const photos = {
+    0: 'linear-gradient(160deg,#9cc0e6 0%,#c9dbe9 34%,#7a9a63 55%,#45633f 80%)',
+    2: 'linear-gradient(170deg,#f4c58c 0%,#e9a36a 30%,#8a6b4d 60%,#4c3d30 90%)',
+    4: 'linear-gradient(150deg,#a9d2c9 0%,#7fb5a2 40%,#4f7d6a 70%,#2d4a40 100%)',
+  };
+  const pinIcon = `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>`;
+  const kmText = (km, m) => `第 ${km.toFixed(1)} km  海拔 ${m} m`;
+
+  const photoCard = (w, i, withPhoto) => {
+    const has = withPhoto && photos[i];
+    return `<div class="pc">
+      <div class="ph">${has ? `<div class="img" style="background:${photos[i]}"></div>` : `<div class="ic">${pinIcon}</div>`}
+        <div class="n ${has ? 'w' : 'm'}">#${i + 1}</div></div>
+      <div class="nm">${w[0]}</div><div class="km">${kmText(w[1], w[2])}</div>
+    </div>`;
+  };
+  const compactCard = (w, i) => `<div class="cc">
+      <div class="top"><div class="num">${i + 1}</div><div class="nm">${w[0]}</div></div>
+      <div class="km">${kmText(w[1], w[2])}</div>
+    </div>`;
+
+  const thumbCard = (w, i) => photos[i]
+    ? `<div class="tc"><div class="txt"><div class="top"><div class="num">${i + 1}</div><div class="nm">${w[0]}</div></div>
+        <div class="km">${w[1].toFixed(1)} km  ${w[2]} m</div></div><div class="th" style="background:${photos[i]}"></div></div>`
+    : `<div class="tc nophoto"><div class="txt"><div class="top"><div class="num">${i + 1}</div><div class="nm">${w[0]}</div></div>
+        <div class="km">${kmText(w[1], w[2])}</div></div></div>`;
+  const section = (mode, variant) => {
+    const cards = variant === 'compact'
+      ? wps.map(compactCard).join('')
+      : variant === 'thumb'
+      ? wps.map(thumbCard).join('')
+      : wps.map((w, i) => photoCard(w, i, variant === 'mixed')).join('');
+    const title = { current:'现在：全是空灰块', compact:'整排没照片', mixed:'方案 A：照片卡 + 灰块补位', thumb:'方案 B（推荐）：矮卡片 + 缩略图' }[variant];
+    return `<div class="col">
+      <div class="label ${variant === 'current' ? '' : 'new'}">${title}</div>
+      <div class="phone ${mode}">
+        <div class="secHead"><h3>途经点</h3><span>${wps.length}</span></div>
+        <div class="ep" style="margin-top:12px"><div class="g" style="background:var(--start)">起</div>
+          <div class="t"><b>起点</b><i>距你 12 公里</i></div><div class="go">前往</div></div>
+        <div class="scroller">${cards}</div>
+        <div class="ep" style="margin-top:20px"><div class="g" style="background:var(--danger)">终</div>
+          <div class="t"><b>终点</b><i>全程 25.3 公里</i></div></div>
+        <div class="next"><h3>路线简介</h3><p>从沈家大院上山，经金顶和吊马桩，沿高山草甸一路向东……</p></div>
+      </div>
+    </div>`;
+  };
+  const render = (mode) => {
+    document.getElementById('phones').innerHTML =
+      section(mode, 'current') + section(mode, 'compact') + section(mode, 'mixed') + section(mode, 'thumb');
+  };
+  render('light');
+  document.getElementById('sw').addEventListener('click', (e) => {
+    const m = e.target.dataset.m; if (!m) return;
+    document.querySelectorAll('#sw button').forEach(b => b.classList.toggle('on', b === e.target));
+    render(m);
+  });
+</script>
+</body>
+</html>

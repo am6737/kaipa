@@ -18,6 +18,8 @@ import { layout, motion, type } from '../tokens';
 
 const DetailPageScrollContext = React.createContext<{ scrollBy: (dy: number) => void } | null>(null);
 
+export type DetailEntryVariant = 'push' | 'continuationX' | 'continuationY' | 'none';
+
 export function useDetailPageScroll() {
   return React.useContext(DetailPageScrollContext);
 }
@@ -60,7 +62,8 @@ export function DetailPage({
   const width = Dimensions.get('window').width;
   const translateX = useRef(new Animated.Value(entryVariant === 'push' ? width : entryVariant === 'continuationX' ? 52 : 0)).current;
   const translateY = useRef(new Animated.Value(entryVariant === 'continuationY' ? 44 : 0)).current;
-  const opacity = useRef(new Animated.Value(entryVariant === 'push' ? 1 : 0.92)).current;
+  // Only the continuation entries fade; `none` never animates, so it must not sit at 0.92.
+  const opacity = useRef(new Animated.Value(entryVariant === 'continuationX' || entryVariant === 'continuationY' ? 0.92 : 1)).current;
   const onEnterCompleteRef = useRef(onEnterComplete);
 
   useEffect(() => {

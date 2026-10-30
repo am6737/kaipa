@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>时间线卡片 可见范围选择 预览</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", "Helvetica Neue", sans-serif;
+    background: #E6E6EB; color: #1C1C1E; padding: 32px 22px 56px;
+  }
+  h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.3px; }
+  .sub { font-size: 13.5px; color: rgba(60,60,67,0.62); margin: 8px 0 0; line-height: 1.6; max-width: 820px; }
+  .sub code { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; color: #1C1C1E; }
+  .group-title { font-size: 16px; font-weight: 800; margin: 34px 0 4px; }
+  .group-note { font-size: 13px; color: rgba(60,60,67,0.62); margin-bottom: 14px; line-height: 1.55; max-width: 820px; }
+  .stage { display: flex; gap: 26px; flex-wrap: wrap; align-items: flex-start; }
+  .cap { font-size: 12px; font-weight: 600; color: rgba(60,60,67,0.55); margin: 0 0 8px 6px; }
+
+  /* theme tokens, from src/theme/theme.ts */
+  .l { --bg:#F2F2F7; --feature:#FFFFFF; --surfaceTop:#FFFFFF; --text:#000; --t2:rgba(60,60,67,0.62); --t3:rgba(60,60,67,0.32);
+       --field:rgba(0,0,0,0.045); --accent:#0A84FF; --accentSofter:rgba(10,132,255,0.06); --accentSoft:rgba(10,132,255,0.12);
+       --glass:rgba(255,255,255,0.72); --menuShadow:0 14px 38px rgba(0,0,0,0.16); --scrim:rgba(20,20,24,0.38); }
+  .d { --bg:#000; --feature:#000; --surfaceTop:rgba(40,40,44,0.98); --text:#fff; --t2:rgba(235,235,245,0.62); --t3:rgba(235,235,245,0.30);
+       --field:rgba(255,255,255,0.07); --accent:#0A84FF; --accentSofter:rgba(10,132,255,0.10); --accentSoft:rgba(10,132,255,0.18);
+       --glass:rgba(32,32,35,0.86); --menuShadow:0 14px 38px rgba(0,0,0,0.50); --scrim:rgba(0,0,0,0.72); }
+  .d .sheet { background: #1C1C1E; }
+
+  .phone { width: 360px; height: 720px; border-radius: 40px; overflow: hidden; position: relative;
+           box-shadow: 0 22px 60px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.08); background: var(--feature); color: var(--text); }
+  .status { height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 26px; font-size: 14px; font-weight: 600; }
+  .feed { padding: 6px 16px; }
+  .feed-title { font-size: 18px; font-weight: 800; margin: 6px 0 14px; }
+
+  /* timeline card (OutingCard) */
+  .card { margin-bottom: 30px; }
+  .head { display: flex; align-items: center; gap: 10px; }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg,#7A5AF8,#2BB4A8);
+            color:#fff; font-size: 14px; font-weight: 700; display:flex; align-items:center; justify-content:center; }
+  .who { flex: 1; min-width: 0; }
+  .who .n { font-size: 15px; font-weight: 700; }
+  .who .s { font-size: 11.5px; color: var(--t2); margin-top: 2px; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 999px; background: var(--field);
+          font-size: 12px; color: var(--t2); position: relative; }
+  .chip.on { background: var(--accentSoft); color: var(--accent); }
+  .chip svg { width: 13px; height: 13px; }
+  .ttl { font-size: 15px; font-weight: 700; margin: 12px 0 8px; }
+  .map { height: 150px; border-radius: 16px; background: var(--field); position: relative; overflow: hidden; }
+  .map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .stats { display: flex; gap: 22px; margin-top: 10px; }
+  .stats div { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 16px; font-weight: 800; }
+  .stats span { display: block; font-family: inherit; font-size: 11.5px; font-weight: 400; color: var(--t2); font-family: -apple-system, "PingFang SC", sans-serif; margin-top: 2px; }
+
+  /* A: anchored glass menu (CompactChoiceMenu / MenuRow metrics) */
+  .menu { position: absolute; width: 214px; border-radius: 24px; background: var(--glass);
+          -webkit-backdrop-filter: blur(30px) saturate(1.6); backdrop-filter: blur(30px) saturate(1.6);
+          box-shadow: var(--menuShadow); padding: 12px 0 8px; z-index: 5; }
+  .menu .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.4px; color: var(--t2); padding: 0 20px 4px; }
+  .row { height: 48px; display: flex; align-items: center; padding: 0 20px; }
+  .row .ic { width: 24px; display: flex; justify-content: center; }
+  .row .ic svg { width: 19px; height: 19px; }
+  .row .lb { flex: 1; margin-left: 12px; font-size: 14.5px; }
+  .row .ck svg { width: 16px; height: 16px; color: var(--accent); }
+  .row.cur .lb { font-weight: 600; }
+
+  /* B: bottom sheet */
+  .scrim { position: absolute; inset: 0; background: var(--scrim); z-index: 4; }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--feature);
+           border-radius: 30px 30px 0 0; padding: 8px 16px 30px; }
+  .handle { width: 30px; height: 4px; border-radius: 2px; background: var(--t3); margin: 0 auto 18px; }
+  .sheet h2 { font-size: 25px; font-weight: 800; letter-spacing: -0.5px; padding: 0 4px; }
+  .sheet .lead { font-size: 14px; line-height: 23px; color: var(--t2); margin: 4px 4px 16px; }
+  .opt { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 16px; margin-bottom: 6px; }
+  .opt .tile { width: 40px; height: 40px; border-radius: 11px; background: var(--field); display: flex; align-items: center; justify-content: center; color: var(--text); }
+  .opt .tile svg { width: 19px; height: 19px; }
+  .opt .tx { flex: 1; }
+  .opt .tx b { display: block; font-size: 15px; font-weight: 700; }
+  .opt .tx span { display: block; font-size: 12px; line-height: 19px; color: var(--t2); margin-top: 1px; }
+  .opt .ck svg { width: 18px; height: 18px; color: var(--accent); }
+  .opt.cur { background: var(--accentSofter); }
+  .opt.cur .tile { background: var(--accentSoft); color: var(--accent); }
+  .home { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 120px; height: 5px; border-radius: 3px; background: var(--text); opacity: 0.85; z-index: 6; }
+  .pressed { background: var(--field); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+    <symbol id="users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></symbol>
+    <symbol id="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+  </defs>
+</svg>
+
+<h1>时间线卡片：「谁可以看到」改用 App 样式</h1>
+<p class="sub">现在点卡片右上角的可见范围标签，弹的是 <code>ActionSheet.tsx</code> 那种 iOS 系统风格的底部操作表（蓝字居中、分隔线、单独的「取消」）。下面两种都只用 App 自己的 token：玻璃浮层菜单沿用 <code>MenuRow</code> 和 <code>CompactChoiceMenu</code>，底部弹层沿用 DESIGN.md 的 30 圆角加拖动条。选项之间不加分隔线。</p>
+
+<div class="group-title">方案 A（推荐）：标签旁的玻璃浮层菜单</div>
+<p class="group-note">单选项就三个，DESIGN.md 对单选的写法是「popover」。菜单从标签下方展开，背景不压暗，点选项后立刻保存并收起，点空白处收起。行高、图标、字号和 ⋯ 菜单、排序菜单完全一致，不用新写组件，并且 iOS 和 Android 显示一致。打开期间标签显示为 accent 色。</p>
+<div class="stage" id="stageA"></div>
+
+<div class="group-title">方案 B：底部弹层，带说明</div>
+<p class="group-note">想让用户看清每档的含义时用这个。标题用 <code>pageTitle</code>，每档一行加一句说明，当前档用 <code>accentSofter</code> 底色加对勾。点选项即保存并关闭，不另放「取消」或「完成」，下滑或点遮罩关闭。说明文案是新增的，需要补进 i18n。</p>
+<div class="stage" id="stageB"></div>
+
+<template id="feed">
+  <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+  <div class="feed">
+    <div class="feed-title">时间线</div>
+    <div class="card">
+      <div class="head">
+        <div class="avatar">K</div>
+        <div class="who"><div class="n">卡帕</div><div class="s">10月26日 武功山</div></div>
+        <div class="chip CHIPCLS"><svg><use href="#users"/></svg>粉丝可见</div>
+      </div>
+      <div class="ttl">龙山村上金顶，云海出来了</div>
+      <div class="map">
+        <svg viewBox="0 0 328 150" preserveAspectRatio="none"><path d="M24 120 C 60 100, 70 60, 110 70 S 160 30, 200 48 S 260 90, 300 34" fill="none" stroke="var(--accent)" stroke-width="3.2" stroke-linecap="round"/></svg>
+      </div>
+      <div class="stats">
+        <div>18.4<span>公里</span></div><div>1,326<span>累计爬升 m</span></div><div>7:42<span>用时</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="head">
+        <div class="avatar">K</div>
+        <div class="who"><div class="n">卡帕</div><div class="s">10月19日 香山</div></div>
+        <div class="chip"><svg><use href="#lock"/></svg>仅自己</div>
+      </div>
+      <div class="ttl">下班后的环线</div>
+      <div class="map"></div>
+    </div>
+  </div>
+  <div class="home"></div>
+</template>
+
+<script>
+  const feed = document.getElementById('feed').innerHTML;
+  const opts = [
+    { id: 'private', icon: 'lock', label: '仅自己', desc: '只有你能看到' },
+    { id: 'followers', icon: 'users', label: '粉丝可见', desc: '关注你的人能在你的主页看到' },
+    { id: 'public', icon: 'globe', label: '公开', desc: '所有人都能看到，也会出现在发现里' },
+  ];
+  const cur = 'followers';
+
+  function menuA() {
+    return `<div class="menu" style="top:128px; right:16px">
+      <div class="eyebrow">谁可以看到</div>
+      ${opts.map(o => `<div class="row ${o.id === cur ? 'cur' : ''}">
+        <div class="ic"><svg><use href="#${o.icon}"/></svg></div>
+        <div class="lb">${o.label}</div>
+        ${o.id === cur ? '<div class="ck"><svg><use href="#check"/></svg></div>' : ''}
+      </div>`).join('')}
+    </div>`;
+  }
+  function sheetB() {
+    return `<div class="scrim"></div><div class="sheet">
+      <div class="handle"></div>
+      <h2>谁可以看到</h2>
+      <p class="lead">这次出行的轨迹、照片和数据</p>
+      ${opts.map(o => `<div class="opt ${o.id === cur ? 'cur' : ''}">
+        <div class="tile"><svg><use href="#${o.icon}"/></svg></div>
+        <div class="tx"><b>${o.label}</b><span>${o.desc}</span></div>
+        ${o.id === cur ? '<div class="ck"><svg><use href="#check"/></svg></div>' : ''}
+      </div>`).join('')}
+    </div>`;
+  }
+  function phone(mode, overlay, chipOn) {
+    return `<div><div class="cap">${mode === 'l' ? '浅色' : '深色'}</div>
+      <div class="phone ${mode}">${feed.replace('CHIPCLS', chipOn ? 'on' : '')}${overlay}</div></div>`;
+  }
+  document.getElementById('stageA').innerHTML = phone('l', menuA(), true) + phone('d', menuA(), true);
+  document.getElementById('stageB').innerHTML = phone('l', sheetB(), false) + phone('d', sheetB(), false);
+</script>
+</body>
+</html>

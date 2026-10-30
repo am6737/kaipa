@@ -18,6 +18,7 @@ import { KPSpinner, KPState } from '../State';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { ProfileHero, ProfileTabs } from '../me/profile/ProfileHero';
+import { TabPanelSwitch, useStickyTabScroll } from '../TabPanelSwitch';
 import { OutingCard } from '../me/profile/OutingCard';
 import { ProfilePhotos } from '../me/profile/ProfilePhotos';
 import { TimelineEmpty } from '../me/profile/TimelineEmpty';
@@ -38,6 +39,12 @@ export function UserProfilePage({ theme, userId, onBack }: { theme: Theme; userI
   const [gearLoading, setGearLoading] = useState(false);
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const tabScroll = useStickyTabScroll(scrollRef);
+  const selectTab = (key: typeof tab) => {
+    if (key === tab) return;
+    tabScroll.settleBeforeSwitch();
+    setTab(key);
+  };
   const panelY = useRef(0);
   const entryY = useRef<Record<string, number>>({});
   const jumpTarget = useRef<string | null>(null);
@@ -156,12 +163,18 @@ export function UserProfilePage({ theme, userId, onBack }: { theme: Theme; userI
   } else {
     const canView = summary.canView && !summary.relation.blocked;
     const hidden = summary.hiddenOutings ?? 0;
+    const tabs: { key: 'timeline' | 'photos' | 'gear'; label: string }[] = [
+      { key: 'timeline', label: t('profile.tabTimeline') },
+      { key: 'photos', label: t('profile.tabPhotos') },
+      ...((summary.gearSets ?? 0) > 0 ? [{ key: 'gear' as const, label: t('profile.tabGear') }] : []),
+    ];
     const openList = canView && !summary.relation.blocked
       ? (kind: 'followers' | 'following') => () => nav.openPeople(userId, kind)
       : undefined;
     body = (
       <ScrollView
         ref={scrollRef}
+        {...tabScroll.scrollProps}
         stickyHeaderIndices={canView ? [1] : undefined}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
@@ -203,16 +216,12 @@ export function UserProfilePage({ theme, userId, onBack }: { theme: Theme; userI
         </View>
 
         {canView ? (
-          <View style={{ marginTop: space.lg, backgroundColor: theme.featureSurface }}>
+          <View onLayout={tabScroll.onTabsLayout} style={{ marginTop: space.lg, backgroundColor: theme.featureSurface }}>
             <ProfileTabs
               theme={theme}
               active={tab}
-              onChange={setTab}
-              tabs={[
-                { key: 'timeline', label: t('profile.tabTimeline') },
-                { key: 'photos', label: t('profile.tabPhotos') },
-                ...((summary.gearSets ?? 0) > 0 ? [{ key: 'gear' as const, label: t('profile.tabGear') }] : []),
-              ]}
+              onChange={selectTab}
+              tabs={tabs}
             />
           </View>
         ) : null}
@@ -230,57 +239,59 @@ export function UserProfilePage({ theme, userId, onBack }: { theme: Theme; userI
         ) : (
           <View
             onLayout={(event) => { panelY.current = event.nativeEvent.layout.y; tryJump(); }}
-            style={{ paddingHorizontal: layout.pagePadding, paddingTop: space.lg }}
+            style={{ paddingHorizontal: layout.pagePadding, paddingTop: space.lg, minHeight: tabScroll.panelMinHeight }}
           >
-            {tab === 'timeline' ? (
-              <>
-                {outings.outings.map((outing, index) => (
-                  <View
-                    key={outing.id}
-                    onLayout={(event) => { entryY.current[outing.id] = event.nativeEvent.layout.y; tryJump(); }}
-                    style={{ marginTop: index ? 24 : 0 }}
-                  >
-                    <OutingCard
-                      theme={theme}
-                      outing={outing}
-                      subject={nick}
-                      avatarUri={summary?.avatarUrl}
-                      highlighted={highlighted === outing.id}
-                      onOpen={openerFor(outing)}
-                    />
-                  </View>
-                ))}
-                {outings.hasMore ? (
-                  <Pill theme={theme} label={t('profile.loadMore')} center onPress={() => { void outings.loadMore(); }} />
-                ) : null}
-                {!outings.outings.length && !outings.loading ? (
-                  <TimelineEmpty theme={theme} title={t('profile.timelineEmptyTitle')} body={t('profile.otherTimelineEmptyBody')} />
-                ) : null}
-                {hidden > 0 ? (
-                  <Text style={[type.small, { color: theme.text2, textAlign: 'center', marginTop: space.xl }]}>{t('profile.hiddenOutings')}</Text>
-                ) : null}
-              </>
-            ) : tab === 'photos' ? (
-              <ProfilePhotos theme={theme} outings={outings.outings} onJump={jumpToOuting} />
-            ) : tab === 'gear' ? (
-              gearLoading && !gearSets ? (
-                <View style={{ paddingTop: 60, alignItems: 'center' }}><KPSpinner theme={theme} /></View>
-              ) : gearSets && gearSets.length ? (
-                <View style={{ gap: space.md }}>
-                  {gearSets.map((card) => (
-                    <GearSetCardRow
-                      key={card.id}
-                      theme={theme}
-                      card={card}
-                      meta={t('profile.gearSetMeta', { count: card.itemCount, weight: fmtWeight(card.weightKg, data.profile.gearWeightUnit || 'kg', true) })}
-                      onPress={() => nav.openGearSetPreview(card.id)}
-                    />
+            <TabPanelSwitch order={tabs.map((item) => item.key)} active={tab}>
+              {tab === 'timeline' ? (
+                <>
+                  {outings.outings.map((outing, index) => (
+                    <View
+                      key={outing.id}
+                      onLayout={(event) => { entryY.current[outing.id] = event.nativeEvent.layout.y; tryJump(); }}
+                      style={{ marginTop: index ? 24 : 0 }}
+                    >
+                      <OutingCard
+                        theme={theme}
+                        outing={outing}
+                        subject={nick}
+                        avatarUri={summary?.avatarUrl}
+                        highlighted={highlighted === outing.id}
+                        onOpen={openerFor(outing)}
+                      />
+                    </View>
                   ))}
-                </View>
-              ) : (
-                <KPState theme={theme} icon="gear" title={t('profile.tabGear')} body={t('profile.gearSetsEmpty')} />
-              )
-            ) : null}
+                  {outings.hasMore ? (
+                    <Pill theme={theme} label={t('profile.loadMore')} center onPress={() => { void outings.loadMore(); }} />
+                  ) : null}
+                  {!outings.outings.length && !outings.loading ? (
+                    <TimelineEmpty theme={theme} title={t('profile.timelineEmptyTitle')} body={t('profile.otherTimelineEmptyBody')} />
+                  ) : null}
+                  {hidden > 0 ? (
+                    <Text style={[type.small, { color: theme.text2, textAlign: 'center', marginTop: space.xl }]}>{t('profile.hiddenOutings')}</Text>
+                  ) : null}
+                </>
+              ) : tab === 'photos' ? (
+                <ProfilePhotos theme={theme} outings={outings.outings} onJump={jumpToOuting} />
+              ) : tab === 'gear' ? (
+                gearLoading && !gearSets ? (
+                  <View style={{ paddingTop: 60, alignItems: 'center' }}><KPSpinner theme={theme} /></View>
+                ) : gearSets && gearSets.length ? (
+                  <View style={{ gap: space.md }}>
+                    {gearSets.map((card) => (
+                      <GearSetCardRow
+                        key={card.id}
+                        theme={theme}
+                        card={card}
+                        meta={t('profile.gearSetMeta', { count: card.itemCount, weight: fmtWeight(card.weightKg, data.profile.gearWeightUnit || 'kg', true) })}
+                        onPress={() => nav.openGearSetPreview(card.id)}
+                      />
+                    ))}
+                  </View>
+                ) : (
+                  <KPState theme={theme} icon="gear" title={t('profile.tabGear')} body={t('profile.gearSetsEmpty')} />
+                )
+              ) : null}
+            </TabPanelSwitch>
           </View>
         )}
       </ScrollView>

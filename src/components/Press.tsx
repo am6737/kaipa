@@ -6,7 +6,7 @@
 // are still accepted so the ~30 legacy call sites compile, but they are
 // ignored — don't add new ones.
 import React, { createContext, useContext, useRef } from 'react';
-import { Pressable, PressableProps, ViewStyle, StyleProp, GestureResponderEvent } from 'react-native';
+import { Pressable, PressableProps, GestureResponderEvent } from 'react-native';
 
 // A page swipe that the pager claims never reaches the JS responder system, so a
 // row-wide tap target still holds its press-in state when the finger lifts and
@@ -54,7 +54,6 @@ export function useDragCancelledPress(
 
 interface Props extends PressableProps {
   children: React.ReactNode;
-  style?: StyleProp<ViewStyle>;
   /** @deprecated Ignored — the press-in scale was removed app-wide. */
   scaleTo?: number;
   /** @deprecated Ignored — the press-in fade was removed app-wide. */

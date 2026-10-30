@@ -1,7 +1,7 @@
 import { presentItinerary, removeOutOfRangeArrivals } from './itinerary-presentation.ts';
 import { addTrackDayLocations, type ItineraryTrack } from './itinerary-track-locations.ts';
 import { carryDailyStarts } from './itinerary-locations.ts';
-import { chooseOfficialPlan, loadOfficialPlans, officialPlanDocument, officialTowns, type OfficialSelection } from './official-plan.ts';
+import { chooseOfficialPlan, dayRange, expectedTravelDays, loadOfficialPlans, officialPlanDocument, officialTowns, type OfficialSelection } from './official-plan.ts';
 // Staged pipeline for the tasks that used to blow a single model-loop budget.
 //
 // A full plan is minutes of model work: research, an itinerary over a real
@@ -11,7 +11,7 @@ import { chooseOfficialPlan, loadOfficialPlans, officialPlanDocument, officialTo
 // artifact and its own retry, and the planner no longer loops freely: it emits
 // one declarative PlanDocument that deterministic code saves.
 import { resolveTravelRequest, travelIntake, travelContextFromRequest } from './travel-request.ts';
-import { collectMainTransport, mergeMainTransportItems, transportEndpointsSchema, type MainTransport } from './main-transport.ts';
+import { collectMainTransport, collectOfficialTransport, mergeMainTransportItems, transportEndpointsSchema, type MainTransport, type MainTransportQuery, type OfficialTransport } from './main-transport.ts';
 import { assistantOutput } from './agent.ts';
 import { planningSkills } from './skills.ts';
 import { travelContextSchema } from './travel-context-schema.ts';
@@ -171,8 +171,8 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
 
   const multiRoute = isMultiRouteRequest(pipeline.task.decision.destination);
   const official = pipeline.task.decision.fullHikingPlan && !multiRoute
-    ? await selectOfficialPlan(pipeline, needsMainTravel ? 2 : 0) : null;
-  if (official) pipeline.task.decision.derivedDays = official.totalDays;
+    ? await selectOfficialPlan(pipeline, needsMainTravel) : null;
+  if (official) applyOfficialDays(pipeline, official);
   const transportPlan = multiRoute || needsMainTravel ? await runStage<TransportPlan>({
     name: 'transport', state, pipeline,
     execute: async signal => {
@@ -183,6 +183,15 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
     },
   }) : { artifact: null as TransportPlan | null, aborted: false };
   if (transportPlan.aborted) return aborted();
+  // The timetable, not a reserved day, decides whether the official plan's
+  // walk starts on the arrival day.
+  const officialTravel = transportPlan.artifact?.mainTravel?.official;
+  if (official && officialTravel) {
+    official.accessDay = officialTravel.accessDay;
+    official.totalDays = official.plan.payload.days.length + Number(officialTravel.accessDay);
+    official.travelBasis = officialTravel.basis;
+    applyOfficialDays(pipeline, official);
+  }
 
   // Keep the user's omission distinct from the researched estimate. The
   // estimate is still auditable in the ResearchBrief and can be revised by a
@@ -274,6 +283,14 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
   return { finalOutput: withDeterministicDraft(respond.artifact, plan.artifact, save.artifact), aborted: false };
 }
 
+// The official plan's length is the trip's length. A total the user gave is
+// replaced, not kept beside it: the journey is saved with the plan's days, and
+// the plan document already says the total changed (requestedDays).
+function applyOfficialDays(pipeline: PipelineDeps, official: OfficialSelection) {
+  pipeline.task.decision.derivedDays = official.totalDays;
+  if (pipeline.task.decision.days != null) pipeline.task.decision.days = official.totalDays;
+}
+
 // The model cannot move a queried return service. Keep an undecided-day
 // candidate long enough for every saved departure, while a next-day arrival
 // marker belongs to the departure row when it crosses the final day.
@@ -287,8 +304,8 @@ export function reconcileCandidateDays(plan: PlanDocument, pipeline: PipelineDep
     if (plan.schedule) plan.schedule.totalDays = lastDay;
   }
   pipeline.task.decision.derivedDays = plan.journey.days;
-  const estimate = `全程建议 ${plan.journey.days} 天，含往返交通；这是候选方案的规划估算，并非用户已指定的天数。`;
-  plan.assumptions = [estimate, ...plan.assumptions.filter(item => !/^全程建议 \d+ 天，含往返交通；这是候选方案的规划估算/.test(item))].slice(0, 12);
+  const estimate = `全程建议 ${plan.journey.days} 天，含去程交通；这是候选方案的规划估算，并非用户已指定的天数。`;
+  plan.assumptions = [estimate, ...plan.assumptions.filter(item => !/^全程建议 \d+ 天，含(?:往返|去程)交通；这是候选方案的规划估算/.test(item))].slice(0, 12);
 }
 
 // The reply never has to reproduce the plan text: when nothing was saved the
@@ -823,7 +840,7 @@ async function runTransport(pipeline: PipelineDeps, signal: AbortSignal, researc
     segments,
     totalTransportMinutes: null,
     recommendedDays: null,
-    basis: '此阶段仅整理路线间接驳；完整旅程编排还需安排往返大交通，并计入总天数，用户明确不需要时除外。',
+    basis: '此阶段仅整理路线间接驳；完整旅程编排还需安排去程大交通，并计入总天数，用户明确不需要时除外。',
     unresolved: segments.length && segments.every(segment => !segment.note.includes('待核实'))
       ? []
       : ['路线间交通起终点和耗时尚未核实，不将铁路或航班结果代替山路接驳。'],
@@ -832,7 +849,7 @@ async function runTransport(pipeline: PipelineDeps, signal: AbortSignal, researc
 
 // The bound journey's route decides whether an official plan replaces the
 // model's day split. Any failure here keeps the model planner.
-async function selectOfficialPlan(pipeline: PipelineDeps, travelDays: number): Promise<OfficialSelection | null> {
+async function selectOfficialPlan(pipeline: PipelineDeps, withTravel: boolean): Promise<OfficialSelection | null> {
   const journeyId = boundJourneyId(pipeline.context);
   if (!journeyId) return null;
   try {
@@ -842,16 +859,21 @@ async function selectOfficialPlan(pipeline: PipelineDeps, travelDays: number): P
     if (!routeId) return null;
     const loaded = await loadOfficialPlans(pipeline.admin, routeId);
     if (!loaded) return null;
-    const plan = chooseOfficialPlan(loaded.plans, pipeline.task.decision.days ?? null, travelDays);
+    const plan = chooseOfficialPlan(loaded.plans, pipeline.task.decision.days ?? null, withTravel);
     if (!plan) return null;
-    // Like the one-tap creation, an official plan sets no track day endpoints:
-    // its days follow the guide, which may walk the track in either direction.
+    // A plan whose walking days name their stops on the route's track sets
+    // each day's end from them; an older plan without stops sets none.
     // A journey created from the route already sits at the route's location.
+    const walked = plan.payload.days.filter(day => day.kind === 'hike');
+    const staged = walked.length > 0 && walked.every(day => dayRange(day));
     const located = journey.data?.lng != null && journey.data?.lat != null;
     pipeline.task.decision.requiredOperations = pipeline.task.decision.requiredOperations.filter(operation =>
-      operation !== 'set_itinerary_group_endpoints' && (operation !== 'set_journey_map_location' || !located));
-    return { plan, routeId, routeName: loaded.routeName, travelDays, totalDays: plan.payload.days.length + travelDays,
-      requestedDays: pipeline.task.decision.days ?? null };
+      (operation !== 'set_itinerary_group_endpoints' || staged) && (operation !== 'set_journey_map_location' || !located));
+    // Until the timetable is read, a plan with a meeting time is expected to
+    // start on the arrival day; the transport stage settles it.
+    const travelDays = expectedTravelDays(plan, withTravel);
+    return { plan, routeId, routeName: loaded.routeName, track: loaded.track, withTravel, accessDay: travelDays > 0,
+      totalDays: plan.payload.days.length + travelDays, travelBasis: [], requestedDays: pipeline.task.decision.days ?? null };
   } catch (error) {
     console.warn('[AppAgent] official plan lookup failed, using the model planner', error instanceof Error ? error.message : error);
     return null;
@@ -860,32 +882,42 @@ async function selectOfficialPlan(pipeline: PipelineDeps, travelDays: number): P
 
 async function runMainTransport(pipeline: PipelineDeps, signal: AbortSignal, research: ResearchBrief | null, official: OfficialSelection | null = null): Promise<MainTransport> {
   const request = resolveTravelRequest(pipeline.task.decision.travelRequest, pipeline.context.confirmedTravel, pipeline.context.currentLocation);
+  const access = official?.plan.payload.access;
+  const officialAccess: OfficialTransport | null = access ? {
+    town: access.town, meetingPoint: access.meetingPoint, arriveBy: access.arriveBy,
+    accessStations: access.stations.map(station => station.name),
+  } : null;
   const agent = pipeline.stageAgent({
     name: 'Kaipa Main Transport Endpoints', model: pipeline.flashModel, stage: 'transport', temperature: 0,
     tools: [], outputType: transportEndpointsSchema,
-    instructions: '你是独立大交通查询步骤，只确定实际查询所需的枢纽，不生成班次、时间、票价、余票或旅程文本。每个用户选择的 mode 输出一组往返枢纽。rail 使用准确中文车站名（站名不加站字），flight 查询字段使用真实 IATA 三字码，同时必须填写 outboundOriginDisplayName、outboundDestinationDisplayName、returnOriginDisplayName、returnDestinationDisplayName 四个中文机场显示名（例如南宁吴圩国际机场、成都天府国际机场），显示名只供服务端旅程骨架使用，不能把 IATA 码当作旅程地点名；self_drive 使用出发城市和实际进/出山道路起终点地名。依据默认当前位置或用户指定的出发/返回城市与路线起终点选择合理枢纽。每组端点都填写 outboundOriginCity、outboundDestinationCity、returnOriginCity、returnDestinationCity（各枢纽所在地级市或直辖市），以及 outboundUserCity、returnUserCity（用户出发地、返回地所在城市：市辖区填所属地级市或直辖市，如南宁良庆区填南宁市；县或县级市填其本身，如凌云县填凌云县）；服务端据此判断是否需要出发地到枢纽的地面接驳。rail 是精确车站查询，城市名不能代表全市车站；成都与成都东是不同站，去成都地区优先考虑高铁主枢纽成都东，不要直接把城市名成都填成到达站。若用户未指定具体车站，可给每个方向最多一个同城备选车站组合（railAlternatives），只在主组合结果为空时查询；用户明确指定车站时不得给替换该站的备选。总天数待定时，根据路线资料、城市往返耗时、进出山接驳和必要缓冲，给出 suggestedDays 和 durationBasis 作为候选全程方案，方便先查询建议返程日期；明确标为估算，不得只复制 GPX 徒步天数，也不要因未给返程日期直接停止规划。确实缺少依据时留空并写 unresolved。禁止编造技术代码。',
+    instructions: '你是独立大交通查询步骤，只确定实际查询所需的枢纽，不生成班次、时间、票价、余票或旅程文本。本轮只规划去程，不安排返程：每个用户选择的 mode 输出一组枢纽，return 开头的返程字段照去程反向对称填写即可，服务端不会查询或排入行程。rail 使用准确中文车站名（站名不加站字），flight 查询字段使用真实 IATA 三字码，同时必须填写 outboundOriginDisplayName、outboundDestinationDisplayName 两个中文机场显示名（例如南宁吴圩国际机场、成都天府国际机场），显示名只供服务端旅程骨架使用，不能把 IATA 码当作旅程地点名；self_drive 使用出发城市和实际进/出山道路起终点地名。依据默认当前位置或用户指定的出发/返回城市与路线起终点选择合理枢纽。每组端点都填写 outboundOriginCity、outboundDestinationCity、returnOriginCity、returnDestinationCity（各枢纽所在地级市或直辖市），以及 outboundUserCity、returnUserCity（用户出发地、返回地所在城市：市辖区填所属地级市或直辖市，如南宁良庆区填南宁市；县或县级市填其本身，如凌云县填凌云县）；服务端据此判断是否需要出发地到枢纽的地面接驳。rail 是精确车站查询，城市名不能代表全市车站；成都与成都东是不同站，去成都地区优先考虑高铁主枢纽成都东，不要直接把城市名成都填成到达站。若用户未指定具体车站，可给每个方向最多一个同城备选车站组合（railAlternatives），只在主组合结果为空时查询；用户明确指定车站时不得给替换该站的备选。总天数待定时，根据路线资料、去程耗时、进山接驳和必要缓冲，给出 suggestedDays 和 durationBasis 作为候选全程方案（从出发到徒步结束，不含返程）；明确标为估算，不得只复制 GPX 徒步天数。确实缺少依据时留空并写 unresolved。禁止编造技术代码。',
   });
   let endpoints;
   try {
     endpoints = await stageCall(pipeline, agent, `${pipeline.userInput}
 已确认大交通需求：${JSON.stringify(request)}
-路线事实：${JSON.stringify(research)}${official ? `
-开爬官方方案：${official.plan.payload.name}，进山前在${officialTowns(official.plan).start ?? '未知'}集合，出山后回到${officialTowns(official.plan).end ?? '未知'}；全程 ${official.totalDays} 天（含往返交通）。大交通枢纽按这两个地点选择。` : ''}`, { maxTurns: 1, signal }, value => transportEndpointsSchema.parse(value));
+路线事实：${JSON.stringify(research)}${official ? officialAccess ? `
+开爬官方方案：${official.plan.payload.name}。去程到达站已由方案固定为 ${officialAccess.accessStations[0]}，不要另选；只需确定用户出发地的车站（可给一个同城备选）。天数由服务端按时刻表决定，不必估算。` : `
+开爬官方方案：${official.plan.payload.name}，进山前在${officialTowns(official.plan).start ?? '未知'}集合；全程 ${official.totalDays} 天（含去程交通）。去程枢纽按集合地选择。` : ''}`, { maxTurns: 1, signal }, value => transportEndpointsSchema.parse(value));
   } catch (error) {
     if (signal.aborted) throw error;
     console.warn('[AppAgent] transport endpoints unavailable, falling back to ground estimates', String(error instanceof Error ? error.message : error).slice(0, 300));
     endpoints = transportEndpointsSchema.parse({ endpoints: [], unresolved: ['大交通查询枢纽未能确定。'] });
   }
+  const query = async (query: MainTransportQuery) => {
+    if (signal.aborted) throw signal.reason;
+    const raw = query.mode === 'self_drive'
+      ? await runSearchGroundTransport({ origin: query.origin, destination: query.destination }, { context: pipeline.context } as never)
+      : await runSearchTransport({ mode: query.mode, origin: query.origin, destination: query.destination,
+        departureDate: query.departureDate!, adults: request.adults, earliestHour: query.earliestHour, viaStation: null }, { context: pipeline.context } as never);
+    return typeof raw === 'string' ? parseJsonString(raw) : raw;
+  };
+  if (officialAccess) return collectOfficialTransport({ request, endpoints, plannedDate: pipeline.task.decision.plannedDate, official: officialAccess, query });
   return collectMainTransport({ request, endpoints, plannedDate: pipeline.task.decision.plannedDate, days: official?.totalDays ?? pipeline.task.decision.days,
-    fallbackDestination: research?.routes[0]?.start?.name || research?.destination || null,
-    query: async query => {
-      if (signal.aborted) throw signal.reason;
-      const raw = query.mode === 'self_drive'
-        ? await runSearchGroundTransport({ origin: query.origin, destination: query.destination }, { context: pipeline.context } as never)
-        : await runSearchTransport({ mode: query.mode, origin: query.origin, destination: query.destination,
-          departureDate: query.departureDate!, adults: request.adults, earliestHour: query.earliestHour, viaStation: null }, { context: pipeline.context } as never);
-      return typeof raw === 'string' ? parseJsonString(raw) : raw;
-    },
+    // Without endpoints the fallback drives to one place: an official plan's
+    // town, where its own shuttle starts, not the trailhead.
+    fallbackDestination: (official && officialTowns(official.plan).start) || research?.routes[0]?.start?.name || research?.destination || null,
+    query,
   });
 }
 
@@ -1028,7 +1060,7 @@ function planStageText(pipeline: PipelineDeps, research: ResearchBrief | null, t
     pipeline.userInput,
     research ? `\n上一阶段可信指南资料（ResearchBrief，事实来源）：${JSON.stringify(research)}` : '',
     transportPlan ? `\n独立交通查询结果（TransportPlan，mainTravel 是实际往返大交通查询快照，segments 是路线间接驳）：${JSON.stringify(transportPlan)}` : '',
-    `\n任务状态已确认的事实（需求解释阶段已核对，journey 字段直接采用）：目的地=${facts.destination ?? '无'}；出发日期=${facts.plannedDate ?? (facts.dateUndecided ? '未定' : '无')}；用户指定全程天数（含往返交通）=${facts.days ?? '无'}；系统根据路线与中转推算天数=${facts.derivedDays ?? '无'}；本次编排采用天数=${effectiveDays ?? '无'}；默认往返交通=${facts.includeRoundTripTransport !== false ? '包含' : '用户明确不需要'}；轨迹文件名=${facts.trackAttachmentName ?? '无'}。`,
+    `\n任务状态已确认的事实（需求解释阶段已核对，journey 字段直接采用）：目的地=${facts.destination ?? '无'}；出发日期=${facts.plannedDate ?? (facts.dateUndecided ? '未定' : '无')}；用户指定全程天数（含去程交通）=${facts.days ?? '无'}；系统根据路线与中转推算天数=${facts.derivedDays ?? '无'}；本次编排采用天数=${effectiveDays ?? '无'}；默认往返交通=${facts.includeRoundTripTransport !== false ? '包含' : '用户明确不需要'}；轨迹文件名=${facts.trackAttachmentName ?? '无'}。`,
   ].join('\n');
 }
 
@@ -1079,12 +1111,15 @@ export function finalizePlan(candidate: unknown, pipeline: PipelineDeps, researc
   presentItinerary(plan.itineraryItems, plan.groupNotes);
   const missingOrigin = pipeline.task.decision.fullHikingPlan && pipeline.task.decision.includeRoundTripTransport !== false && !plan.transport?.origin;
   if (missingOrigin) {
-    plan.pendingQuestion = '这次旅程从哪个城市出发？默认也返回这里；如果返回地不同，请一起告诉我。';
+    plan.pendingQuestion = '这次旅程从哪个城市出发？';
     plan.journey = null;
   }
   if (pipeline.task.decision.fullHikingPlan && pipeline.task.decision.includeRoundTripTransport !== false && plan.transport && !plan.pendingQuestion) {
-    if (!plan.transport.outbound.length || !plan.transport.inbound.length) {
-      plan.blocker ||= '往返交通链路尚未完整，不能将仅徒步的日程视为完整旅程。';
+    // A plan covers the way there; a return the model adds anyway is not saved.
+    plan.transport.direction = 'outbound';
+    plan.transport.inbound = [];
+    if (!plan.transport.outbound.length) {
+      plan.blocker ||= '去程交通链路尚未完整，不能将仅徒步的日程视为完整旅程。';
     } else {
       const review = reviewTransportPlan(plan.transport);
       plan.transport.reviewIssues = review.issues;
@@ -1092,7 +1127,7 @@ export function finalizePlan(candidate: unknown, pipeline: PipelineDeps, researc
       if (review.unverified.length) {
         plan.unverified = [...plan.unverified, '部分交通段的班次、耗时或可用性尚未核实，当前仅为规划估算，出行前需确认。'].slice(0, 30);
       }
-      if (!review.consistent) plan.unverified = [...plan.unverified, '往返交通与徒步窗口的衔接尚需核对，出发前请确认班次与接驳时间。'].slice(0, 30);
+      if (!review.consistent) plan.unverified = [...plan.unverified, '去程交通与徒步窗口的衔接尚需核对，出发前请确认班次与接驳时间。'].slice(0, 30);
       const hikingOrdinals = plan.itineraryItems.filter(item => item.kind === 'activity')
         .map(item => journeyDayOrdinal(item.day)).filter((day): day is number => day != null);
       const firstHikingDay = hikingOrdinals.length ? Math.min(...hikingOrdinals) : null;
@@ -1112,7 +1147,7 @@ export function finalizePlan(candidate: unknown, pipeline: PipelineDeps, researc
     // The outline keeps its structure until the day chunks have been filled.
     if (plan.itineraryItems.length) {
       pipeline.task.decision.derivedDays = plan.journey.days;
-      const estimate = `全程建议 ${plan.journey.days} 天，含往返交通；这是候选方案的规划估算，并非用户已指定的天数。`;
+      const estimate = `全程建议 ${plan.journey.days} 天，含去程交通；这是候选方案的规划估算，并非用户已指定的天数。`;
       plan.assumptions = [estimate, ...plan.assumptions.filter(item => item !== estimate)].slice(0, 12);
     } else if (!options.skeleton && (plan.blocker || plan.pendingQuestion)) {
       plan.journey = null;
@@ -1328,7 +1363,8 @@ export function fallbackPlan(pipeline: PipelineDeps, research: ResearchBrief | n
 }
 
 async function hydrateTrackDayLocations(pipeline: PipelineDeps, plan: PlanDocument) {
-  if (!plan.endpoints.length) return;
+  // An official plan's stops are already the day's places on the track.
+  if (!plan.endpoints.length || plan.endpoints.some(endpoint => endpoint.officialStop)) return;
   const ids = [...new Set(plan.endpoints.flatMap(endpoint => endpoint.routeId ? [endpoint.routeId] : []))];
   const tracks = new Map<string | null, ItineraryTrack>();
   if (ids.length) {
@@ -1485,7 +1521,7 @@ const researchInstructions = `你是 Kaipa 的资料综合阶段：系统已读�
 overnightCandidates 只能来自团队可信指南中出现的过夜/营地描述，并记录 guideSourceUrl 与 guideQuote；没有证据就不要填写。区分攻略与轨迹标注点提供的候选过夜位置，不要凭距离或时长平均分配。
 routes[].waypoints 由系统从路线 GPX 标注点填充，你必须输出空数组，不要编造任何标注点；编排阶段会拿到系统填充后的完整列表。
 facts 逐条记录事实与其来源链接；无法核实的写入 unresolved。
-当用户没有提供总天数时，必须包含出发地往返大交通、进出山接驳、徒步、必要住宿和缓冲，输出 suggestedDays（1-30 的整数）以及 durationBasis；只能基于指南覆盖的证据估算；证据不足时两者留空，并把缺口写入 unresolved。
+当用户没有提供总天数时，必须包含出发地去程大交通、进山接驳、徒步、必要住宿和缓冲（旅程到徒步结束为止，不含返程），输出 suggestedDays（1-30 的整数）以及 durationBasis；只能基于指南覆盖的证据估算；证据不足时两者留空，并把缺口写入 unresolved。
 指南可信，可直接使用，必须引用来源（无链接也保留）；费用、交通、封闭情况说明 asOf 日期。指南未覆盖时如实说明，禁止估算或编造。factSuggestions 必须为空数组。\n输出只包含 ResearchBrief 结构化结果。`;
 
 const planInstructions = `你是 Kaipa 的旅程编排阶段，只做只读查询并输出方案，不保存任何数据，也不向用户提问。
@@ -1493,13 +1529,13 @@ const planInstructions = `你是 Kaipa 的旅程编排阶段，只做只读查�
 上面的 ResearchBrief 与已确认事实就是本轮的主要依据，直接据此编排即可。只有确实需要当前旅程或轨迹数据时才调用只读工具，且最多调用一次；未绑定旅程、轨迹已在 ResearchBrief 里时不要调用工具，更不要用工具结果缺失当作没有证据的理由。
 硬性约束：
 - journey 字段只能填写任务状态里已确认的事实（目的地、日期、天数、轨迹文件名）。用户未填写日期时可保持 plannedDate=null；用户未填写总天数时，结合交通查询与路线资料给出有依据的全程建议天数，在 assumptions 中说明交通和徒步分配；缺少出发地或无法可靠估算时用 pendingQuestion 询问，不要用轨迹徒步天数冒充全程天数。
-- 用户未指定总天数且 mainTravel.suggestedDays 有值时，journey.days 必须等于该值，已查询返程安排在最后一天；若认为需要更多天，保持该值并把原因写入 unverified。
-- 默认安排出发地→交通枢纽→徒步起点、徒步终点→返程枢纽→返回地的完整往返链路及必要住宿，用户明确不用时尊重该约束。复用已确认出发地，缺少时用 pendingQuestion 简短询问，不能猜测或声称完整规划已完成。
-- days 是从出发到返回的全程天数，包含路上时间；交通日也占 Day 序号。先评估交通耗时与缓冲，再分配徒步日，不得把全部天数用于徒步后把交通追加到日期范围之外。时间装不下时说明冲突并询问调整选择，不得静默改天数或压缩成不合理徒步。
+- 用户未指定总天数且 mainTravel.suggestedDays 有值时，journey.days 必须等于该值；若认为需要更多天，保持该值并把原因写入 unverified。
+- 默认只安排去程：出发地→交通枢纽→徒步起点及必要住宿，用户明确不用时尊重该约束。徒步终点就是旅程终点，不安排返程交通、返程住宿或回家项；只有用户在对话里明确要求补充返程时才安排。复用已确认出发地，缺少时用 pendingQuestion 简短询问，不能猜测或声称完整规划已完成。
+- days 是从出发到徒步结束的全程天数，包含去程路上时间；交通日也占 Day 序号。先评估交通耗时与缓冲，再分配徒步日，不得把全部天数用于徒步后把交通追加到日期范围之外。时间装不下时说明冲突并询问调整选择，不得静默改天数或压缩成不合理徒步。
 - 交通和休整 item 的 kind 必须为 custom，具体住宿为 stay，徒步为 activity；交通即使与徒步同一天也不绑定 routeId，不设置徒步终点。全程天数与徒步天数分别写入 assumptions。
-- 完整旅程的大交通已在独立 transport 阶段处理。服务端根据 mainTravel.hubs 为去程 Day 1 与返程最后一天插入固定的“出发枢纽→到达枢纽”链路；起点与枢纽在同一城市时不插入回家→枢纽或枢纽→回家旅程。没有日期或供应商班次时保留标为车次待查/航班待查的未定时枢纽行；若交通端点明确为 ground-only，则只保留高德地面交通安排。不要输出出发地→枢纽、枢纽→出发地或重复的枢纽旅程项。你的后续接驳必须从 mainTravel.hubs 中精确的到达枢纽名称开始，最后一天的本地返程必须结束在 returnOrigin 的精确名称；只编排必要的进出山接驳与徒步。禁止新增或改写铁路/航班班次和精确时间；查询不可用时如实说明，不能用一句文本代替已查询大交通。交通域补充任务仍可调用 search_transport。编排完成后调用 review_transport_plan 核对拟定的徒步窗口与交通链路。
+- 完整旅程的大交通已在独立 transport 阶段处理。服务端根据 mainTravel.hubs 为去程 Day 1 插入固定的“出发枢纽→到达枢纽”链路；起点与枢纽在同一城市时不插入出发地→枢纽旅程。没有日期或供应商班次时保留只写枢纽名、不写车次的未定时枢纽行；若交通端点明确为 ground-only，则只保留高德地面交通安排。不要输出出发地→枢纽、枢纽→出发地或重复的枢纽旅程项。你的后续接驳必须从 mainTravel.hubs 中精确的到达枢纽名称开始；只编排必要的进山接驳与徒步，以及路线本身需要的出山接驳。禁止新增或改写铁路/航班班次和精确时间；查询不可用时如实说明，不能用一句文本代替已查询大交通。交通域补充任务仍可调用 search_transport。编排完成后调用 review_transport_plan 核对拟定的徒步窗口与交通链路。
 - 普通城市住宿由用户自行决定，不创建“成都住宿”“车站附近住宿”“酒店待定”等独立旅程项或地点，也不添加虚构的酒店接驳；当天摘要可简短交代停留城市。仅用户已指定的具体酒店或徒步路线必要的真实过夜地点保留为地点，徒步日终点仍须保留。
-- 每个旅程日必须有 groupNotes 摘要，通常30—80字，1—2句交代当天怎么走、主要做什么、在哪里结束即可。不要逐项复述地点、车次时刻和查询票价，不解释资料来源，不堆叠常识、建议、免责声明或“待核实”说明。只有已确定且影响当天执行的关键限制才简短提一次；未解决问题写入 unverified、blocker 或 pendingQuestion，不在摘要反复写“尚未核实”“未纳入查询”“需自行预留”等过程解释。直接写计划安排，不把计划住宿表述成已预订。示例：“南宁东乘高铁到成都东，抵达后入住成都。”“从党岭村出发，徒步至飞机坪，晚上在附近住宿。”摘要使用普通中文和路线名称，禁止出现 ResearchBrief、TransportPlan、mainTravel、trk 编号或字段名等内部实现信息。itineraryItems.title 只写简洁地点名称或必要可单独执行的事项，通常20字以内；禁止把整天摘要、长段路线介绍、费用和提醒塞入标题。起终点和沿途重要地点仍要有带 location 的独立旅程项，不能只写在备注中。保留必要的 kind、routeId、时间、真实坐标和 endpoints，不因精简标题而丢失地图或徒步结构。
+- 每个旅程日必须有按模板编写的 groupNotes：徒步数据行、当天说明、交通/住宿列表、补给、下撤；Day 1 开头概览，最后一天以注意事项列表和可靠费用参考收尾。往返交通日只写简短一段和必要交通列表。不用中间点“·”作分隔，数字和单位之间空一格。不要逐项复述地点、车次时刻和查询票价，不解释资料来源，不堆叠常识、建议、免责声明或“待核实”说明。只有已确定且影响当天执行的关键限制才简短提一次；未解决问题写入 unverified、blocker 或 pendingQuestion，不在摘要反复写“尚未核实”“未纳入查询”“需自行预留”等过程解释。直接写计划安排，不把计划住宿表述成已预订。示例：“南宁东乘高铁到成都东，抵达后入住成都。”“从党岭村出发，徒步至飞机坪，晚上在附近住宿。”摘要使用普通中文和路线名称，禁止出现 ResearchBrief、TransportPlan、mainTravel、trk 编号或字段名等内部实现信息。itineraryItems.title 只写简洁地点名称或必要可单独执行的事项，通常20字以内；禁止把整天摘要、长段路线介绍、费用和提醒塞入标题。起终点和沿途重要地点仍要有带 location 的独立旅程项，不能只写在备注中。保留必要的 kind、routeId、时间、真实坐标和 endpoints，不因精简标题而丢失地图或徒步结构。
 - planProfile 之外的旅程与装备判断分别写入 groupNotes、itineraryItems 与 endpoints。
 - 多日徒步：先确定真实轨迹上的过夜点，再据此推导当日里程；禁止按天数或时长平均分配；每天一个终点。
 - 多路线旅程中，每个徒步 activity itineraryItem 必须填写对应 ResearchBrief.routes 的 routeId，确保每条已有 GPX 独立绑定；普通接驳安排不绑定 routeId。
@@ -1528,7 +1564,7 @@ const planChunkInstructions = `你是 Kaipa 的旅程编排逐日细化轮，只
 系统把全部天数分成若干组，你只负责其中一组：只输出该组覆盖天数的 groupNotes、itineraryItems 与 endpoints，不要输出其他天，也不要输出旅程、交通或装备框架字段。
 硬性约束与完整编排轮相同：多日徒步只能从 ResearchBrief.routes.waypoints（该路线 GPX 的真实标注点，含累计里程）中选择过夜点与每日终点，禁止按天数或时长平均分配，禁止编造标注点里没有的地名或里程，每天一个终点，endpoints 只填本组徒步日；每个徒步日终点必须填 routeId（该天所属路线），waypointIndex 与里程按该路线自己的轨迹解析、各自从 0 开始；endpoints 每项必须给出 waypointIndex、trackFinish=true 或明确的 endDistanceKm 之一，无法定位的日期不要输出空条目，改为写入 unverified；纯接驳/住宿日不设终点；多路线旅程中每个徒步 activity itineraryItem 必须填写对应 ResearchBrief.routes 的 routeId，所有移动安排填写具体 startLocation 与 location，分别为单一出发/到达地点，次日起点承接前一日落脚点，不能用 A→B 作为地点名；交通接驳段作为普通 itineraryItem，地点写入 location，交通方式简写在 title，摘要仅保留必要的安排信息；没有证据的时间、价格、水源或营地不要编造，缺少证据的条目宁可省略。
 普通城市住宿由用户自行决定，不创建泛泛住宿项、待定酒店地点或酒店接驳；未指定酒店时，城市日终点与次日起点使用已知车站/机场。仅用户指定的具体酒店或徒步必要的真实过夜点保留。
-摘要只用普通中文和真实路线名，不输出内部字段名或 trk 编号。每一天都要输出 groupNotes 摘要：通常30—80字，用1—2句概括当天怎么走、做什么、在哪里结束；不逐项复述地点和交通数据，不解释资料来源或堆叠常识提醒，已确定的关键限制只简短提一次，可行性问题写入 unverified，不在摘要写“尚未核实”“未纳入查询”“需自行预留”等过程解释。直接写计划安排，不声称住宿已预订；旅程项标题只保留简洁地点和必要可执行事项，不重复整段摘要。
+摘要只用普通中文和真实路线名，不输出内部字段名或 trk 编号。每一天都要输出按行程备注模板组织的 groupNotes：徒步数据、说明、交通/住宿/补给/下撤，首日概览、末日注意事项和可靠费用参考；不逐项复述地点和车次航班时刻，不解释资料来源或堆叠常识提醒，已确定的关键限制只简短提一次，可行性问题写入 unverified，不在摘要写“尚未核实”“未纳入查询”“需自行预留”等过程解释。直接写计划安排，不声称住宿已预订；旅程项标题只保留简洁地点和必要可执行事项，不重复整段摘要。
 只输出 PlanChunk 结构化结果。`;
 
 const packingInstructions = `你是 Kaipa 的装备清单阶段，只输出一份完整的个人清单草稿，不保存任何数据。
@@ -1544,7 +1580,7 @@ const respondInstructions = `你是 Kaipa 的回复阶段。没有工具，不�
 text 是显示给用户的主要中文正文，简洁、具体，不要复述工具名或内部字段。
 pendingQuestion 只在确实需要用户决定时填写；blocker 只在方案因客观原因无法完成时填写具体原因。
 draft 固定输出 null。travelContext 沿用已确认的交通事实，本轮确认了新的出发地、返回地、方向、偏好或票务时写入更新值，否则输出 null。
-offerJourneyExtras 固定 false，往返交通和必要住宿已属于默认完整规划范围。
+offerJourneyExtras 固定 false，去程交通和必要住宿已属于默认完整规划范围；返程等用户提出再补充。
 quickReplies 最多 4 条，可为空数组。`;
 
 // Attachments are understood once, by the stage that reads sources; later

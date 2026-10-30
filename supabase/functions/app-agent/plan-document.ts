@@ -169,7 +169,7 @@ export const planDocumentSchema = z.object({
   // Exactly the add_itinerary_items items; transport legs are ordinary
   // itinerary items and have no separate write.
   itineraryItems: z.array(itineraryItem).max(80).default([]).describe('按顺序列出简洁地点和必要可执行事项；描述信息放到 groupNotes，不要为凑数编造条目'),
-  groupNotes: z.array(itineraryGroupNote).max(30).default([]).describe('每个旅程日简短摘要，通常30—80字、1—2句，与地点顺序一致；概括当天安排，不重复交通数据、资料解释或常识提醒'),
+  groupNotes: z.array(itineraryGroupNote).max(30).default([]).describe('每个旅程日按行程备注模板写 note，与地点顺序一致：徒步日数据行、当天说明、交通：列表、住宿：列表、补给、下撤；Day 1 开头写线路概览，最后一天写注意事项列表和可靠的费用参考。往返交通日只写简短行程段和必要交通列表；不确定信息省略，过程说明写入 unverified/blocker'),
   // Exactly the set_itinerary_group_endpoints endpoints.
   endpoints: z.array(itineraryGroupEndpoint).max(30).default([]).describe('没有可用轨迹终点时留空数组'),
   // Full review_transport_plan input for the transport domain, with every field
@@ -273,7 +273,7 @@ export const planSkeletonSchema = planDocumentSchema.pick({
 export type PlanSkeleton = z.infer<typeof planSkeletonSchema>;
 
 export const planChunkSchema = z.object({
-  groupNotes: z.array(itineraryGroupNote).max(15).default([]).describe('仅本组天数的每日摘要，不能遗漏或写其他天'),
+  groupNotes: z.array(itineraryGroupNote).max(15).default([]).describe('仅本组天数的每日模板备注，不能遗漏或写其他天；按段落保留徒步数据、说明、交通/住宿/补给/下撤，首日概览和末日注意事项按模板填写'),
   itineraryItems: z.array(itineraryItem).max(30).default([])
     .describe('仅本组覆盖天数的旅程条目；其他天留给后续轮次，不要重复前序天'),
   endpoints: z.array(itineraryGroupEndpoint).max(15).default([])

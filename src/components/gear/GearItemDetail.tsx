@@ -14,9 +14,9 @@ import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { useI18n } from '../../i18n';
-import { GearItem, GearCat, GearSet, UNCAT, itemStatus, itemWeight, itemPrice, WeightUnit, WEIGHT_UNITS, splitWeight, fmtWeight, kgFromUnit, weightInputValue } from '../../data/gear';
+import { GearItem, GearCat, GearSet, UNCAT, GEAR_PHOTO_LIMIT, itemStatus, itemWeight, itemPrice, WeightUnit, WEIGHT_UNITS, splitWeight, splitItemWeight, fmtWeight, itemEntryUnit, kgFromUnit, weightInputValue } from '../../data/gear';
 import { GearItemImage, NumberFieldWithUnit, ShareBar, yuan, fmtKg } from './parts';
-import { AppSectionHeader, DetailPage, radius, space, type } from '../../design-system';
+import { AppSectionHeader, DetailPage, radius, space, type, type DetailEntryVariant } from '../../design-system';
 import { GearDeleteDialog } from './GearDeleteDialog';
 import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../lib/mediaLibrary';
 import { GearWheelSelectSheet } from './GearWheelSelectSheet';
@@ -205,6 +205,7 @@ function GearPhotoViewer({ theme, item, index, onClose, onPhotosChange }: {
   const listRef = React.useRef<FlatList<string | null>>(null);
   const [page, setPage] = React.useState(initialIndex);
   const [notice, setNotice] = React.useState<{ text: string; danger?: boolean } | null>(null);
+  const [deletePhotoOpen, setDeletePhotoOpen] = React.useState(false);
   const noticeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const fade = React.useRef(new Animated.Value(0)).current;
   const controlsBottom = Math.max(insets.bottom, 14) + 4;
@@ -256,6 +257,10 @@ function GearPhotoViewer({ theme, item, index, onClose, onPhotosChange }: {
   };
 
   const pickFromLibrary = async () => {
+    if (!currentUri && photos.length >= GEAR_PHOTO_LIMIT) {
+      showNotice(t('gear.editor.photoLimit', { count: GEAR_PHOTO_LIMIT }), true);
+      return;
+    }
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       showNotice(t('gear.editor.libraryPermission'), true);
@@ -264,19 +269,23 @@ function GearPhotoViewer({ theme, item, index, onClose, onPhotosChange }: {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsMultipleSelection: !currentUri,
-      selectionLimit: currentUri ? 1 : Math.max(1, 9 - photos.length),
+      selectionLimit: currentUri ? 1 : Math.max(1, GEAR_PHOTO_LIMIT - photos.length),
       quality: 0.85,
     });
     if (result.canceled) return;
     const picked = result.assets.map((asset) => asset.uri);
     const nextPhotos = currentUri
       ? photos.map((uri, photoIndex) => (photoIndex === page ? picked[0] : uri))
-      : [...photos, ...picked].slice(0, 9);
+      : [...photos, ...picked].slice(0, GEAR_PHOTO_LIMIT);
     onPhotosChange(nextPhotos);
     showNotice(currentUri ? t('gear.itemDetail.photoReplaced') : t('gear.itemDetail.photoAdded'));
   };
 
   const takePhoto = async () => {
+    if (!currentUri && photos.length >= GEAR_PHOTO_LIMIT) {
+      showNotice(t('gear.editor.photoLimit', { count: GEAR_PHOTO_LIMIT }), true);
+      return;
+    }
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
       showNotice(t('gear.editor.cameraPermission'), true);
@@ -285,7 +294,7 @@ function GearPhotoViewer({ theme, item, index, onClose, onPhotosChange }: {
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.85 });
     if (result.canceled) return;
     const uri = result.assets[0].uri;
-    const nextPhotos = currentUri ? photos.map((photo, photoIndex) => (photoIndex === page ? uri : photo)) : [...photos, uri].slice(0, 9);
+    const nextPhotos = currentUri ? photos.map((photo, photoIndex) => (photoIndex === page ? uri : photo)) : [...photos, uri].slice(0, GEAR_PHOTO_LIMIT);
     onPhotosChange(nextPhotos);
     showNotice(currentUri ? t('gear.itemDetail.photoReplaced') : t('gear.itemDetail.photoAdded'));
   };
@@ -362,8 +371,21 @@ function GearPhotoViewer({ theme, item, index, onClose, onPhotosChange }: {
           {currentUri ? <PhotoPillButton label={t('gear.itemDetail.savePhoto')} onPress={saveCurrent} /> : null}
           <PhotoPillButton label={currentUri ? t('gear.itemDetail.replacePhoto') : t('gear.editor.pickFromLibrary')} onPress={pickFromLibrary} />
           <PhotoPillButton label={t('gear.editor.takePhoto')} onPress={takePhoto} />
-          {currentUri ? <PhotoPillButton label={t('gear.itemDetail.deletePhoto')} danger theme={theme} onPress={removeCurrent} /> : null}
+          {currentUri ? <PhotoPillButton label={t('gear.itemDetail.deletePhoto')} danger theme={theme} onPress={() => setDeletePhotoOpen(true)} /> : null}
         </View>
+        <GearDeleteDialog
+          theme={theme}
+          visible={deletePhotoOpen}
+          title={t('gear.itemDetail.deletePhotoConfirmTitle')}
+          message={t('gear.itemDetail.deletePhotoConfirmMessage')}
+          confirmLabel={t('gear.itemDetail.deletePhotoConfirm')}
+          cancelLabel={t('common.cancel')}
+          onCancel={() => setDeletePhotoOpen(false)}
+          onConfirm={() => {
+            setDeletePhotoOpen(false);
+            removeCurrent();
+          }}
+        />
       </Animated.View>
     </Modal>
   );
@@ -462,6 +484,7 @@ function GearTitlePreview({ theme, title, onClose }: { theme: Theme; title: stri
 
 function GearItemDetailView({
   theme,
+  entryVariant,
   item,
   cats,
   allItems,
@@ -473,6 +496,7 @@ function GearItemDetailView({
   onDelete,
 }: {
   theme: Theme;
+  entryVariant?: DetailEntryVariant;
   item: GearItem;
   cats: GearCat[];
   allItems: GearItem[];
@@ -487,9 +511,9 @@ function GearItemDetailView({
   const { width: windowWidth } = useWindowDimensions();
   const [isEditing, setIsEditing] = React.useState(false);
   const [draft, setDraft] = React.useState<GearItem>(item);
-  const [weightInput, setWeightInput] = React.useState(() => weightInputValue(itemWeight(item), weightUnit));
-  // The unit typed into the weight field only. Displays keep the profile unit.
-  const [editUnit, setEditUnit] = React.useState<WeightUnit>(weightUnit);
+  // Weight entry opens in grams for metric profiles and ounces for imperial profiles.
+  const [editUnit, setEditUnit] = React.useState<WeightUnit>(() => itemEntryUnit(weightUnit));
+  const [weightInput, setWeightInput] = React.useState(() => weightInputValue(itemWeight(item), editUnit));
   const weightInputEdited = React.useRef(false);
   const qtyInputEdited = React.useRef(false);
   const [qtyInput, setQtyInput] = React.useState(String(item.qty || 1));
@@ -514,7 +538,7 @@ function GearItemDetailView({
   }, [isEditing, item]);
 
   React.useEffect(() => {
-    if (!isEditing) setEditUnit(weightUnit);
+    if (!isEditing) setEditUnit(itemEntryUnit(weightUnit));
   }, [isEditing, weightUnit]);
 
   const patchDraft = (patch: Partial<GearItem>) => setDraft((current) => ({ ...current, ...patch }));
@@ -605,12 +629,13 @@ function GearItemDetailView({
   const { totalW, totalP, catItems, catW, wRank } = libraryContext;
 
   const primaryAttrs = currentItem.attrs || [];
-  const weightMain = splitWeight(itemW, weightUnit);
+  const weightMain = splitItemWeight(itemW, weightUnit);
   const customAttrCardWidth = Math.floor((windowWidth - 32 * 2 - space.sm) / 2);
 
   return (
     <DetailPage
       theme={theme}
+      entryVariant={entryVariant}
       onBack={isEditing ? cancelEditing : onBack}
       flatChrome
       right={(
@@ -946,6 +971,7 @@ function GearItemDetailView({
 
 export const GearItemDetail = React.memo(GearItemDetailView, (previous, next) => (
   previous.theme === next.theme
+  && previous.entryVariant === next.entryVariant
   && previous.item === next.item
   && previous.cats === next.cats
   && previous.allItems === next.allItems

@@ -4,7 +4,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { firstLink } from '../components/gear/gearRecognition';
 
-const PRODUCT_HOSTS = ['taobao.com', 'tmall.com', 'tb.cn', 'jd.com', '3.cn', 'jd.hk', 'dewu.com', 'dw4.co'];
+const PRODUCT_HOSTS = ['taobao.com', 'tmall.com', 'tb.cn', 'jd.com', '3.cn', 'jd.hk', 'dewu.com', 'dw4.co', 'douyin.com'];
 
 const SEEN_KEY = 'kaipa.gear.clipboardProductSeen.v1';
 const SEEN_LIMIT = 20;

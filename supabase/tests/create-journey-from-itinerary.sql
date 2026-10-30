@@ -34,7 +34,7 @@ insert into itinerary_fixture values ($json${
   "name":"4 天 3 晚扎营穿越（下则通村至则巴村）","direction":"下则通村至则巴村",
   "lodging":"camp","difficulty":"中高","audience":"有多日扎营经验",
   "summary":"从理塘进村，翻越垭口到日照金山营地，经新冷古寺和格聂一棵树下到夯达营地，次日步行出山到则巴村。",
-  "notes":["费用不含餐食、驮包和摩托车接驳"],"bestMonths":null,"seasonNote":null,
+  "notes":["费用不含餐食、驮包和摩托车接驳"],"bestMonths":[4,5,6,9,10,11],"seasonNote":null,
   "days":[
     {"kind":"access_in","title":"理塘 → 下则通村","transfers":[{"from":"理塘","to":"下则通村","mode":"shared","position":"start","costRef":"60 元/人"}],"stay":{"name":"下则通村","type":"homestay"},"tip":null,"source":"official"},
     {"kind":"hike","title":"下则通村 → 日照金山营地","distanceKm":13,"ascentM":1200,"transfers":[],"stay":{"name":"日照金山营地","type":"camp"},"tip":"垭口较陡，建议 08:00 前出发","source":"official"},
@@ -65,12 +65,13 @@ select pg_temp.check((select planned_date='2026-06-19' and total_days=4 and user
 select pg_temp.check((select count(*)=1 from public.companions where journey_id=current_setting('test.journey1') and user_id=auth.uid() and is_host and is_self),'owner companion');
 select pg_temp.check((select count(*)=1 from public.tracks t join public.journeys j on j.track_id=t.id where j.id=current_setting('test.journey1') and t.user_id=auth.uid() and t.coords='[[99.9,29.9],[100.0,30.0]]'::jsonb),'catalog track copied');
 select pg_temp.check((select array_agg(name order by sort_order)=array['Day 1','Day 2','Day 3','Day 4'] from public.timeline_groups where journey_id=current_setting('test.journey1')),'four numbered groups');
-select pg_temp.check((select note= (select (payload->>'summary') || E'\n1. ' || (payload->'notes'->>0) from itinerary_fixture) from public.timeline_groups where journey_id=current_setting('test.journey1') and name='Day 1'),'summary and numbered notes exact');
-select pg_temp.check((select note='垭口较陡，建议 08:00 前出发' from public.timeline_groups where journey_id=current_setting('test.journey1') and name='Day 2'),'day tip exact');
+select pg_temp.check((select note like '格聂牧场线 | 4 天 3 晚扎营穿越%' and note like '%最佳 4～6 月、9～11 月%' and note like '%适合有多日扎营经验%' from public.timeline_groups where journey_id=current_setting('test.journey1') and name='Day 1'),'overview note exact');
+select pg_temp.check((select note like '%徒步约 13 km%' and note like '%垭口较陡，建议 08:00 前出发%' and note like '%住宿：%' from public.timeline_groups where journey_id=current_setting('test.journey1') and name='Day 2'),'day data and stay note exact');
 select pg_temp.check((select array_agg(title order by sort_order)=array['拼车 理塘 → 下则通村（参考 60 元/人）','下则通村'] from public.timeline_rows where journey_id=current_setting('test.journey1') and day='Day 1'),'access rows exact');
 select pg_temp.check((select array_agg(title order by sort_order)=array['下则通村','日照金山营地'] from public.timeline_rows where journey_id=current_setting('test.journey1') and day='Day 2'),'hike rows exact');
 select pg_temp.check((select array_agg(title order by sort_order)=array['日照金山营地','新冷古寺','格聂一棵树','夯达营地'] and array_agg(item_kind order by sort_order)=array['activity','activity','activity','stay'] from public.timeline_rows where journey_id=current_setting('test.journey1') and day='Day 3'),'multi-node rows exact');
 select pg_temp.check((select array_agg(title order by sort_order)=array['夯达营地','则巴村','拼车 则巴村 → 理塘（约 3 小时）（参考 100 元/人）'] from public.timeline_rows where journey_id=current_setting('test.journey1') and day='Day 4'),'end transfer exact');
+select pg_temp.check((select note like '%注意事项：%' and note like '%费用参考：接驳和住宿合计约 160 元/人，不含餐食、门票和往返车票。%' from public.timeline_groups where journey_id=current_setting('test.journey1') and name='Day 4'),'last day notes and cost total');
 select pg_temp.check((select count(*)=0 from public.timeline_rows where journey_id=current_setting('test.journey1') and (time_mins is not null or time_end_mins is not null or item_kind not in ('activity','stay') or route_id is not null)),'no clocks or route bindings');
 select pg_temp.check((select count(*)=1 from public.journey_versions where journey_id=current_setting('test.journey1') and change_kind='create'),'one create version');
 select pg_temp.check((select count(*)=1 from public.journey_guide_imports where journey_id=current_setting('test.journey1') and template_id=current_setting('test.plan')||'@1' and payload_hash=(select md5(payload::text) from itinerary_fixture)),'receipt');

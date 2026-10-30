@@ -8,7 +8,7 @@ import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { useI18n } from '../../i18n';
-import { GearItem, GearCat, GEAR_STATUS, GearCarryStatus, WeightUnit, WEIGHT_UNITS, kgFromUnit, weightInputValue, weightPlaceholder } from '../../data/gear';
+import { GearItem, GearCat, GEAR_STATUS, GEAR_PHOTO_LIMIT, GearCarryStatus, WeightUnit, WEIGHT_UNITS, itemEntryUnit, kgFromUnit, weightInputValue, weightPlaceholder } from '../../data/gear';
 import { GearItemImage, NumberFieldWithUnit } from './parts';
 import { AppSectionHeader, DetailPage, radius, space, type } from '../../design-system';
 import { GearWheelSelectSheet } from './GearWheelSelectSheet';
@@ -45,10 +45,11 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
   const { t } = useI18n();
   const nav = useNav();
   const insets = useSafeAreaInsets();
-  const [unit, setUnit] = useState<WeightUnit>(weightUnit);
+  // Weight entry opens in grams for metric profiles and ounces for imperial profiles.
+  const [unit, setUnit] = useState<WeightUnit>(() => itemEntryUnit(weightUnit));
   const [name, setName] = useState(item.name);
   const [cat, setCat] = useState(item.cat);
-  const [w, setW] = useState(() => weightInputValue(item.w || 0, weightUnit));
+  const [w, setW] = useState(() => weightInputValue(item.w || 0, unit));
   // An untouched field must keep item.w verbatim: oz/lb render only one decimal,
   // so parsing and re-converting the rounded display would drift the stored value.
   const wEdited = useRef((item.w || 0) === 0);
@@ -122,7 +123,7 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
     if (current.qty === 1 && (next.qty || 1) > 1) { setQty(next.qty!); changed.push('qty'); }
     if (!current.note.trim() && next.note?.trim()) { setNote(next.note.trim()); changed.push('note'); }
     if (current.attrs.length === 0 && next.attrs?.length) setAttrs(next.attrs.map(([key, value]) => [key, value]));
-    if (current.photos.length === 0 && next.photos?.length) setPhotos(next.photos.filter(Boolean).slice(0, 9));
+    if (current.photos.length === 0 && next.photos?.length) setPhotos(next.photos.filter(Boolean).slice(0, GEAR_PHOTO_LIMIT));
     setFilled(changed);
     setRecognitionSource(source);
     setRecognitionNoticeVisible(true);
@@ -181,7 +182,7 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsMultipleSelection: true,
-      selectionLimit: Math.max(1, 9 - photos.length),
+      selectionLimit: Math.max(1, GEAR_PHOTO_LIMIT - photos.length),
       quality: 0.85,
     });
     if (!result.canceled) {
@@ -207,6 +208,10 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
 
   // The gallery is a large target, so the menu opens at the touch point rather than beside the whole image.
   const openPhotoActions = (event: GestureResponderEvent) => {
+    if (photos.length >= GEAR_PHOTO_LIMIT) {
+      nav.showToast(t('gear.editor.photoLimit', { count: GEAR_PHOTO_LIMIT }));
+      return;
+    }
     const { pageX, pageY } = event.nativeEvent;
     setPhotoSourceAnchor({ x: pageX, y: pageY, width: 0, height: 0 });
     setPhotoSourceOpen(true);
@@ -252,7 +257,7 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
       return;
     }
 
-    setPhotos((current) => [...current, selectedUri].slice(0, 9));
+    setPhotos((current) => [...current, selectedUri].slice(0, GEAR_PHOTO_LIMIT));
     setPendingPhotos((current) => {
       const remaining = current.slice(1);
       if (remaining.length === 0) setPendingPhotoTotal(0);

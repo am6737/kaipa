@@ -33,14 +33,17 @@ import {
 } from "../../design-system";
 import { MeCard, MeSection, SwitchRow } from "../me/parts";
 import { MePushPage } from "../me/MePushPage";
-import { MediaViewer } from "./JourneyTimeline";
+import { MediaViewer, TimeWheel } from "./JourneyTimeline";
 import { JourneyLocationPicker } from "./JourneyLocationPicker";
+import { JourneyTrackUploadSheet } from "./JourneyTrackUploadSheet";
+import { PickDialog } from "../tracks/PickDialog";
+import { formatTrackAscent, formatTrackDistance } from "../../lib/trackParser";
 import type { RouteGuidePlan } from "../../data/routeGuides";
 import { submitRouteGuide, useMyRouteGuideStatus } from "../../hooks/useRouteGuides";
 import { RouteGuideEquipment, RouteGuideItinerary } from "../discover/RouteGuideContent";
 import { useData } from "../../data/DataContext";
 import {
-  openVisibilityPicker,
+  useVisibilityPicker,
   visibilityLabel,
 } from "../social/VisibilityPicker";
 import type { Visibility } from "../../hooks/useSocial";
@@ -52,6 +55,10 @@ import {
   locationFromPoi,
 } from "../../lib/amapGeocoding";
 import { regionLabel } from "../../lib/regionLabel";
+import { formatMeetTime } from "../../lib/meetingPoint";
+
+/** 集合 day choices, relative to the journey's first day. */
+const MEET_DAY_OPTIONS = [0, -1] as const;
 
 function RowDivider({ theme }: { theme: Theme }) {
   return (
@@ -326,6 +333,11 @@ export function JourneySettings({
   );
   const [location, setLocation] = useState(originalLocation);
   const [desc, setDesc] = useState(poi.desc ?? "");
+  const [meetPlace, setMeetPlace] = useState(poi.meetPlace);
+  const [meetTime, setMeetTime] = useState(poi.meetTime);
+  const [meetDay, setMeetDay] = useState(poi.meetDay ?? 0);
+  const [meetPickerOpen, setMeetPickerOpen] = useState(false);
+  const [meetTimeOpen, setMeetTimeOpen] = useState(false);
   const [trackPublic, setTrackPublic] = useState(poi.trackPublic ?? false);
   const [routeShowPhotos, setRouteShowPhotos] = useState(
     poi.routeShowPhotos ?? true,
@@ -337,6 +349,7 @@ export function JourneySettings({
   const [visibility, setVisibility] = useState<Visibility>(
     poi.visibility ?? "private",
   );
+  const visibilityPicker = useVisibilityPicker(theme);
   const changeVisibility = (next: Visibility) => {
     const previous = visibility;
     setVisibility(next);
@@ -352,6 +365,9 @@ export function JourneySettings({
   const [coverViewerOpen, setCoverViewerOpen] = useState(false);
   const [locationPickerOpen, setLocationPickerOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [trackPickOpen, setTrackPickOpen] = useState(false);
+  const [trackUploadOpen, setTrackUploadOpen] = useState(false);
+  const linkedTrackName = data.allTracks.find((track) => track.id === poi.trackId)?.name || undefined;
   const [guidePublishOpen, setGuidePublishOpen] = useState(false);
   const { status: guideStatus, refresh: refreshGuideStatus } = useMyRouteGuideStatus(poi.routeId, userId);
   const hasChanges = useMemo(
@@ -364,11 +380,20 @@ export function JourneySettings({
       location.lat !== originalLocation.lat ||
       location.coord !== originalLocation.coord ||
       desc !== (poi.desc ?? "") ||
+      meetPlace !== poi.meetPlace ||
+      meetTime !== poi.meetTime ||
+      meetDay !== (poi.meetDay ?? 0) ||
       trackPublic !== (poi.trackPublic ?? false) ||
       routeShowPhotos !== (poi.routeShowPhotos ?? true) ||
       routeShowTimeline !== (poi.routeShowTimeline ?? true),
     [
       desc,
+      meetDay,
+      meetPlace,
+      meetTime,
+      poi.meetDay,
+      poi.meetPlace,
+      poi.meetTime,
       heroMode,
       initialHeroMode,
       name,
@@ -427,6 +452,9 @@ export function JourneySettings({
         lat: location.lat,
         coord: location.coord,
         desc: desc.trim(),
+        meetPlace,
+        meetTime,
+        meetDay: meetDay || undefined,
         heroMode,
         trackPublic,
         routeShowPhotos,
@@ -490,6 +518,7 @@ export function JourneySettings({
         { zIndex: 190, backgroundColor: theme.groupedBg },
       ]}
     >
+      {visibilityPicker.menu}
       <MePushPage
         theme={theme}
         title={t("journey.settings.title")}
@@ -617,6 +646,109 @@ export function JourneySettings({
           </MeCard>
         </MeSection>
 
+        <MeSection theme={theme} title={t("journey.meeting.section")}>
+          <MeCard theme={theme}>
+            <Press
+              accessibilityRole="button"
+              onPress={() => setMeetPickerOpen(true)}
+              scaleTo={1}
+              opacityTo={1}
+            >
+              <View
+                style={{
+                  minHeight: layout.listRowMinHeight,
+                  paddingHorizontal: space.md,
+                  paddingVertical: space.md,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: space.md,
+                }}
+              >
+                <Icon name="pin" color={meetPlace ? theme.accent : theme.text3} size={20} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text numberOfLines={1} style={[type.cardTitle, { color: meetPlace ? theme.text : theme.text2 }]}>
+                    {meetPlace?.name || t("journey.meeting.placePick")}
+                  </Text>
+                  {meetPlace?.address ? (
+                    <Text numberOfLines={1} style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>
+                      {meetPlace.address}
+                    </Text>
+                  ) : null}
+                </View>
+                {meetPlace ? (
+                  <Press accessibilityRole="button" accessibilityLabel={t("journey.meeting.clear")} hitSlop={8} onPress={() => setMeetPlace(undefined)}>
+                    <Icon name="close" color={theme.text3} size={16} />
+                  </Press>
+                ) : (
+                  <Icon name="chevronR" color={theme.text3} size={15} />
+                )}
+              </View>
+            </Press>
+            <View style={{ flexDirection: "row", gap: space.xs, paddingHorizontal: space.md, paddingBottom: space.sm }}>
+              {MEET_DAY_OPTIONS.map((offset) => {
+                const selected = meetDay === offset;
+                return (
+                  <Press
+                    key={offset}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => setMeetDay(offset)}
+                    style={{
+                      height: 34,
+                      paddingHorizontal: space.md,
+                      borderRadius: radius.pill,
+                      justifyContent: "center",
+                      backgroundColor: selected ? theme.accentSoft : theme.fieldSurface,
+                    }}
+                  >
+                    <Text style={[type.chip, { color: selected ? theme.accent : theme.text2 }]}>
+                      {offset === 0 ? t("journey.meeting.dayOf") : t("journey.meeting.dayBefore")}
+                    </Text>
+                  </Press>
+                );
+              })}
+              <Press
+                accessibilityRole="button"
+                accessibilityState={{ expanded: meetTimeOpen }}
+                onPress={() => {
+                  if (meetTime == null) setMeetTime(7 * 60 + 30);
+                  setMeetTimeOpen((open) => !open);
+                }}
+                style={{
+                  height: 34,
+                  paddingHorizontal: space.md,
+                  borderRadius: radius.pill,
+                  justifyContent: "center",
+                  backgroundColor: meetTime != null ? theme.accentSoft : theme.fieldSurface,
+                }}
+              >
+                <Text style={[type.chip, { color: meetTime != null ? theme.accent : theme.text2, fontVariant: ["tabular-nums"] }]}>
+                  {meetTime != null ? formatMeetTime(meetTime) : t("journey.meeting.timePick")}
+                </Text>
+              </Press>
+              {meetTime != null ? (
+                <Press
+                  accessibilityRole="button"
+                  accessibilityLabel={t("journey.meeting.clearTime")}
+                  hitSlop={8}
+                  onPress={() => {
+                    setMeetTime(undefined);
+                    setMeetTimeOpen(false);
+                  }}
+                  style={{ height: 34, justifyContent: "center" }}
+                >
+                  <Icon name="close" color={theme.text3} size={16} />
+                </Press>
+              ) : null}
+            </View>
+            {meetTimeOpen && meetTime != null ? (
+              <View style={{ paddingBottom: space.sm }}>
+                <TimeWheel theme={theme} value={meetTime} onChange={setMeetTime} />
+              </View>
+            ) : null}
+          </MeCard>
+        </MeSection>
+
         <MeSection theme={theme} title={t("journey.settings.participantsSection")}>
           <MeCard theme={theme}>
             <Press
@@ -645,6 +777,62 @@ export function JourneySettings({
                 </Text>
                 <Text style={[type.caption, { color: theme.text2 }]}>
                   {t("journey.manage.totalCount", { count: companionCount })}
+                </Text>
+                <Icon name="chevronR" color={theme.text3} size={15} />
+              </View>
+            </Press>
+          </MeCard>
+        </MeSection>
+
+        <MeSection theme={theme} title={t("journey.overview.track")}>
+          <MeCard theme={theme}>
+            <Press
+              accessibilityRole="button"
+              onPress={() => setTrackPickOpen(true)}
+              scaleTo={1}
+              opacityTo={1}
+            >
+              <View
+                style={{
+                  minHeight: layout.listRowMinHeight,
+                  paddingHorizontal: space.md,
+                  paddingVertical: space.md,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: space.md,
+                }}
+              >
+                <Text style={[type.cardTitle, { flex: 1, color: theme.text }]}>
+                  {t("journey.track.pickExisting")}
+                </Text>
+                <Text numberOfLines={1} style={[type.caption, { flexShrink: 1, color: theme.text2 }]}>
+                  {linkedTrackName ?? t("journey.track.pickTitle")}
+                </Text>
+                <Icon name="chevronR" color={theme.text3} size={15} />
+              </View>
+            </Press>
+            <RowDivider theme={theme} />
+            <Press
+              accessibilityRole="button"
+              onPress={() => setTrackUploadOpen(true)}
+              scaleTo={1}
+              opacityTo={1}
+            >
+              <View
+                style={{
+                  minHeight: layout.listRowMinHeight,
+                  paddingHorizontal: space.md,
+                  paddingVertical: space.md,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: space.md,
+                }}
+              >
+                <Text style={[type.cardTitle, { flex: 1, color: theme.text }]}>
+                  {hasTrack ? t("journey.track.reupload") : t("journey.track.upload")}
+                </Text>
+                <Text style={[type.caption, { color: theme.text2 }]}>
+                  {t("journey.track.filePlaceholder")}
                 </Text>
                 <Icon name="chevronR" color={theme.text3} size={15} />
               </View>
@@ -691,8 +879,8 @@ export function JourneySettings({
             <MeCard theme={theme}>
               <Press
                 accessibilityRole="button"
-                onPress={() =>
-                  openVisibilityPicker(nav, t, visibility, changeVisibility)
+                onPress={(event) =>
+                  visibilityPicker.open(event, visibility, changeVisibility)
                 }
                 scaleTo={1}
                 opacityTo={1}
@@ -789,6 +977,36 @@ export function JourneySettings({
           </MeSection>
         ) : null}
 
+        <MeSection theme={theme} title={t("journey.section.more")}>
+          <MeCard theme={theme}>
+            <Press
+              accessibilityRole="button"
+              onPress={() => nav.openJourneyHistory(poi)}
+              scaleTo={1}
+              opacityTo={1}
+            >
+              <View
+                style={{
+                  minHeight: layout.listRowMinHeight,
+                  paddingHorizontal: space.md,
+                  paddingVertical: space.md,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: space.sm,
+                }}
+              >
+                <Text style={[type.cardTitle, { flex: 1, color: theme.text }]}>
+                  {t("journey.version.title")}
+                </Text>
+                <Text style={[type.caption, { color: theme.text2 }]}>
+                  {t("journey.version.autoSaveHint")}
+                </Text>
+                <Icon name="chevronR" color={theme.text3} size={15} />
+              </View>
+            </Press>
+          </MeCard>
+        </MeSection>
+
         {poi.mine ? (
           <View style={{ paddingHorizontal: space.xl, marginTop: layout.sectionGap, marginBottom: space.xl }}>
             <Press
@@ -827,6 +1045,34 @@ export function JourneySettings({
           onConfirm={(nextLocation) => {
             setLocation(nextLocation);
             setLocationPickerOpen(false);
+          }}
+          onToast={onToast}
+        />
+      ) : null}
+      {meetPickerOpen ? (
+        <JourneyLocationPicker
+          theme={theme}
+          initialLocation={meetPlace
+            ? { name: meetPlace.name, address: meetPlace.address ?? "", region: "", lng: meetPlace.lng, lat: meetPlace.lat, coord: "" }
+            : poi.trackCoords?.length
+              ? { ...location, name: "", lng: poi.trackCoords[0][0], lat: poi.trackCoords[0][1] }
+              : location}
+          trackStart={poi.trackCoords?.[0]}
+          trackEnd={
+            poi.trackCoords?.length
+              ? poi.trackCoords[poi.trackCoords.length - 1]
+              : undefined
+          }
+          trackCoords={poi.trackCoords}
+          onCancel={() => setMeetPickerOpen(false)}
+          onConfirm={(next) => {
+            setMeetPlace({
+              name: next.name.trim() || regionLabel(next.region) || next.coord,
+              address: next.address || undefined,
+              lng: next.lng,
+              lat: next.lat,
+            });
+            setMeetPickerOpen(false);
           }}
           onToast={onToast}
         />
@@ -872,6 +1118,40 @@ export function JourneySettings({
         onConfirm={() => {
           setDeleteDialogOpen(false);
           nav.removeJourney();
+        }}
+      />
+
+      {trackUploadOpen ? (
+        <JourneyTrackUploadSheet theme={theme} replacing={hasTrack} onClose={() => setTrackUploadOpen(false)} />
+      ) : null}
+      <PickDialog
+        theme={theme}
+        visible={trackPickOpen}
+        title={t("journey.track.pickTitle")}
+        emptyLabel={t("journey.track.pickEmpty")}
+        cancelLabel={t("common.cancel")}
+        options={data.tracks.map((track) => ({
+          item: track,
+          title: track.name || t("tracks.untitled"),
+          subtitle: [
+            track.distM != null ? formatTrackDistance(track.distM) : null,
+            track.ascM ? formatTrackAscent(track.ascM) : null,
+            track.pointCount ? t("tracks.meta.points", { count: track.pointCount }) : null,
+          ].filter(Boolean) as string[],
+          selected: track.id === poi.trackId,
+        }))}
+        onCancel={() => setTrackPickOpen(false)}
+        onSelect={(track) => {
+          setTrackPickOpen(false);
+          if (track.id === poi.trackId) return;
+          // The journey's distance and ascent describe the track it follows, so
+          // linking one overwrites them with the numbers the file actually holds.
+          nav.patchCurrent({
+            trackId: track.id,
+            ...(track.distM != null ? { dist: formatTrackDistance(track.distM) } : {}),
+            ...(track.ascM != null ? { asc: formatTrackAscent(track.ascM) } : {}),
+          });
+          onToast(t("journey.track.applied"));
         }}
       />
     </View>

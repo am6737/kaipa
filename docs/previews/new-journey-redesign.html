@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>创建旅程 改版预览</title>
+<style>
+  :root {
+    --bg: #E9E9EC; --grouped: #F4F4F5; --surface: #FFFFFF; --field: rgba(0,0,0,0.045);
+    --text: #111113; --text2: rgba(60,60,67,0.62); --text3: rgba(60,60,67,0.32);
+    --accent: #0A84FF; --accentSoft: rgba(10,132,255,0.12); --accentSofter: rgba(10,132,255,0.07);
+    --frameEdge: #D4D4D8; --note: #6B6B70;
+  }
+  body.dark {
+    --bg: #0B0B0C; --grouped: #1C1C1E; --surface: rgba(40,40,44,0.92); --field: rgba(255,255,255,0.07);
+    --text: #FFFFFF; --text2: rgba(235,235,245,0.62); --text3: rgba(235,235,245,0.30);
+    --accentSoft: rgba(10,132,255,0.18); --accentSofter: rgba(10,132,255,0.10);
+    --frameEdge: #2C2C2E; --note: #9A9AA0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif; padding: 28px 24px 48px; transition: background .2s; }
+  header.page { max-width: 1480px; margin: 0 auto 24px; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  header.page h1 { font-size: 22px; font-weight: 800; }
+  header.page p { font-size: 13px; color: var(--note); margin-top: 6px; line-height: 1.6; max-width: 760px; }
+  .toggle { border: 0; border-radius: 999px; padding: 9px 16px; font-size: 13px; font-weight: 700; background: var(--surface); color: var(--text); cursor: pointer; }
+  .row { max-width: 1480px; margin: 0 auto; display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; }
+  .col { width: 340px; }
+  .cap { font-size: 13px; font-weight: 800; margin-bottom: 4px; }
+  .cap small { font-weight: 600; color: var(--note); margin-left: 6px; }
+  .capnote { font-size: 12px; color: var(--note); line-height: 1.6; margin-bottom: 12px; min-height: 58px; }
+  .phone { width: 340px; height: 720px; border-radius: 44px; border: 8px solid var(--frameEdge); background: var(--grouped); position: relative; overflow: hidden; }
+  .status { height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 26px; font-size: 13px; font-weight: 700; }
+  .nav { height: 44px; position: relative; display: flex; align-items: center; padding: 0 10px; }
+  .nav .x { width: 44px; height: 44px; display: grid; place-items: center; font-size: 22px; }
+  .nav .t { position: absolute; left: 0; right: 0; text-align: center; font-size: 16px; font-weight: 700; pointer-events: none; }
+  .body { padding: 18px 20px 140px; height: calc(100% - 88px); overflow-y: auto; scrollbar-width: none; }
+  .body::-webkit-scrollbar { display: none; }
+  .q { font-size: 25px; font-weight: 800; line-height: 1.3; }
+  .q.sm { font-size: 18px; }
+  .gap { height: 28px; }
+  .search { margin-top: 10px; height: 52px; border-radius: 24px; background: var(--surface); display: flex; align-items: center; gap: 10px; padding: 0 16px; font-size: 16px; font-weight: 600; color: var(--text3); }
+  .search .ic { color: var(--text2); font-size: 16px; }
+  .search.typing { color: var(--text); }
+  .search .caret { width: 2px; height: 20px; background: var(--accent); margin-left: -8px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .oldbox { margin-top: 10px; min-height: 96px; border-radius: 24px; background: var(--surface); padding: 12px 16px; font-size: 17px; font-weight: 600; color: var(--text3); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 8px 0 13px; border-radius: 999px; background: var(--field); font-size: 14px; font-weight: 600; color: var(--text); margin: 0 6px 8px 0; }
+  .chip i { font-style: normal; color: var(--text3); font-size: 13px; width: 22px; text-align: center; }
+  .field { margin-top: 10px; height: 52px; border-radius: 24px; background: var(--surface); display: flex; align-items: center; gap: 10px; padding: 0 16px; }
+  .field b { flex: 1; font-size: 15px; font-weight: 700; }
+  .field .sub { font-size: 12px; color: var(--text2); font-weight: 500; }
+  .chev { color: var(--text3); font-size: 15px; }
+  .oldtrack { margin-top: 10px; height: 64px; border-radius: 24px; background: var(--surface); display: flex; align-items: center; gap: 12px; padding: 0 16px; }
+  .oldtrack b { display: block; font-size: 15px; }
+  .oldtrack span { font-size: 12px; color: var(--text2); }
+  .label { font-size: 12px; font-weight: 700; color: var(--text2); margin: 26px 0 6px; }
+  .item { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-radius: 14px; }
+  .item .tile { width: 36px; height: 36px; border-radius: 11px; background: var(--field); display: grid; place-items: center; color: var(--text2); font-size: 15px; flex: none; }
+  .item .main { flex: 1; min-width: 0; }
+  .item .name { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+  .item .meta { font-size: 12px; color: var(--text2); margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .tag { font-size: 10.5px; font-weight: 700; color: var(--accent); background: var(--accentSoft); padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+  .route { margin-top: 10px; border-radius: 24px; background: var(--surface); padding: 16px 16px 16px 18px; position: relative; }
+  .route .top { display: flex; align-items: center; gap: 8px; }
+  .route .top b { font-size: 17px; font-weight: 800; flex: 1; }
+  .route .x2 { color: var(--text3); font-size: 15px; width: 28px; text-align: center; }
+  .route .region { font-size: 12px; color: var(--text2); margin-top: 3px; }
+  .stats { display: flex; gap: 22px; margin-top: 14px; }
+  .stat .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
+  .stat .v small { font-size: 12px; font-weight: 600; color: var(--text2); margin-left: 2px; }
+  .stat .k { font-size: 11px; color: var(--text2); margin-top: 1px; }
+  .plan { margin-top: 14px; border-radius: 16px; background: var(--accentSofter); padding: 10px 12px; font-size: 12.5px; color: var(--text); line-height: 1.5; }
+  .plan b { color: var(--accent); }
+  .trackrow { margin-top: 10px; display: flex; align-items: center; gap: 10px; padding: 0 4px; }
+  .trackrow .s { flex: 1; font-size: 14px; font-weight: 600; }
+  .trackrow .s span { display: block; font-size: 12px; font-weight: 500; color: var(--text2); margin-top: 2px; }
+  .link { font-size: 13px; font-weight: 700; color: var(--accent); }
+  .opt { font-size: 12px; font-weight: 600; color: var(--text3); margin-left: 6px; }
+  .footer { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 18px 26px; background: var(--grouped); }
+  .btn { height: 52px; border-radius: 999px; display: flex; align-items: center; justify-content: center; font-size: 15.5px; font-weight: 700; }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.primary.off { background: var(--field); color: var(--text3); }
+  .btn.second { background: var(--surface); color: var(--text); }
+  .pair { display: flex; gap: 10px; }
+  .pair .btn { flex: 1; }
+  .hint { text-align: center; font-size: 12px; color: var(--text2); margin-top: 8px; }
+  .ai { text-align: center; font-size: 13px; font-weight: 700; color: var(--text2); margin-bottom: 10px; }
+  .ai span { color: var(--accent); }
+  .results { margin-top: 8px; border-radius: 16px; background: var(--surface); padding: 6px 12px; }
+  .results .h { font-size: 10.5px; font-weight: 700; color: var(--text3); padding: 8px 4px 2px; }
+  .badge { position: absolute; top: 96px; right: 14px; font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 999px; background: #FF9F0A; color: #fff; }
+  .issues { margin-top: 14px; font-size: 12px; color: var(--note); line-height: 1.7; }
+  .issues li { margin-left: 16px; }
+</style>
+</head>
+<body>
+<header class="page">
+  <div>
+    <h1>创建旅程 改版预览</h1>
+    <p>左边第一屏是现状，后面三屏是改版后的三种状态。视觉语言保持不变，只改信息结构：空状态给捷径，选中路线时展示路线数据，底部只留一个随状态变化的主按钮。路线名和数字都是示意数据。</p>
+  </div>
+  <button class="toggle" onclick="document.body.classList.toggle('dark')">切换深色 / 浅色</button>
+</header>
+
+<div class="row">
+
+  <!-- 现状 -->
+  <div class="col">
+    <div class="cap">现状<small>当前线上</small></div>
+    <div class="capnote">下半屏是空的；选中路线后只显示一个文字胶囊，看不出里程和是否有官方方案；底部两个等权按钮，没有说明。</div>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>●●● 100%</span></div>
+      <div class="nav"><div class="x">✕</div><div class="t">创建旅程</div></div>
+      <div class="badge">现状</div>
+      <div class="body">
+        <div class="q">想去哪里？</div>
+        <div class="oldbox">
+          <span class="chip">武功山穿越 <i>✕</i></span><br>
+          输入目的地，可添加多个地点
+        </div>
+        <div class="gap"></div>
+        <div class="q">什么时候出发？</div>
+        <div class="field"><span>📅</span><b>暂不确定</b><span class="chev">›</span></div>
+        <div class="gap"></div>
+        <div class="q sm">已有轨迹？</div>
+        <div class="oldtrack"><span>⤒</span><div style="flex:1"><b>上传轨迹</b><span>支持 GPX、KML 和 KMZ</span></div><span class="chev">›</span></div>
+      </div>
+      <div class="footer">
+        <div class="pair">
+          <div class="btn second">手动规划</div>
+          <div class="btn primary">✦ 智能规划</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 改版 A：空状态 -->
+  <div class="col">
+    <div class="cap">改版 A<small>刚打开，还没输入</small></div>
+    <div class="capnote">输入框改成单行搜索。下方直接给当季路线、最近看过、我的轨迹三组捷径，点一下就选中。主按钮在有目的地之前保持灰色。</div>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>●●● 100%</span></div>
+      <div class="nav"><div class="x">✕</div><div class="t">创建旅程</div></div>
+      <div class="body">
+        <div class="q">想去哪里？</div>
+        <div class="search"><span class="ic">⌕</span>搜索路线或地点</div>
+
+        <div class="label">10 月当季</div>
+        <div class="item"><div class="tile">⛰</div><div class="main"><div class="name">武功山穿越</div><div class="meta">江西萍乡　32.4 km　↑2,100 m　3 天</div></div></div>
+        <div class="item"><div class="tile">⛰</div><div class="main"><div class="name">格聂南线</div><div class="meta">四川理塘　58.0 km　↑2,860 m　5 天</div></div></div>
+        <div class="item"><div class="tile">⛰</div><div class="main"><div class="name">大明山环线</div><div class="meta">广西南宁　14.2 km　↑860 m　1 天</div></div></div>
+
+        <div class="label">最近看过</div>
+        <div class="item"><div class="tile">⛰</div><div class="main"><div class="name">南太行 正穿</div><div class="meta">河南辉县　26.8 km　↑1,540 m　2 天</div></div></div>
+
+        <div class="label">我的轨迹</div>
+        <div class="item"><div class="tile">〰</div><div class="main"><div class="name">9 月 14 日 实地记录</div><div class="meta">11.6 km　↑620 m</div></div></div>
+        <div class="item"><div class="tile">⤒</div><div class="main"><div class="name">上传轨迹文件</div><div class="meta">支持 GPX、KML 和 KMZ</div></div></div>
+      </div>
+      <div class="footer">
+        <div class="btn primary off">创建旅程</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 改版 B：选中官方方案路线 -->
+  <div class="col">
+    <div class="cap">改版 B<small>选中有官方方案的路线</small></div>
+    <div class="capnote">胶囊升级为路线摘要，数字是主角。轨迹行显示"已带路线轨迹"。主按钮变成"按官方方案创建"；AI 规划降为一行次要入口。</div>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>●●● 100%</span></div>
+      <div class="nav"><div class="x">✕</div><div class="t">创建旅程</div></div>
+      <div class="body">
+        <div class="q">想去哪里？</div>
+        <div class="route">
+          <div class="top"><b>武功山穿越</b><span class="x2">✕</span></div>
+          <div class="region">江西萍乡</div>
+          <div class="stats">
+            <div class="stat"><div class="v">32.4<small>km</small></div><div class="k">距离</div></div>
+            <div class="stat"><div class="v">2,100<small>m</small></div><div class="k">累计爬升</div></div>
+            <div class="stat"><div class="v">3<small>天</small></div><div class="k">徒步天数</div></div>
+          </div>
+        </div>
+        <div class="search" style="height:44px;font-size:14px;margin-top:8px"><span class="ic">＋</span>再添加一个地点</div>
+
+        <div class="gap"></div>
+        <div class="q">什么时候出发？</div>
+        <div class="field"><span>📅</span><b>暂不确定</b><span class="sub">可稍后在旅程里改</span><span class="chev">›</span></div>
+
+        <div class="label">轨迹</div>
+        <div class="trackrow"><span>〰</span><div class="s">已带路线轨迹<span>武功山穿越.kml　32.4 km</span></div><span class="link">更换</span></div>
+      </div>
+      <div class="footer">
+        <div class="ai">没有合适的？<span>让 AI 起草一份</span></div>
+        <div class="btn primary">按官方方案创建</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 改版 C：普通地点 -->
+  <div class="col">
+    <div class="cap">改版 C<small>选中普通地点，没有官方方案</small></div>
+    <div class="capnote">普通地点保持胶囊样式，和路线一眼能分开。主按钮是"创建旅程"，建一个空旅程；AI 规划作为次要按钮，并明确标出是 AI 草案、需要核对。</div>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>●●● 100%</span></div>
+      <div class="nav"><div class="x">✕</div><div class="t">创建旅程</div></div>
+      <div class="body">
+        <div class="q">想去哪里？</div>
+        <div class="search typing" style="height:auto;min-height:52px;flex-wrap:wrap;padding:7px 12px">
+          <span class="chip" style="margin:0">阳朔遇龙河 <i>✕</i></span>
+          <span class="chip" style="margin:0">兴坪 <i>✕</i></span>
+        </div>
+        <div class="results">
+          <div class="h">路线</div>
+          <div class="item"><div class="tile">⛰</div><div class="main"><div class="name">漓江徒步 杨堤至兴坪</div><div class="meta">广西桂林　16.0 km　↑180 m</div></div></div>
+          <div class="h">地点</div>
+          <div class="item"><div class="tile">⌖</div><div class="main"><div class="name">相公山</div><div class="meta">桂林市阳朔县兴坪镇</div></div></div>
+        </div>
+
+        <div class="gap"></div>
+        <div class="q">什么时候出发？</div>
+        <div class="field"><span>📅</span><b>11月8日 - 11月9日</b><span class="sub">共 2 天</span><span class="chev">›</span></div>
+
+        <div class="label">轨迹<span class="opt">可选</span></div>
+        <div class="trackrow"><span>⤒</span><div class="s">从我的轨迹选择<span>或上传 GPX、KML、KMZ 文件</span></div><span class="chev">›</span></div>
+      </div>
+      <div class="footer">
+        <div class="pair">
+          <div class="btn second">✦ AI 起草</div>
+          <div class="btn primary">创建旅程</div>
+        </div>
+        <div class="hint">AI 草案需要自己核对，可在旅程里随时修改</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

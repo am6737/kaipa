@@ -64,6 +64,8 @@ export interface Theme {
   accentShadow: string;
   danger: string;
   dangerSoft: string;
+  // A real risk the user should act on (ice, gusts, a night with no bed) — not an error.
+  warn: string;
   // Filled state of a like / 有用 / 有帮助 heart.
   like: string;
   // Globe / map
@@ -76,9 +78,6 @@ export interface Theme {
   trailFaint: string;
   dotCore: string;
   dotRing: string;
-  // Grade bands under an elevation curve: 8–14% and steeper than 14%.
-  gradeModerate: string;
-  gradeSteep: string;
 }
 
 export function makeTheme(mode: Mode, accent?: string): Theme {
@@ -117,6 +116,7 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
       accentShadow: rgba(a, 0.3),
       danger: '#FF453A',
       dangerSoft: 'rgba(255,69,58,0.18)',
+      warn: '#FF9F0A',
       like: '#FF6369',
       globeStops: ['#2A2A2D', '#18181A', '#0A0A0C', '#000000'],
       globeRim: 'rgba(255,255,255,0.10)',
@@ -127,8 +127,6 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
       trailFaint: 'rgba(255,255,255,0.35)',
       dotCore: '#FFFFFF',
       dotRing: a,
-      gradeModerate: 'rgba(214,148,78,0.55)',
-      gradeSteep: 'rgba(214,102,70,0.60)',
     };
   }
   return {
@@ -160,6 +158,7 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
     accentShadow: rgba(a, 0.28),
     danger: '#FF3B30',
     dangerSoft: 'rgba(255,59,48,0.10)',
+    warn: '#E8850C',
     like: '#E5484D',
     globeStops: ['#FFFFFF', '#F2F2F4', '#D8D8DC', '#B8B8BE'],
     globeRim: 'rgba(0,0,0,0.08)',
@@ -170,7 +169,5 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
     trailFaint: 'rgba(0,0,0,0.35)',
     dotCore: '#FFFFFF',
     dotRing: a,
-    gradeModerate: '#F6D59A',
-    gradeSteep: '#F2A07B',
   };
 }

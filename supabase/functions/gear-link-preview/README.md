@@ -1,7 +1,7 @@
 # gear-link-preview Edge Function
 
 服务端商品链接解析器。客户端只提交 URL；开放平台密钥必须保存为 Supabase
-Secrets，不能放进 Expo 的 `EXPO_PUBLIC_*` 环境变量。得物商品主图会下载到
+Secrets，不能放进 Expo 的 `EXPO_PUBLIC_*` 环境变量。得物、抖音商品主图会下载到
 项目自己的 Supabase Storage，再将自有公开地址返回给客户端。
 
 ## 安全策略
@@ -9,6 +9,8 @@ Secrets，不能放进 Expo 的 `EXPO_PUBLIC_*` 环境变量。得物商品主�
 - 只允许 HTTP/HTTPS，不接受带账号密码、私网 IP 或非常规端口的 URL。
 - 默认只抓取淘宝、天猫、京东相关域名。
 - 得物仅允许 `dw4.co`、`dewu.com` 商品页以及受信任的得物图片 CDN。
+- 抖音只允许请求 `v.douyin.com` 短链本身；`haohuo.jinritemai.com` 只在 302 的
+  `Location` 里被读取，不会被抓取，因此不加入可抓取域名列表。
 - 其他品牌官网必须显式加入 `GEAR_LINK_ALLOWED_HOSTS`，避免开放式 SSRF 代理。
 - HTML 抓取有超时、重定向次数和 1.5 MB 体积限制。
 - 优先调用官方开放平台；失败后才读取公开 JSON-LD/Open Graph 元数据。
@@ -102,6 +104,33 @@ supabase secrets set GEAR_LINK_IMAGE_BUCKET=gear-products
 
 自托管环境如果内部 `SUPABASE_URL` 不能作为移动端公开地址，应同时向 Edge Runtime
 提供外部 `SUPABASE_PUBLIC_URL`；官方托管项目无需额外设置。
+
+## 抖音商城
+
+抖音分享文案里的 `https://v.douyin.com/xxxx/` 短链**不需要跟随重定向**：直接请求
+它返回 302，`Location` 指向 `haohuo.jinritemai.com/ecommerce/trade/detail/index.html`，
+其 query 里已经带上商品数据：
+
+- `id`：商品 ID，用作 `externalId` 和缓存 key。
+- `goods_detail`：URL 编码的 JSON，含 `title`、`min_price`、`max_price`（单位是分，
+  488 表示 ¥4.88）和 `img.url_list`（主图，jpeg 或 png；`width`/`height` 不可靠，忽略）。
+
+落地页本身是空的 SPA 壳，抓取它拿不到任何数据，所以函数只做**一次**
+`redirect: 'manual'` 请求读 `Location`，不抓取 `jinritemai.com`。这条 `Location`
+常常有 3–6 KB，超过 `validateUrl` 的 4096 长度上限，所以抖音走 `douyinPreview`
+自己的解析分支，不复用 `fetchFollowingSafeRedirects`。
+
+`goods_detail` 是未公开字段，直播间等入口可能没有：
+
+1. 有 `goods_detail`：名称、价格、图片齐全；多规格价格不同（`min_price` 不等于
+   `max_price`）时按最低价填写并给出区间警告。
+2. 只有 `id`：用分享文案里链接后的标题预填（去掉 `【抖音商城】` 标记），无价格和图片。
+3. 都没有：有分享标题就预填，否则报 `product_not_found`。
+
+结果按商品 ID 写入共享的 `agent_external_cache`（key
+`gear-link-preview:v1:douyin:{id}`）；只有分享文案预填的兜底结果不缓存。
+主图与得物一样存入 `gear-products` bucket（`douyin/{id}/cover.<ext>`）；抖音图片
+不需要 Referer，保存失败时退回原 CDN 地址并提示用户图片可能失效。
 
 ## 其他商城
 

@@ -142,17 +142,21 @@ export function useGear(userId: string | undefined) {
     if (previous) paint(patch);
     const rollback = () => { if (previous) setItems((prev) => prev.map((i) => (i.id === id ? previous : i))); };
     try {
-      const cloudPhotos = patch.photos !== undefined
-        ? await ensureCloudGearMedia(patch.photos, userId, `gear-${id}`, previous?.photos)
+      // Dropping the last picture leaves `photos` undefined, which reads as
+      // "not edited" unless the key itself is checked.
+      const photosTouched = 'photos' in patch;
+      const cloudPhotos = photosTouched
+        ? await ensureCloudGearMedia(patch.photos || [], userId, `gear-${id}`, previous?.photos)
         : undefined;
-      const resolvedPatch = cloudPhotos !== undefined ? { ...patch, photos: cloudPhotos } : patch;
+      const savedPhotos = cloudPhotos?.length ? cloudPhotos : undefined;
+      const resolvedPatch: Partial<GearItem> = photosTouched ? { ...patch, photos: savedPhotos } : patch;
       const row: any = {};
       if (resolvedPatch.name !== undefined) row.name = resolvedPatch.name;
       if (resolvedPatch.cat !== undefined) row.cat_id = resolvedPatch.cat === 'uncat' ? null : resolvedPatch.cat;
       if (resolvedPatch.w !== undefined) row.weight = resolvedPatch.w;
       if (resolvedPatch.p !== undefined) row.price = resolvedPatch.p;
       if (resolvedPatch.qty !== undefined) row.qty = resolvedPatch.qty;
-      if (resolvedPatch.photos !== undefined) row.photo_uris = resolvedPatch.photos;
+      if (photosTouched) row.photo_uris = savedPhotos ?? null;
       if (resolvedPatch.attrs !== undefined) row.attrs = resolvedPatch.attrs;
       if (resolvedPatch.note !== undefined) row.note = resolvedPatch.note;
       if (resolvedPatch.status !== undefined) row.status = resolvedPatch.status;

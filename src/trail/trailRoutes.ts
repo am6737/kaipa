@@ -38,6 +38,15 @@ export function trailRouteFromTrack(track: Track): TrailRouteRef | null {
   };
 }
 
+/**
+ * A journey's own line: the track bound to it, falling back to the library
+ * track it links to when the journey carries no geometry itself. The id is the
+ * journey's, so a running recording and the journey agree on what is the same walk.
+ */
+export function trailRouteFromJourney(poi: Poi, track: Track | null | undefined): TrailRouteRef | null {
+  return trailRouteFromPoi(poi) ?? (track ? trailRouteFromTrack(track) : null);
+}
+
 /** Opens the page for a route, or for free recording with `null`. */
 export function useOpenTrail() {
   const trail = useTrail();

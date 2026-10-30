@@ -57,7 +57,7 @@ export function AddGearMenu({ theme, visible, anchor, onPick, onAssistant, onClo
   );
 }
 
-export type GearMenuRow = { key: string; icon: IconName; label: string; onPress: () => void };
+export type GearMenuRow = { key: string; icon: IconName; label: string; onPress: () => void; /** The current choice of a single-choice menu: gets a trailing check. */ selected?: boolean };
 
 /** Compact glass popover anchored next to the control that opened it. */
 export function GearAnchoredMenu({ theme, visible, anchor, title, rows, onClose }: {
@@ -100,7 +100,8 @@ export function GearAnchoredMenu({ theme, visible, anchor, title, rows, onClose 
           {rows.map((row) => (
             <Press key={row.key} accessibilityRole="button" onPress={row.onPress} style={{ height: 48, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' }}>
               <View style={{ width: 24, alignItems: 'center' }}><Icon name={row.icon} color={theme.text} size={19} strokeWidth={1.8} /></View>
-              <Text style={{ marginLeft: 12, fontSize: 14.5, color: theme.text }}>{row.label}</Text>
+              <Text style={{ flex: 1, marginLeft: 12, fontSize: 14.5, color: theme.text }}>{row.label}</Text>
+              {row.selected ? <Icon name="check" color={theme.accent} size={16} strokeWidth={2.2} /> : null}
             </Press>
           ))}
         </View>

@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>旅程详情 v4：固定骨架</title>
+<style>
+  :root {
+    --accent: #0A84FF;
+    --accent-soft: rgba(10,132,255,0.10);
+    --bg: #F4F4F5;
+    --feature: #FFFFFF;
+    --field: rgba(0,0,0,0.04);
+    --text: #000;
+    --text2: rgba(60,60,67,0.60);
+    --text3: rgba(60,60,67,0.32);
+    --warn: #E8850C;
+    --shadow: 0 6px 18px rgba(0,0,0,0.08);
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; }
+  .page { max-width: 1480px; margin: 0 auto; padding: 32px 24px 72px; }
+  h1 { font-size: 25px; font-weight: 800; margin: 0 0 6px; }
+  .lead { font-size: 14px; line-height: 23px; color: var(--text2); margin: 0; max-width: 860px; }
+  .section-title { font-size: 18px; font-weight: 800; margin: 44px 0 4px; }
+  .section-lead { font-size: 13px; color: var(--text2); margin: 0 0 20px; }
+  .row { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; }
+  .col { width: 330px; }
+  .col-title { font-size: 15px; font-weight: 700; margin: 0 0 4px; }
+  .col-sub { font-size: 12.5px; color: var(--text2); margin: 0 0 12px; }
+  .notes { margin: 16px 0 0; padding: 0; list-style: none; font-size: 13px; line-height: 20px; color: var(--text2); }
+  .notes li { margin-bottom: 8px; }
+  .notes b { color: var(--text); font-weight: 600; }
+
+  /* skeleton diagram */
+  .schema { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 20px; }
+  .sk { width: 260px; background: #fff; border-radius: 22px; padding: 16px; }
+  .sk .when { font-size: 13px; font-weight: 700; margin-bottom: 10px; }
+  .sk .slot { border-radius: 14px; background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 600; padding: 12px; line-height: 19px; }
+  .sk .bone { border-radius: 12px; background: var(--field); font-size: 13px; color: var(--text2); padding: 10px 12px; margin-top: 6px; display: flex; justify-content: space-between; }
+  .sk .bone i { font-style: normal; color: var(--text3); font-size: 12px; }
+
+  /* phone */
+  .phone { width: 330px; height: 700px; border-radius: 44px; background: #111; padding: 9px; box-shadow: 0 20px 50px rgba(0,0,0,0.16); }
+  .screen { position: relative; width: 100%; height: 100%; border-radius: 36px; overflow: hidden; background: var(--feature); }
+  .status { position: absolute; top: 0; left: 0; right: 0; height: 40px; display: flex; justify-content: space-between; align-items: center; padding: 0 26px; font-size: 13px; font-weight: 600; z-index: 9; }
+  .map { position: absolute; inset: 0; }
+  .map svg { width: 100%; height: 100%; display: block; }
+  .chrome { position: absolute; top: 44px; left: 10px; right: 10px; display: flex; justify-content: space-between; z-index: 8; }
+  .ico { width: 40px; height: 40px; display: grid; place-items: center; }
+  .ico svg { width: 22px; height: 22px; stroke: #000; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 2px rgba(255,255,255,0.9)); }
+  .sharepill { position: absolute; left: 12px; z-index: 4; height: 34px; padding: 0 12px; border-radius: 17px; background: #fff; box-shadow: var(--shadow); display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; }
+  .switch { width: 30px; height: 18px; border-radius: 9px; background: #34C759; position: relative; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 14px; width: 14px; height: 14px; border-radius: 7px; background: #fff; }
+
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; height: 540px; background: var(--feature); border-radius: 30px 30px 0 0; box-shadow: 0 -4px 18px rgba(0,0,0,0.07); z-index: 3; display: flex; flex-direction: column; }
+  .handle { width: 30px; height: 4px; border-radius: 2px; background: rgba(0,0,0,0.14); margin: 8px auto 8px; flex-shrink: 0; }
+  .sheet-head { padding: 0 20px; flex-shrink: 0; }
+  .scroll { flex: 1; overflow-y: auto; padding: 0 20px 110px; scrollbar-width: none; }
+  .scroll::-webkit-scrollbar { display: none; }
+  .title { font-size: 25px; font-weight: 800; line-height: 31px; }
+  .meta { display: flex; align-items: center; margin-top: 6px; min-height: 28px; font-size: 13.5px; color: var(--text2); }
+  .faces { margin-left: auto; display: flex; }
+  .face { width: 26px; height: 26px; border-radius: 13px; border: 2px solid #fff; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0; }
+  .faces .face + .face { margin-left: -8px; }
+  .tabs { display: flex; margin: 10px -20px 0; padding: 0 20px; font-size: 14px; font-weight: 600; color: var(--text3); }
+  .tabs span { flex: 1; text-align: center; padding: 8px 0 10px; }
+  .tabs .on { color: var(--text); position: relative; }
+  .tabs .on::after { content: ""; position: absolute; left: 50%; bottom: 0; width: 20px; margin-left: -10px; height: 2px; border-radius: 1px; background: var(--text); }
+
+  /* slot marker for the preview only */
+  .slotmark { position: relative; }
+  .slotmark::before { content: ""; position: absolute; left: -12px; top: 4px; bottom: 4px; width: 3px; border-radius: 2px; background: var(--accent); opacity: .55; }
+
+  .hero { margin-top: 22px; }
+  .hero .k { font-size: 13px; color: var(--text2); margin-bottom: 3px; }
+  .hero .t { font-size: 18px; font-weight: 800; line-height: 25px; }
+  .hero .s { font-size: 14px; color: var(--text2); margin-top: 3px; line-height: 21px; }
+  .hero.big .t { font-size: 22px; line-height: 29px; }
+  .h { font-size: 18px; font-weight: 800; margin: 34px 0 6px; }
+  .item { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 5px 0; }
+  .item .txt { flex: 1; min-width: 0; }
+  .item .t { font-size: 15px; font-weight: 600; }
+  .item .s { font-size: 13px; color: var(--text2); margin-top: 2px; }
+  .item .act { font-size: 14px; font-weight: 600; color: var(--accent); flex-shrink: 0; }
+  .item .dist { font: 600 14px var(--mono); color: var(--text2); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+  .warnline { font-size: 14px; color: var(--warn); font-weight: 600; margin-top: 8px; }
+
+  .day { display: flex; gap: 12px; padding: 10px 0; }
+  .day .d { font-size: 15px; font-weight: 800; width: 44px; flex-shrink: 0; line-height: 22px; }
+  .day .m { flex: 1; min-width: 0; }
+  .day .a { font-size: 15px; font-weight: 600; line-height: 22px; }
+  .day .b { font-size: 13px; color: var(--text2); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .day .w { margin-top: 4px; font-size: 13px; color: var(--warn); font-weight: 600; }
+  .day .act2 { margin-top: 3px; font-size: 13px; color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .day .wx { flex-shrink: 0; text-align: right; line-height: 22px; }
+  .day .wx svg { width: 20px; height: 20px; stroke: var(--text2); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -4px; }
+  .day .wx span { font: 600 13.5px var(--mono); margin-left: 4px; font-variant-numeric: tabular-nums; }
+  .day.done .d, .day.done .a { color: var(--text3); }
+  .day.done .b { color: var(--text3); }
+  .day.today .d { color: var(--accent); }
+  .caption { font-size: 12.5px; color: var(--text3); margin-top: 6px; }
+
+  .elev { height: 44px; width: 100%; display: block; margin-top: 8px; }
+  .trackline { font-size: 13px; color: var(--text2); margin-top: 8px; font-variant-numeric: tabular-nums; }
+  .textbtn { display: inline-block; font-size: 14px; font-weight: 600; color: var(--accent); margin-top: 12px; }
+
+  .person { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+  .person .face { width: 30px; height: 30px; border-radius: 15px; border: none; font-size: 12px; }
+  .person .n { font-size: 15px; font-weight: 600; flex: 1; }
+  .person .r { font-size: 13px; color: var(--text2); }
+  .about { font-size: 14.5px; line-height: 24px; color: var(--text2); }
+
+  .mosaic { margin-top: 18px; height: 160px; border-radius: 20px; overflow: hidden; position: relative; display: grid; grid-template-columns: 2fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; }
+  .mosaic div { background: linear-gradient(140deg,#AFC2D3,#E1E7EC); }
+  .mosaic div:first-child { grid-row: span 2; background: linear-gradient(160deg,#9DB3A0,#D9E2D3); }
+  .mosaic div:nth-child(3) { background: linear-gradient(140deg,#D6C7B4,#EEE8E0); }
+  .mosaic svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  .footer { position: absolute; left: 14px; right: 14px; bottom: 16px; display: flex; gap: 8px; z-index: 7; }
+  .pill { height: 44px; padding: 0 18px; border-radius: 22px; background: #fff; box-shadow: var(--shadow); display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; white-space: nowrap; }
+  .pill svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+  .pill.primary { background: var(--accent); color: #fff; }
+  .pill.grow { flex: 1; justify-content: center; }
+  .pill.right { margin-left: auto; }
+  .scroll-hint { font-size: 11.5px; color: var(--text3); margin: 8px 0 0; text-align: center; }
+
+  .table { margin-top: 48px; background: #fff; border-radius: 24px; padding: 20px 24px; }
+  .table h2 { font-size: 18px; font-weight: 800; margin: 0 0 14px; }
+  .table table { width: 100%; border-collapse: collapse; font-size: 13.5px; line-height: 21px; }
+  .table th { text-align: left; font-size: 12px; color: var(--text2); font-weight: 600; padding: 0 16px 10px 0; }
+  .table td { padding: 8px 16px 8px 0; vertical-align: top; }
+  .table td:first-child { font-weight: 700; white-space: nowrap; }
+  .table td.muted { color: var(--text2); }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>旅程详情 v4：固定骨架</h1>
+  <p class="lead">总览的骨架始终是同一套：每天、轨迹、同行、简介，位置不动，任何阶段都能回头看原计划。只有最上面一个位置随阶段变，它是加在骨架上面的，不替换下面任何内容。手机里左边有蓝色细条的就是这个位置，真实界面里不会有这条线。行程和清单两个标签和 v3 一样，这里不重复画。</p>
+
+  <div class="schema">
+    <div class="sk"><div class="when">出发前</div><div class="slot">还差什么<br><span style="font-weight:500;opacity:.8">没完成的待办，做完就消失</span></div><div class="bone">每天<i>天气在 7 天内出现</i></div><div class="bone">轨迹</div><div class="bone">同行</div><div class="bone">简介</div></div>
+    <div class="sk"><div class="when">进行中</div><div class="slot">今天<br><span style="font-weight:500;opacity:.8">最晚折返时间，下一处水和营地</span></div><div class="bone">每天<i>今天高亮，走过的变浅</i></div><div class="bone">轨迹<i>走过的一段变蓝</i></div><div class="bone">同行</div><div class="bone">简介</div></div>
+    <div class="sk"><div class="when">结束后</div><div class="slot">回顾<br><span style="font-weight:500;opacity:.8">照片，一句话总结，装备复盘</span></div><div class="bone">每天<i>计划旁加一行实际</i></div><div class="bone">轨迹<i>计划和实际叠在一起</i></div><div class="bone">同行</div><div class="bone">简介</div></div>
+  </div>
+
+  <svg width="0" height="0" style="position:absolute">
+    <defs>
+      <symbol id="map" viewBox="0 0 330 700">
+        <rect width="330" height="700" fill="#E9EEE5"/>
+        <path d="M0 120 C80 90 140 160 230 120 S330 150 330 150 V0 H0Z" fill="#E0E8DA"/>
+        <path d="M50 250 C80 220 110 200 150 190 S200 150 230 140 S270 110 285 95" stroke="#fff" stroke-width="7" fill="none" stroke-linecap="round"/>
+        <path d="M50 250 C80 220 110 200 150 190 S200 150 230 140 S270 110 285 95" stroke="#FF6A3D" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <circle cx="50" cy="250" r="6" fill="#2EB85C" stroke="#fff" stroke-width="2"/>
+        <circle cx="285" cy="95" r="6" fill="#FF3B30" stroke="#fff" stroke-width="2"/>
+      </symbol>
+      <symbol id="maplive" viewBox="0 0 330 700">
+        <use href="#map"/>
+        <path d="M50 250 C80 220 110 200 150 190 S185 170 196 162" stroke="#0A84FF" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <circle cx="196" cy="162" r="11" fill="rgba(10,132,255,0.2)"/>
+        <circle cx="196" cy="162" r="6" fill="#0A84FF" stroke="#fff" stroke-width="2.5"/>
+      </symbol>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+      <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 3v13M7 8l5-5 5 5M5 14v5a2 2 0 002 2h10a2 2 0 002-2v-5"/></symbol>
+      <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></symbol>
+      <symbol id="i-walk" viewBox="0 0 24 24"><circle cx="13" cy="4" r="2"/><path d="M10 22l2-7 3 3v4M7 13l2-5 4 2 3 3h3M9 8l-2 1"/></symbol>
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 012-2h13v16H6a2 2 0 00-2 2zM4 21V5"/></symbol>
+      <symbol id="w-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></symbol>
+      <symbol id="w-cloud" viewBox="0 0 24 24"><path d="M7 18h10a4 4 0 000-8 5.5 5.5 0 00-10.5 1.5A3.3 3.3 0 007 18z"/></symbol>
+      <symbol id="w-wind" viewBox="0 0 24 24"><path d="M3 9h11a3 3 0 10-3-3M3 15h15a3 3 0 11-3 3M3 12h7"/></symbol>
+      <symbol id="elev" viewBox="0 0 300 44" preserveAspectRatio="none">
+        <path d="M0 38 C30 36 50 29 80 23 S120 8 150 6 S190 12 210 18 S260 29 300 33 V44 H0Z" fill="rgba(0,0,0,0.05)"/>
+        <path d="M0 38 C30 36 50 29 80 23 S120 8 150 6 S190 12 210 18 S260 29 300 33" stroke="rgba(0,0,0,0.45)" stroke-width="1.6" fill="none"/>
+      </symbol>
+      <symbol id="elev-live" viewBox="0 0 300 44" preserveAspectRatio="none">
+        <use href="#elev"/>
+        <path d="M0 38 C30 36 50 29 80 23 S120 8 150 6 S168 7 175 9" stroke="#0A84FF" stroke-width="2.2" fill="none"/>
+      </symbol>
+      <symbol id="elev-after" viewBox="0 0 300 44" preserveAspectRatio="none">
+        <use href="#elev"/>
+        <path d="M0 39 C30 37 50 30 80 25 S120 10 150 8 S190 13 210 20 S260 30 300 34" stroke="#0A84FF" stroke-width="1.8" fill="none"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <div class="section-title">同一个总览，三个阶段</div>
+  <p class="section-lead">往下滚动，三台手机从「每天」开始，结构完全一样。</p>
+  <div class="row">
+
+    <!-- BEFORE -->
+    <div class="col">
+      <div class="col-title">出发前，3 天前</div>
+      <div class="col-sub">发起人林看到的</div>
+      <div class="phone"><div class="screen">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="map"><svg><use href="#map"/></svg></div>
+        <div class="chrome"><div class="ico"><svg><use href="#i-back"/></svg></div><div style="display:flex"><div class="ico"><svg><use href="#i-share"/></svg></div><div class="ico"><svg><use href="#i-more"/></svg></div></div></div>
+        <div class="sheet">
+          <div class="handle"></div>
+          <div class="sheet-head">
+            <div class="title">武功山三天穿越</div>
+            <div class="meta"><span>11月14日–16日</span>
+              <span class="faces"><span class="face" style="background:#5E5CE6">林</span><span class="face" style="background:#0EAFB1">周</span><span class="face" style="background:#C7C7CC;color:#555">+2</span></span></div>
+            <div class="tabs"><span class="on">总览</span><span>行程</span><span>清单</span><span>瞬间</span></div>
+          </div>
+          <div class="scroll">
+            <div class="slotmark">
+              <div class="hero"><div class="t">3 天后出发</div><div class="s">还有 2 件事</div></div>
+              <div class="item" style="margin-top:4px"><div class="txt"><div class="t">周和小陈还没备齐</div><div class="s">清单 60%，离线地图未下载</div></div><span class="act">提醒</span></div>
+              <div class="item"><div class="txt"><div class="t">第3天的住宿</div><div class="s">下山到沈子村之后</div></div><span class="act">安排</span></div>
+            </div>
+
+            <div class="h">每天</div>
+            <div class="day"><span class="d">第1天</span><div class="m"><div class="a">龙山村 → 发云界</div><div class="b">9.8 km　爬升 1120 m</div></div><div class="wx"><svg><use href="#w-sun"/></svg><span>4–13°</span></div></div>
+            <div class="day"><span class="d">第2天</span><div class="m"><div class="a">发云界 → 金顶 → 吊马桩</div><div class="b">13.1 km　爬升 760 m</div><div class="w">金顶阵风 7 级，近期有人反馈结冰</div></div><div class="wx"><svg><use href="#w-wind"/></svg><span>-2–6°</span></div></div>
+            <div class="day"><span class="d">第3天</span><div class="m"><div class="a">吊马桩 → 沈子村</div><div class="b">9.7 km　爬升 260 m</div></div><div class="wx"><svg><use href="#w-cloud"/></svg><span>6–15°</span></div></div>
+            <div class="caption">按每天最高点，日落约 17:40</div>
+
+            <div class="h">轨迹</div>
+            <svg class="elev"><use href="#elev"/></svg>
+            <div class="trackline">32.6 km　爬升 2140 m　按你的配速约 17.5 h</div>
+
+            <div class="h">同行</div>
+            <div class="person"><span class="face" style="background:#5E5CE6">林</span><span class="n">林</span><span class="r">发起人</span></div>
+            <div class="person"><span class="face" style="background:#0EAFB1">周</span><span class="n">周</span><span class="r">负责炉头和气罐</span></div>
+            <div class="person"><span class="face" style="background:#FF9F0A">陈</span><span class="n">小陈</span><span class="r">负责帐篷</span></div>
+            <div class="person"><span class="face" style="background:#2EB85C">许</span><span class="n">许</span><span class="r"></span></div>
+
+            <div class="h">简介</div>
+            <div class="about">经典的高山草甸穿越，三天两晚，第二天上金顶看日出。</div>
+          </div>
+        </div>
+        <div class="footer"><div class="pill"><svg><use href="#i-walk"/></svg>开始徒步</div><div class="pill right"><svg><use href="#i-spark"/></svg>问 AI</div></div>
+      </div></div>
+      <p class="scroll-hint">↕ 屏内可滚动</p>
+    </div>
+
+    <!-- DURING -->
+    <div class="col">
+      <div class="col-title">进行中，第2天上午</div>
+      <div class="col-sub">顶部变成今天，下面三天的计划都还在</div>
+      <div class="phone"><div class="screen">
+        <div class="status"><span>10:52</span><span>●●●</span></div>
+        <div class="map"><svg><use href="#maplive"/></svg></div>
+        <div class="chrome"><div class="ico"><svg><use href="#i-back"/></svg></div><div style="display:flex"><div class="ico"><svg><use href="#i-share"/></svg></div><div class="ico"><svg><use href="#i-more"/></svg></div></div></div>
+        <div class="sharepill" style="bottom:550px">共享位置 <span class="switch"></span></div>
+        <div class="sheet">
+          <div class="handle"></div>
+          <div class="sheet-head">
+            <div class="title">武功山三天穿越</div>
+            <div class="meta"><span>11月14日–16日</span>
+              <span class="faces"><span class="face" style="background:#5E5CE6">林</span><span class="face" style="background:#0EAFB1">周</span><span class="face" style="background:#C7C7CC;color:#555">+2</span></span></div>
+            <div class="tabs"><span class="on">总览</span><span>行程</span><span>清单</span><span>瞬间</span></div>
+          </div>
+          <div class="scroll">
+            <div class="slotmark">
+              <div class="hero big">
+                <div class="k">今天</div>
+                <div class="t">14:20 前离开金顶</div>
+                <div class="s">还剩 6.2 km，爬升 480 m，按今天的速度 15:10 到吊马桩。</div>
+              </div>
+              <div class="item" style="margin-top:4px"><div class="txt"><div class="t">金顶服务区</div><div class="s">水和热食</div></div><span class="dist">1.8 km</span></div>
+            </div>
+
+            <div class="h">每天</div>
+            <div class="day done"><span class="d">第1天</span><div class="m"><div class="a">龙山村 → 发云界</div><div class="b">走了 10.4 km，用时 6.5 h</div></div></div>
+            <div class="day today"><span class="d">第2天</span><div class="m"><div class="a">发云界 → 金顶 → 吊马桩</div><div class="b">13.1 km　爬升 760 m</div><div class="w">金顶午后阵风 7 级</div></div><div class="wx"><svg><use href="#w-wind"/></svg><span>-2–6°</span></div></div>
+            <div class="day"><span class="d">第3天</span><div class="m"><div class="a">吊马桩 → 沈子村</div><div class="b">9.7 km　爬升 260 m</div></div><div class="wx"><svg><use href="#w-cloud"/></svg><span>6–15°</span></div></div>
+
+            <div class="h">轨迹</div>
+            <svg class="elev"><use href="#elev-live"/></svg>
+            <div class="trackline">已走 17.3 km，全程 32.6 km</div>
+
+            <div class="h">同行</div>
+            <div class="person"><span class="face" style="background:#5E5CE6">林</span><span class="n">林</span><span class="r">共享位置中</span></div>
+            <div class="person"><span class="face" style="background:#0EAFB1">周</span><span class="n">周</span><span class="r">共享位置中</span></div>
+            <div class="person"><span class="face" style="background:#FF9F0A">陈</span><span class="n">小陈</span><span class="r"></span></div>
+            <div class="person"><span class="face" style="background:#2EB85C">许</span><span class="n">许</span><span class="r"></span></div>
+
+            <div class="h">简介</div>
+            <div class="about">经典的高山草甸穿越，三天两晚，第二天上金顶看日出。</div>
+          </div>
+        </div>
+        <div class="footer"><div class="pill primary grow"><svg><use href="#i-walk"/></svg>继续徒步</div><div class="pill"><svg><use href="#i-spark"/></svg>问 AI</div></div>
+      </div></div>
+      <p class="scroll-hint">↕ 屏内可滚动</p>
+    </div>
+
+    <!-- AFTER -->
+    <div class="col">
+      <div class="col-title">结束后，回来第二天</div>
+      <div class="col-sub">顶部变成回顾，原计划逐天对照实际</div>
+      <div class="phone"><div class="screen">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="map"><svg><use href="#map"/></svg></div>
+        <div class="chrome"><div class="ico"><svg><use href="#i-back"/></svg></div><div style="display:flex"><div class="ico"><svg><use href="#i-share"/></svg></div><div class="ico"><svg><use href="#i-more"/></svg></div></div></div>
+        <div class="sheet">
+          <div class="handle"></div>
+          <div class="sheet-head">
+            <div class="title">武功山三天穿越</div>
+            <div class="meta"><span>11月14日–16日</span>
+              <span class="faces"><span class="face" style="background:#5E5CE6">林</span><span class="face" style="background:#0EAFB1">周</span><span class="face" style="background:#C7C7CC;color:#555">+2</span></span></div>
+            <div class="tabs"><span class="on">总览</span><span>行程</span><span>清单</span><span>瞬间</span></div>
+          </div>
+          <div class="scroll">
+            <div class="slotmark">
+              <div class="mosaic"><div></div><div></div><div></div>
+                <svg viewBox="0 0 290 160" preserveAspectRatio="none"><path d="M20 140 C50 115 80 100 110 92 S150 66 170 58 S220 34 250 22" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" opacity=".9"/></svg>
+              </div>
+              <div class="hero" style="margin-top:14px"><div class="t">走完了</div><div class="s">3 天 34.1 km，86 张照片。</div></div>
+              <div class="item" style="margin-top:4px"><div class="txt"><div class="t">装备复盘</div><div class="s">有 3 件装备可以看看</div></div><span class="act">去看</span></div>
+            </div>
+
+            <div class="h">每天</div>
+            <div class="day"><span class="d">第1天</span><div class="m"><div class="a">龙山村 → 发云界</div><div class="b">计划 9.8 km　爬升 1120 m</div><div class="act2">实际 10.4 km，用时 6.5 h</div></div><div class="wx"><svg><use href="#w-sun"/></svg><span>12°</span></div></div>
+            <div class="day"><span class="d">第2天</span><div class="m"><div class="a">发云界 → 金顶 → 吊马桩</div><div class="b">计划 13.1 km　爬升 760 m</div><div class="act2">实际 13.8 km，用时 6.8 h</div></div><div class="wx"><svg><use href="#w-wind"/></svg><span>5°</span></div></div>
+            <div class="day"><span class="d">第3天</span><div class="m"><div class="a">吊马桩 → 沈子村</div><div class="b">计划 9.7 km　爬升 260 m</div><div class="act2">实际 9.9 km，用时 2.9 h</div></div><div class="wx"><svg><use href="#w-cloud"/></svg><span>14°</span></div></div>
+
+            <div class="h">轨迹</div>
+            <svg class="elev"><use href="#elev-after"/></svg>
+            <div class="trackline">灰线是计划，蓝线是实际，共 34.1 km</div>
+
+            <div class="h">同行</div>
+            <div class="person"><span class="face" style="background:#5E5CE6">林</span><span class="n">林</span><span class="r">32 张照片</span></div>
+            <div class="person"><span class="face" style="background:#0EAFB1">周</span><span class="n">周</span><span class="r">41 张照片</span></div>
+            <div class="person"><span class="face" style="background:#FF9F0A">陈</span><span class="n">小陈</span><span class="r">13 张照片</span></div>
+            <div class="person"><span class="face" style="background:#2EB85C">许</span><span class="n">许</span><span class="r"></span></div>
+
+            <div class="h">简介</div>
+            <div class="about">经典的高山草甸穿越，三天两晚，第二天上金顶看日出。</div>
+          </div>
+        </div>
+        <div class="footer"><div class="pill primary grow"><svg><use href="#i-book"/></svg>生成游记</div><div class="pill"><svg><use href="#i-spark"/></svg>问 AI</div></div>
+      </div></div>
+      <p class="scroll-hint">↕ 屏内可滚动</p>
+    </div>
+  </div>
+
+  <div class="table">
+    <h2>骨架里每一块在各阶段的样子</h2>
+    <table>
+      <tr><th>区块</th><th>出发前</th><th>进行中</th><th>结束后</th></tr>
+      <tr><td>顶部</td><td>没完成的待办，按距离出发的天数出现，做完就消失</td><td>最晚折返时间，下一处水或营地</td><td>照片，一句话总结，装备复盘</td></tr>
+      <tr><td>每天</td><td>路线、距离、爬升；7 天内加上天气；风险挂在当天下面</td><td>走过的天变浅并写上实际距离和用时，今天用蓝色</td><td>计划下面加一行实际，天气换成当天记录到的气温</td></tr>
+      <tr><td>轨迹</td><td>海拔图，按个人配速估算用时</td><td>走过的一段变蓝</td><td>计划和实际两条线叠在一起</td></tr>
+      <tr><td>同行</td><td>每个人负责的公用装备</td><td>谁在共享位置</td><td>每个人上传的照片数</td></tr>
+      <tr><td>简介</td><td colspan="3">始终不变，没写就不出现</td></tr>
+      <tr><td class="muted">底部</td><td class="muted">开始徒步（白底），问 AI</td><td class="muted">继续徒步（蓝底），问 AI</td><td class="muted">生成游记，问 AI</td></tr>
+    </table>
+  </div>
+</div>
+</body>
+</html>

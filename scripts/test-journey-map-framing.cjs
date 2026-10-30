@@ -14,6 +14,16 @@ function loadExtent() {
   return context.exports;
 }
 
+/** So is the reveal schedule. */
+function loadPinVisibility() {
+  const js = ts.transpileModule(fs.readFileSync('src/lib/pinVisibility.ts', 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const context = { exports: {} };
+  vm.runInNewContext(js, context);
+  return context.exports;
+}
+
 function loadMap() {
   const calls = [];
   const effects = [];
@@ -56,6 +66,12 @@ function loadMap() {
       View: 'View', Text: 'Text', Pressable: 'Pressable',
       Animated: { Value: class { constructor(value) { this.value = value; } } },
       Platform: { OS: 'ios' },
+      // The cascade checks the OS reduced-motion setting on mount, and this file
+      // runs the map's effects; the answer it gets is irrelevant to framing.
+      AccessibilityInfo: {
+        isReduceMotionEnabled: () => Promise.resolve(false),
+        addEventListener: () => ({ remove: () => {} }),
+      },
       StyleSheet: { create: styles => styles, absoluteFill: {}, hairlineWidth: 1 },
       useWindowDimensions: () => ({ height: 844 }),
     },
@@ -67,6 +83,10 @@ function loadMap() {
       isValidMapCoordinate: isValidMapCoordinate,
       keepValidCoordinates: coordinates => (coordinates ?? []).filter(isValidMapCoordinate),
     },
+    // Neither the Android avatar bitmap nor the compass cone is part of framing.
+    '../maps/locationImage': { platformLocationImage: () => null },
+    '../maps/distanceMarkers': { cappedStepKm: stepKm => stepKm },
+    '../../lib/compassHeading': { useCompassHeading: () => null },
     '../StaggerIn': { STAGGER_MAX_DELAY_MS: 0, STAGGER_STEP_MS: 0 },
     './CurrentLocationMarker': { CurrentLocationMarker: 'CurrentLocationMarker' },
     './PhotoPin': {
@@ -80,6 +100,7 @@ function loadMap() {
     // This file is about framing, not presses; the real geometry is covered by
     // scripts/test-pin-overlap.cjs.
     '../../lib/pinOverlap': { pickPinUnderPress: () => null, MIN_PHOTO_OVERLAP: 0.5 },
+    '../../lib/pinVisibility': loadPinVisibility(),
     '../../lib/routeSegments': { measureTrack: () => ({ totalMeters: 0 }), positionAtDistance: () => null },
   };
   const js = ts.transpileModule(fs.readFileSync('src/components/globe/MapGlobe.tsx', 'utf8'), {

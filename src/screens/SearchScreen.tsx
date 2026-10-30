@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Image, Keyboard, ScrollView, StyleSheet, Text, TextInput, View, type StyleProp, type TextStyle } from 'react-native';
+import { Animated, Image, Keyboard, ScrollView, StyleSheet, Text, TextInput, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../theme/theme';
 import { useNav } from '../nav/NavContext';
@@ -7,12 +7,14 @@ import { useI18n } from '../i18n';
 import { useData } from '../data/DataContext';
 import { Icon } from '../components/Icon';
 import { Press } from '../components/Press';
+import { useSlidingIndicator } from '../components/useSlidingIndicator';
 import type { Poi } from '../data/pois';
 import { radius, space } from '../design-system';
 import { TrackThumbnail } from '../components/tracks/TrackThumbnail';
 import { searchPublishedTracks, type PublishedTrackCard } from '../hooks/useSocial';
 import { formatTrackAscent, formatTrackDistance } from '../lib/trackParser';
 import { regionLabel } from '../lib/regionLabel';
+import { rememberPickedRegion } from '../lib/launchRegion';
 
 const CHINA_REGIONS = [
   '全国', '北京', '上海', '天津', '重庆', '河北', '山西', '辽宁', '吉林', '黑龙江',
@@ -139,6 +141,7 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
   }, [trackQuery]);
 
   const choosePlace = (region: string) => {
+    rememberPickedRegion(region);
     nav.setDiscoverRegion(region);
     close();
   };
@@ -246,28 +249,26 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
     return null;
   };
 
+  // Journeys are the user's own, so there is nothing to ask us for there.
+  const emptyAsk = activeTab === 'guide' ? '没有找到想要的攻略？告诉我们'
+    : activeTab === 'track' ? '没有找到想要的轨迹？告诉我们'
+    : activeTab === 'journey' ? null
+    : '没有找到想走的路线？告诉我们';
+
   const renderEmpty = () => (
     <View style={styles.empty}>
       <Text style={[styles.emptyTitle, { color: theme.text }]}>没有找到相关内容</Text>
       <Text style={[styles.emptySub, { color: theme.text3 }]}>换个关键词试试</Text>
-      <Press onPress={requestRoute} accessibilityRole="button" style={styles.emptyLinkPress}>
-        <Text style={[styles.emptyLink, { color: theme.accent }]}>没有找到想走的路线？告诉我们</Text>
-      </Press>
+      {emptyAsk ? (
+        <Press onPress={requestRoute} accessibilityRole="button" style={styles.emptyLinkPress}>
+          <Text style={[styles.emptyLink, { color: theme.accent }]}>{emptyAsk}</Text>
+        </Press>
+      ) : null}
     </View>
   );
 
   const renderTabs = () => (
-    <View style={styles.tabBar}>
-      {TAB_LABELS.map((tab) => {
-        const selected = activeTab === tab.id;
-        return (
-          <Press key={tab.id} onPress={() => setActiveTab(tab.id)} accessibilityRole="tab" accessibilityState={{ selected }} style={styles.tabPress}>
-            <Text style={[styles.tabText, { color: selected ? theme.text : theme.text3, fontWeight: selected ? '700' : '500' }]}>{tab.label}</Text>
-            <View style={[styles.tabUnderline, { backgroundColor: selected ? theme.accent : 'transparent' }]} />
-          </Press>
-        );
-      })}
-    </View>
+    <SearchTabs theme={theme} style={styles.tabBar} items={TAB_LABELS} activeKey={activeTab} onSelect={setActiveTab} />
   );
 
   return (
@@ -299,17 +300,13 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
       </View>
 
       {!hasQuery ? (
-        <View style={styles.scopeBar}>
-          {(['china', 'international'] as const).map((item) => {
-            const selected = scope === item;
-            return (
-              <Press key={item} onPress={() => { setScope(item); setQuery(''); }} accessibilityRole="tab" accessibilityState={{ selected }} style={styles.tabPress}>
-                <Text style={[styles.tabText, { color: selected ? theme.text : theme.text3, fontWeight: selected ? '700' : '500' }]}>{item === 'china' ? '中国' : '国际'}</Text>
-                <View style={[styles.tabUnderline, { backgroundColor: selected ? theme.accent : 'transparent' }]} />
-              </Press>
-            );
-          })}
-        </View>
+        <SearchTabs
+          theme={theme}
+          style={styles.scopeBar}
+          items={[{ id: 'china', label: '中国' }, { id: 'international', label: '国际' }]}
+          activeKey={scope}
+          onSelect={(item) => { setScope(item); setQuery(''); }}
+        />
       ) : renderTabs()}
 
       <View style={[styles.sheet, { backgroundColor: theme.surfaceStrong }]}>
@@ -341,6 +338,37 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
 
 const PLACE_COLUMNS = 4;
 
+// Text tabs with one 20pt underline that slides to the active tab.
+function SearchTabs<T extends string>({ theme, style, items, activeKey, onSelect }: {
+  theme: Theme;
+  style: StyleProp<ViewStyle>;
+  items: { id: T; label: string }[];
+  activeKey: T;
+  onSelect: (id: T) => void;
+}) {
+  const indicator = useSlidingIndicator(activeKey, 20);
+  return (
+    <View style={style}>
+      {items.map((item) => {
+        const selected = item.id === activeKey;
+        return (
+          <Press
+            key={item.id}
+            onPress={() => onSelect(item.id)}
+            onLayout={(event) => indicator.onTabLayout(item.id, event.nativeEvent.layout)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected }}
+            style={styles.tabPress}
+          >
+            <Text style={[styles.tabText, { color: selected ? theme.text : theme.text3, fontWeight: selected ? '700' : '500' }]}>{item.label}</Text>
+          </Press>
+        );
+      })}
+      <Animated.View pointerEvents="none" style={[styles.tabUnderline, { backgroundColor: theme.accent }, indicator.style]} />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   header: { paddingTop: space.sm, paddingHorizontal: space.md, paddingBottom: space.md, flexDirection: 'row', alignItems: 'center' },
   backButton: { width: 40, height: SEARCH_FIELD_HEIGHT, alignItems: 'center', justifyContent: 'center' },
@@ -349,9 +377,9 @@ const styles = StyleSheet.create({
   clearButton: { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
   scopeBar: { flexDirection: 'row', gap: 28, paddingHorizontal: space.lg },
   tabBar: { flexDirection: 'row', gap: 26, paddingHorizontal: space.lg },
-  tabPress: { alignItems: 'center' },
+  tabPress: { alignItems: 'center', paddingBottom: 8 },
   tabText: { fontSize: 16, lineHeight: 20 },
-  tabUnderline: { width: 20, height: 3, borderRadius: 2, marginTop: 5 },
+  tabUnderline: { position: 'absolute', bottom: 0, height: 3, borderRadius: 2 },
   sheet: { flex: 1, marginTop: space.sm, marginHorizontal: space.md, marginBottom: space.md, borderRadius: 28, overflow: 'hidden' },
   sheetContent: { paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.xxl },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },

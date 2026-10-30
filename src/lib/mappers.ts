@@ -74,6 +74,9 @@ export function toJourneyPoi(j: any, companions?: any[], viewerUserId?: string):
     date: j.date,
     days: j.days,
     plannedDate: j.planned_date,
+    meetDay: j.meet_day ?? undefined,
+    meetTime: j.meet_time ?? undefined,
+    meetPlace: j.meet_place ?? undefined,
     updatedAt: j.updated_at ?? undefined,
     countdown: j.countdown,
     dayIndex: j.day_index,
@@ -140,6 +143,8 @@ export function toTrack(r: any): Track {
     visibility: r.visibility ?? 'private',
     ownOuting: r.own_outing ?? false,
     publishedAt: r.published_at ?? undefined,
+    inLibrary: r.in_library !== false,
+    sourceTrackId: r.source_track_id ?? undefined,
     createdAt: r.created_at ?? undefined,
     updatedAt: r.updated_at ?? undefined,
   };

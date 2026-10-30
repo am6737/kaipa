@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>我的贡献 方案 A 细化</title>
+<style>
+  :root {
+    --grouped:#F4F4F5; --feature:#FFFFFF; --field:rgba(0,0,0,0.045); --surfaceTop:#FFFFFF;
+    --control:rgba(255,255,255,0.92); --controlShadow:0 4px 18px rgba(0,0,0,0.10);
+    --text:#111114; --text2:rgba(60,60,67,0.62); --text3:rgba(60,60,67,0.32);
+    --accent:#0A84FF; --accentSoft:rgba(10,132,255,0.12); --accentSofter:rgba(10,132,255,0.06);
+    --danger:#E5484D; --dangerSoft:rgba(229,72,77,0.10); --frame:#E9E9EE;
+  }
+  body.dark {
+    --grouped:#1C1C1E; --feature:#000; --field:rgba(255,255,255,0.07); --surfaceTop:rgba(40,40,44,0.92);
+    --control:rgba(44,44,48,0.92); --controlShadow:0 4px 18px rgba(0,0,0,0.5);
+    --text:#F5F5F7; --text2:rgba(235,235,245,0.62); --text3:rgba(235,235,245,0.30);
+    --accentSoft:rgba(10,132,255,0.18); --accentSofter:rgba(10,132,255,0.10);
+    --danger:#FF6369; --dangerSoft:rgba(255,99,105,0.14); --frame:#111;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,"PingFang SC","Helvetica Neue","Noto Sans SC",sans-serif; background:var(--frame); color:var(--text); padding:28px 24px 60px; }
+  .num { font-variant-numeric:tabular-nums; }
+  .mono { font-family:ui-monospace,"SF Mono",Menlo,monospace; font-variant-numeric:tabular-nums; }
+  header.doc { max-width:1720px; margin:0 auto 24px; display:flex; align-items:flex-end; justify-content:space-between; gap:20px; flex-wrap:wrap; }
+  header.doc h1 { font-size:25px; font-weight:800; }
+  header.doc p { font-size:14px; color:var(--text2); margin-top:6px; line-height:22px; max-width:900px; }
+  .toggle { border:0; background:var(--surfaceTop); color:var(--text); font:600 14px inherit; padding:11px 18px; border-radius:999px; box-shadow:var(--controlShadow); cursor:pointer; }
+  .grid { display:flex; flex-wrap:wrap; gap:36px 28px; justify-content:center; max-width:1720px; margin:0 auto; }
+  .col { width:390px; }
+  .col h2 { font-size:18px; font-weight:800; margin-bottom:12px; }
+  .notes { margin-top:16px; font-size:13px; line-height:21px; color:var(--text2); padding-left:18px; }
+  .notes li + li { margin-top:4px; }
+  .phone { width:390px; height:844px; border-radius:50px; overflow:hidden; position:relative; box-shadow:0 20px 60px rgba(0,0,0,0.18); background:var(--feature); }
+  .sb { height:50px; display:flex; align-items:center; justify-content:space-between; padding:6px 34px 0; font-size:16px; font-weight:600; }
+  .sb i { display:inline-block; width:26px; height:12px; border:1.5px solid var(--text); border-radius:4px; opacity:.8; }
+  .nav { height:50px; display:flex; align-items:center; justify-content:center; position:relative; }
+  .nav .back { position:absolute; left:16px; top:3px; width:44px; height:44px; border-radius:22px; background:var(--control); box-shadow:var(--controlShadow); display:flex; align-items:center; justify-content:center; color:var(--text); }
+  .nav .title { font-size:17px; font-weight:700; }
+  .scroll { position:absolute; top:100px; left:0; right:0; bottom:0; overflow-y:auto; padding-bottom:60px; scrollbar-width:none; }
+  .scroll::-webkit-scrollbar { display:none; }
+  svg { display:block; flex:none; }
+
+  .lead { font-size:14px; line-height:23px; color:var(--text2); }
+  .eyebrow { font-size:12px; font-weight:600; color:var(--text2); }
+  .cardTitle { font-size:15px; font-weight:700; line-height:21px; }
+  .body2 { font-size:14px; line-height:22px; color:var(--text2); }
+  .caption { font-size:11.5px; line-height:17px; color:var(--text3); }
+  .meta { font-size:11.5px; line-height:19px; color:var(--text2); }
+  .clamp2 { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .clamp1 { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row { display:flex; align-items:center; }
+  .status { display:inline-flex; align-items:center; gap:4px; font-size:11.5px; font-weight:600; }
+
+  .summary { display:flex; align-items:flex-start; padding:0 24px; margin-top:22px; }
+  .summary > div { flex:1; min-width:0; }
+  .sv { font-family:ui-monospace,"SF Mono",Menlo,monospace; font-variant-numeric:tabular-nums; font-size:34px; font-weight:800; letter-spacing:-1.2px; line-height:40px; }
+  .sv.empty { color:var(--text3); }
+  .svLabel { font-size:11.5px; line-height:19px; color:var(--text2); margin-top:2px; }
+
+  .tabs { position:sticky; top:0; z-index:2; background:var(--feature); display:flex; gap:22px; padding:0 24px; height:48px; align-items:center; }
+  .tab { font-size:15px; color:var(--text2); position:relative; height:44px; display:flex; align-items:center; cursor:pointer; }
+  .tab.on { color:var(--text); font-weight:700; }
+  .tab.on::after { content:""; position:absolute; left:50%; transform:translateX(-50%); bottom:4px; width:18px; height:3px; border-radius:2px; background:var(--accent); }
+
+  .block { margin:0 16px; background:var(--field); border-radius:24px; padding:6px 0; }
+  .item { padding:12px 20px; cursor:pointer; }
+  .item:active, .lrow:active { background:var(--field); }
+  .pill { display:inline-flex; align-items:center; gap:5px; height:36px; padding:0 14px; border-radius:999px; background:var(--surfaceTop); color:var(--accent); font-size:14px; font-weight:600; flex:none; }
+  .lrow { display:flex; gap:14px; padding:12px 24px; cursor:pointer; }
+  .rcol { width:52px; flex:none; text-align:right; }
+  .metric { font-family:ui-monospace,"SF Mono",Menlo,monospace; font-variant-numeric:tabular-nums; font-size:16px; font-weight:800; line-height:22px; }
+  .thumbs { display:flex; gap:6px; margin-top:8px; }
+  .thumbs span { width:48px; height:48px; border-radius:11px; }
+  .prompt { margin:12px 16px 0; background:var(--accentSofter); border-radius:24px; padding:14px 16px 14px 14px; display:flex; gap:12px; align-items:center; }
+</style>
+</head>
+<body>
+<header class="doc">
+  <div>
+    <h1>我的贡献 方案 A 细化</h1>
+    <p>同一个页面的四种状态。每部手机都能点标签：顶部数字、进行中块和列表一起跟着标签变。列表区可以滚动，标签在滚动时吸顶。</p>
+  </div>
+  <button class="toggle" onclick="document.body.classList.toggle('dark')">切换浅色 / 深色</button>
+</header>
+<div class="grid" id="grid"></div>
+
+<script>
+const I = {
+  back:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+  clock:c=>`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.3" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
+  check:c=>`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>`,
+  alert:c=>`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.3" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.2"/></svg>`,
+  pen:c=>`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>`,
+  chev:c=>`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>`,
+};
+const COVERS = {
+  雨崩:['#7FA7C9','#4F6E59'], 武功山:['#9CC3A0','#5C7D4E'], 虎跳峡:['#C9A27F','#6F5A43'], 四姑娘山:['#8FB0D8','#56708F'],
+  贡嘎:['#A8B6D6','#5E6787'], 鳌太线:['#9BA5A0','#55605A'], 洛克线:['#D2B48C','#7E6648'], 狼塔:['#C7B07A','#7C6A3B'], 东灵山:['#A9C7A0','#5D7A57'],
+};
+const photo = k => { const [a,b] = COVERS[k]; return `background:linear-gradient(160deg,${a},${b})`; };
+
+const DATA = [
+  {kind:'guide', route:'雨崩', routeName:'雨崩徒步', title:'雨崩四日：神瀑、冰湖与尼农峡谷', status:'rejected', reason:'第 2 天缺少住宿信息，补充后可以重新提交', date:'10月21日', month:'2026-10'},
+  {kind:'guide', route:'四姑娘山', routeName:'四姑娘山大峰', title:'四姑娘山大峰：我的第一座雪山', status:'pending', date:'10月26日', month:'2026-10'},
+  {kind:'request', route:'洛克线', routeName:'洛克线', title:'洛克线', region:'四川稻城', status:'pending', date:'10月25日', month:'2026-10'},
+  {kind:'comment', route:'贡嘎', routeName:'贡嘎子梅垭口', body:'垭口风很大，下午三点后基本起雾，建议一早出发。子梅村的客栈都能看到日照金山。', date:'10月24日', month:'2026-10', likes:23, replies:4, photos:3},
+  {kind:'guide', route:'武功山', routeName:'武功山', title:'武功山两天一夜反穿攻略', status:'approved', date:'9月14日', month:'2026-09', helpful:86},
+  {kind:'comment', route:'武功山', routeName:'武功山', body:'金顶日出人非常多，想安静一点可以住发云界，五点出发走到观音宕看。', date:'9月15日', month:'2026-09', likes:12, replies:2, photos:0},
+  {kind:'guide', route:'虎跳峡', routeName:'虎跳峡高路', title:'虎跳峡高路：28 道拐到中途客栈', status:'approved', date:'8月2日', month:'2026-08', helpful:42},
+  {kind:'comment', route:'虎跳峡', routeName:'虎跳峡高路', body:'中途客栈的厕所真的是全峡谷最好看的风景之一，不是玩笑。', date:'8月3日', month:'2026-08', likes:31, replies:6, photos:2},
+  {kind:'request', route:'狼塔', routeName:'狼塔 C+', title:'狼塔 C+', region:'新疆乌鲁木齐', status:'accepted', date:'7月10日', month:'2026-07'},
+  {kind:'comment', route:'鳌太线', routeName:'鳌太线', body:'这条线已经禁止穿越很多年了，请不要再组织。', date:'6月12日', month:'2026-06', likes:8, replies:1, photos:0, routeGone:true},
+  {kind:'request', route:'鳌太线', routeName:'鳌太穿越', title:'鳌太穿越', region:'陕西宝鸡', status:'duplicate', date:'12月30日', month:'2025-12'},
+];
+const KIND = { guide:'攻略', comment:'评论', request:'路线请求' };
+const inProgress = d => d.status==='pending' || d.status==='rejected';
+const of = (data,k) => data.filter(d=>k==='all'||d.kind===k);
+const sum = (arr,f) => arr.reduce((s,d)=>s+(d[f]||0),0);
+const monthLabel = m => { const [y,mm]=m.split('-'); return (y==='2026'?'':`${y} 年 `)+`${+mm} 月`; };
+
+function summary(data,k){
+  const g=of(data,'guide'), c=of(data,'comment'), r=of(data,'request');
+  const S = {
+    all:[[sum(g,'helpful'),'人觉得攻略有用'],[sum(c,'likes'),'个评论获赞'],[r.filter(x=>x.status==='accepted').length,'条路线因你上线']],
+    guide:[[g.length,'篇攻略'],[sum(g,'helpful'),'人觉得有用'],[g.filter(x=>x.status==='approved').length,'篇已发布']],
+    comment:[[c.length,'条评论'],[sum(c,'likes'),'个赞'],[sum(c,'replies'),'条回复']],
+    request:[[r.length,'个请求'],[r.filter(x=>x.status==='accepted').length,'条已上线'],[r.filter(x=>x.status==='pending').length,'个审核中']],
+  }[k];
+  const empty = !data.length;
+  return `<div class="summary">${S.map(([v,l])=>`<div><div class="sv ${empty?'empty':''}">${empty?'--':v}</div><div class="svLabel">${l}</div></div>`).join('')}</div>`;
+}
+function statusOf(d){
+  if (d.status==='pending') return ['审核中','var(--accent)',I.clock('var(--accent)')];
+  if (d.status==='rejected') return [d.kind==='guide'?'需修改':'未通过','var(--danger)',I.alert('var(--danger)')];
+  if (d.status==='accepted') return ['已上线','var(--text2)',I.check('var(--text2)')];
+  if (d.status==='duplicate') return ['已在路线库中','var(--text2)',I.check('var(--text2)')];
+  return null;
+}
+const statusHtml = s => s ? `<span class="status" style="color:${s[1]}">${s[2]}${s[0]}</span>` : '';
+
+function progress(data,k){
+  const items = of(data,k).filter(inProgress);
+  if (!items.length) return '';
+  return `<div class="block" style="margin-top:26px">
+    <div class="eyebrow" style="padding:12px 20px 2px">进行中 <span class="num">${items.length}</span></div>
+    ${items.map(d=>`<div class="item">
+      <div class="row" style="justify-content:space-between;gap:10px">${statusHtml(statusOf(d))}<span class="caption num">${d.date} 提交</span></div>
+      <div class="cardTitle clamp1" style="margin-top:4px">${d.title}</div>
+      <div class="meta">${k==='all'?KIND[d.kind]+'　':''}${d.kind==='request'?d.region:d.routeName}</div>
+      ${d.reason?`<div class="row" style="gap:12px;margin-top:10px;align-items:flex-end">
+        <div style="flex:1;font-size:13px;line-height:20px;color:var(--danger)">${d.reason}</div>
+        <span class="pill">${I.pen('var(--accent)')}修改</span></div>`:''}
+    </div>`).join('')}
+  </div>`;
+}
+function prompt(){
+  return `<div class="prompt">
+    <div style="width:44px;height:44px;border-radius:12px;flex:none;${photo('东灵山')}"></div>
+    <div style="flex:1;min-width:0"><div class="cardTitle clamp1">走完了「东灵山」</div><div class="meta">说说路况、风景，帮到后来的人</div></div>
+    <span class="pill" style="color:var(--accent)">写评论</span></div>`;
+}
+function row(d,k){
+  const showKind = k==='all';
+  let left='', right='';
+  if (d.kind==='comment') {
+    left = `<div class="cardTitle clamp1">${d.routeName}</div>
+      <div class="body2 clamp2" style="margin-top:2px">${d.body}</div>
+      ${d.photos?`<div class="thumbs">${Array.from({length:d.photos}).map((_,i)=>`<span style="${photo(d.route)};opacity:${1-i*.15}"></span>`).join('')}</div>`:''}
+      <div class="caption num" style="margin-top:6px">${showKind?'评论　':''}${d.date}　${d.replies} 条回复${d.routeGone?'　关联路线暂不可用':''}</div>`;
+    right = `<div class="metric">${d.likes}</div><div class="caption">赞</div>`;
+  } else if (d.kind==='guide') {
+    left = `<div class="cardTitle clamp2">${d.title}</div><div class="caption" style="margin-top:3px">${showKind?'攻略　':''}${d.routeName}　${d.date}</div>`;
+    right = `<div class="metric">${d.helpful}</div><div class="caption">有用</div>`;
+  } else {
+    left = `<div class="cardTitle clamp1">${d.title}</div><div class="caption" style="margin-top:3px">${showKind?'路线请求　':''}${d.region}　${d.date} 提交</div>`;
+    right = `<div style="padding-top:2px;white-space:nowrap">${statusHtml(statusOf(d))}</div>`;
+  }
+  return `<div class="lrow"><div style="flex:1;min-width:0">${left}</div><div class="rcol" style="${d.kind==='request'?'width:auto':''}">${right}</div></div>`;
+}
+function list(data,k){
+  const items = of(data,k).filter(d=>!inProgress(d));
+  if (!items.length) return of(data,k).length
+    ? `<div class="caption" style="text-align:center;padding:28px 24px;font-size:13px;color:var(--text2)">还在审核中，通过后会出现在这里</div>`
+    : `<div style="text-align:center;padding:40px 24px"><div class="body2">还没有${KIND[k]}</div></div>`;
+  let out='', last='';
+  items.forEach(d=>{
+    if (d.month!==last){ out+=`<div class="eyebrow" style="padding:${last?'20px':'6px'} 24px 4px">${monthLabel(d.month)}</div>`; last=d.month; }
+    out+=row(d,k);
+  });
+  return out;
+}
+function render(p){
+  const {data,k} = p;
+  if (!data.length) return `
+    <div style="padding:8px 24px 0"><div class="lead">攻略、评论和路线请求，都会帮到后来走这条路的人。</div></div>
+    ${summary(data,'all')}
+    ${prompt()}
+    <div style="text-align:center;padding:56px 32px 0"><div style="font-size:15px;font-weight:600">还没有贡献</div>
+      <div class="body2" style="margin-top:6px">走完一条路线后，写评论或发布攻略都会出现在这里。</div></div>`;
+  return `
+    <div style="padding:8px 24px 0"><div class="lead">攻略、评论和路线请求，都会帮到后来走这条路的人。</div></div>
+    ${summary(data,k)}
+    ${progress(data,k)}
+    ${(k==='all'||k==='comment')?prompt():''}
+    <div class="tabs" style="margin-top:18px">${['all','guide','comment','request'].map(x=>`<div class="tab ${x===k?'on':''}" data-k="${x}">${x==='all'?'全部':KIND[x]}</div>`).join('')}</div>
+    ${list(data,k)}`;
+}
+
+const PHONES = [
+  {h:'① 全部', k:'all', data:DATA, notes:[
+    '顶部三个数字回答“帮到了多少人”，用 summaryValue；切到别的标签会换成该类型自己的数字。',
+    '审核中和需修改的不进列表，统一收在“进行中”。需修改直接显示原因，右边是修改按钮。',
+    '走完但还没评价的路线，用一张 accentSofter 提示卡引导写评论（沿用现有文案“走完了「…」”）。',
+    '列表行不带图标块，类型写在日期前面，只在“全部”里显示；右侧数字列对齐，方便扫读。',
+  ]},
+  {h:'② 攻略', k:'guide', data:DATA, notes:[
+    '数字换成 篇攻略 / 人觉得有用 / 篇已发布。',
+    '进行中只留攻略，列表里只有已发布的攻略，右侧数字是“有用”数。',
+    '行里省掉“攻略”类型字样，只留路线名和日期。',
+  ]},
+  {h:'③ 评论', k:'comment', data:DATA, notes:[
+    '评论没有审核环节，所以没有进行中块，只显示写评论的提示卡。',
+    '行标题是路线名，正文最多两行，配图 48 px 缩略图；赞数放右列，回复数放日期后面。',
+    '关联路线下线时，评论照样显示，末尾注明“关联路线暂不可用”。',
+    '跨年的月份写成“2025 年 12 月”，今年的只写月份。',
+  ]},
+  {h:'④ 空状态', k:'all', data:[], notes:[
+    '数字显示 -- 并用 text3，不显示 0。',
+    '没有内容时不显示标签栏，只留一句说明和写评论提示卡。',
+    '没有可提示的路线时，提示卡隐藏，只保留居中的说明文字。',
+  ]},
+];
+const grid = document.getElementById('grid');
+grid.innerHTML = PHONES.map((p,i)=>`<div class="col"><h2>${p.h}</h2>
+  <div class="phone"><div class="sb"><span class="num">9:41</span><i></i></div>
+  <div class="nav"><div class="back">${I.back}</div><div class="title">我的贡献</div></div>
+  <div class="scroll" id="s${i}">${render(p)}</div></div>
+  <ul class="notes">${p.notes.map(n=>`<li>${n}</li>`).join('')}</ul></div>`).join('');
+PHONES.forEach((p,i)=>{
+  const el = document.getElementById('s'+i);
+  el.addEventListener('click', e=>{ const t=e.target.closest('.tab'); if(!t) return; p.k=t.dataset.k; el.innerHTML=render(p); });
+});
+</script>
+</body>
+</html>

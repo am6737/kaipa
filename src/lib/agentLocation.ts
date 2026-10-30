@@ -53,9 +53,10 @@ export async function getAgentLocation(message: string, timeoutMs = 15_000, inte
       longitude: position.lng, accuracy: position.accuracy,
       timestamp: position.timestamp, coordinateSystem: 'WGS84' }) ?? { status: 'unavailable' as const };
     if (fix.status !== 'available') return fix;
-    // City-level planning does not need a street, house number or exact address.
+    // City-level planning does not need a street, house number or exact address,
+    // nor a city district; only a county (县/旗) is worth naming.
     const placeName = (place?: CurrentPosition['place']) => place
-      ? [...new Set([place.region, place.city, place.district].filter(Boolean))].join(' ')
+      ? [...new Set([place.region, place.city, place.district && /[县旗]$/.test(place.district) ? place.district : undefined].filter(Boolean))].join(' ')
       : '';
     // AMap resolves the place with the fix; the system provider needs a lookup.
     const known = placeName(position.place);

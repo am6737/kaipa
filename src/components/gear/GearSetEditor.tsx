@@ -3,7 +3,7 @@
 // 装备按分类列出；点一件装备从底部弹出面板调整携带方式、数量或移出。
 // 长按进入多选，一次改多件的携带方式或一起移出。
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Easing, Modal, PanResponder, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Keyboard, Modal, PanResponder, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Check, Info, Minus, Package, Plus } from 'lucide-react-native';
 import { Theme } from '../../theme/theme';
@@ -20,6 +20,7 @@ import {
   GEAR_STATUS,
   GearCarryStatus,
   WeightUnit,
+  fmtItemWeight,
   fmtWeight,
   itemStatus,
   packStats,
@@ -86,6 +87,8 @@ export function GearSetEditor({
   // Gear the user took out stays out when they rebuild.
   const removedIds = useRef<Set<number>>(new Set());
   const composeRun = useRef(0);
+  const nameInputRef = useRef<TextInput>(null);
+  const descriptionInputRef = useRef<TextInput>(null);
 
   const keyFor = (item: GearItem) => item.id != null ? String(item.id) : item.name;
   const applyOverride = (item: GearItem): GearItem => ({ ...item, ...overrides[keyFor(item)] });
@@ -181,6 +184,10 @@ export function GearSetEditor({
   const toBuyCount = suggestions.filter((suggestion) => suggestion.on).length;
   const compose = async () => {
     if (!trimmedDescription || composing) return;
+    // The picks land below the description, so the keyboard would hide them.
+    nameInputRef.current?.blur();
+    descriptionInputRef.current?.blur();
+    Keyboard.dismiss();
     const run = ++composeRun.current;
     // A rebuild replaces the earlier AI picks the user left alone and keeps
     // everything they chose themselves.
@@ -328,6 +335,7 @@ export function GearSetEditor({
       <View style={{ paddingHorizontal: layout.pagePadding, paddingTop: space.xs, paddingBottom: BAR_HEIGHT + space.xxxl * 2 + (batch ? BATCH_STATUS_HEIGHT : 0) }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
           <TextInput
+            ref={nameInputRef}
             value={name}
             onChangeText={setName}
             placeholder={t('gear.setEditor.namePlaceholder')}
@@ -340,6 +348,7 @@ export function GearSetEditor({
           <Text style={countCaption}>{name.length}/24</Text>
         </View>
         <TextInput
+          ref={descriptionInputRef}
           value={description}
           onChangeText={setDescription}
           placeholder={t('gear.setEditor.descriptionPlaceholder')}
@@ -671,11 +680,11 @@ function SetItemSheet({
         <View style={{ flex: 1, minWidth: 0, gap: space.xxs }}>
           <Text numberOfLines={2} style={[type.cardTitle, { lineHeight: 20, color: theme.text }]}>{shownItem.name}</Text>
           <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>
-            {shownCat?.name || t('gear.uncategorized')}  {t('gear.setEditor.perUnit', { weight: fmtWeight(shownItem.w, weightUnit) })}
+            {shownCat?.name || t('gear.uncategorized')}  {t('gear.setEditor.perUnit', { weight: fmtItemWeight(shownItem.w, weightUnit) })}
           </Text>
         </View>
         <View style={{ flexShrink: 0, alignItems: 'flex-end', gap: space.xxs }}>
-          <Text numberOfLines={1} style={[type.metric, { fontVariant: ['tabular-nums'], color: theme.text }]}>{toBuy ? '—' : fmtWeight(shownItem.w * quantity, weightUnit)}</Text>
+          <Text numberOfLines={1} style={[type.metric, { fontVariant: ['tabular-nums'], color: theme.text }]}>{toBuy ? '—' : fmtItemWeight(shownItem.w * quantity, weightUnit)}</Text>
           <Text numberOfLines={1} style={[type.caption, { fontFamily: MONO, fontVariant: ['tabular-nums'], color: theme.text2 }]}>{toBuy ? '—' : `¥${formatItemValue(shownItem.p * quantity)}`}</Text>
         </View>
       </View>
@@ -696,7 +705,7 @@ function SetItemSheet({
           </StepButton>
         </View>
         {quantity > 1 ? (
-          <Text style={[type.caption, { fontFamily: MONO, fontVariant: ['tabular-nums'], color: theme.text3 }]}>{fmtWeight(shownItem.w, weightUnit)} × {quantity}</Text>
+          <Text style={[type.caption, { fontFamily: MONO, fontVariant: ['tabular-nums'], color: theme.text3 }]}>{fmtItemWeight(shownItem.w, weightUnit)} × {quantity}</Text>
         ) : null}
       </View>
 

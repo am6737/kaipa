@@ -14,13 +14,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { JapaneseYen, MoreHorizontal, Package, Plus, Search, type LucideIcon } from 'lucide-react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
-import { GearCat, GearItem, WeightUnit, fmtWeight, itemPrice, itemQty, itemStatus, itemWeight } from '../../data/gear';
+import { GearCat, GearItem, WeightUnit, fmtItemWeight, fmtWeight, itemPrice, itemQty, itemStatus, itemWeight } from '../../data/gear';
 import { useI18n } from '../../i18n';
 import { Icon } from '../Icon';
 import type { IconName } from '../Icon';
 import { Press, PressDragGuardContext, useDragCancelledPress } from '../Press';
 import { Glass } from '../Glass';
-import { AppHeaderSearch, AppIconButton, DetailPage, layout, radius, space, type } from '../../design-system';
+import { AppHeaderSearch, AppIconButton, DetailPage, layout, radius, space, type, type DetailEntryVariant } from '../../design-system';
 import { usePersistedSort } from './usePersistedSort';
 import type { GearListSortMode } from './usePersistedSort';
 import { GearDeleteDialog } from './GearDeleteDialog';
@@ -84,6 +84,7 @@ const splitUnit = (text: string) => {
 
 function GearItemsListView({
   theme,
+  entryVariant,
   items,
   catMap,
   weightUnit,
@@ -98,6 +99,7 @@ function GearItemsListView({
   picker,
 }: {
   theme: Theme;
+  entryVariant?: DetailEntryVariant;
   items: GearItem[];
   catMap: Record<string, GearCat>;
   weightUnit: WeightUnit;
@@ -210,9 +212,11 @@ function GearItemsListView({
   // has yielded.
   const [visibleItemCount, setVisibleItemCount] = useState(INITIAL_RENDER_COUNT);
   const [imagesReady, setImagesReady] = useState(false);
+  // Saving one item rebuilds `rows`; keep whatever is already rendered, or the
+  // list collapses to its first screen and reflows under the reader's scroll.
   React.useEffect(() => {
-    setVisibleItemCount(Math.min(INITIAL_RENDER_COUNT, rows.length));
-  }, [rows]);
+    setVisibleItemCount((count) => Math.max(INITIAL_RENDER_COUNT, Math.min(count, rows.length)));
+  }, [rows.length]);
   React.useEffect(() => {
     if (visibleItemCount >= rows.length) return;
     const task = InteractionManager.runAfterInteractions(() => {
@@ -454,6 +458,7 @@ function GearItemsListView({
   return (
     <DetailPage
       theme={theme}
+      entryVariant={entryVariant}
       onBack={picker ? finishPicker : selectMode ? exitSelect : onBack}
       backgroundColor={theme.featureSurface}
       flatChrome
@@ -683,6 +688,7 @@ function GearItemsListView({
 
 export const GearItemsList = React.memo(GearItemsListView, (previous, next) => (
   previous.theme === next.theme
+  && previous.entryVariant === next.entryVariant
   && previous.items === next.items
   && previous.catMap === next.catMap
   && previous.weightUnit === next.weightUnit
@@ -816,7 +822,7 @@ export function ItemRow({ theme, item, cat, showCategory, weightUnit, onPress, o
   const qty = itemQty(item);
   const status = itemStatus(item);
   const statusLabel = status === 'worn' ? t('gear.pack.worn') : status === 'consumable' ? t('gear.pack.consumable') : status === 'optional' ? t('gear.status.optional') : null;
-  const weight = toBuy ? '—' : fmtWeight(itemWeight(item), weightUnit);
+  const weight = toBuy ? '—' : fmtItemWeight(itemWeight(item), weightUnit);
   const value = toBuy ? '—' : `¥${formatItemValue(itemPrice(item))}`;
   const shell = { minHeight: showImage ? LIST_ROW_MIN_HEIGHT : layout.listRowMinHeight, marginHorizontal: -space.sm, paddingHorizontal: space.sm, paddingVertical: space.sm + 2, borderRadius: radius.card, flexDirection: 'row', alignItems: 'center', gap: space.sm } as const;
   if (loading) {
@@ -841,7 +847,7 @@ export function ItemRow({ theme, item, cat, showCategory, weightUnit, onPress, o
       </View>
     ) : null,
     showValue && !toBuy ? <Text key="value" numberOfLines={1} style={[type.caption, { fontFamily: MONO, fontVariant: ['tabular-nums'], color: theme.text2 }]}>{value}</Text> : null,
-    qty > 1 && !toBuy ? <Text key="qty" numberOfLines={1} style={[type.caption, { fontFamily: MONO, fontVariant: ['tabular-nums'], color: theme.text2 }]}>{t('gear.itemList.qtyEach', { qty, weight: fmtWeight(item.w, weightUnit) })}</Text> : null,
+    qty > 1 && !toBuy ? <Text key="qty" numberOfLines={1} style={[type.caption, { fontFamily: MONO, fontVariant: ['tabular-nums'], color: theme.text2 }]}>{t('gear.itemList.qtyEach', { qty, weight: fmtItemWeight(item.w, weightUnit) })}</Text> : null,
     statusLabel ? tag(statusLabel, theme.text2, theme.fieldSurface) : null,
     toBuy ? tag(t('gear.toBuy'), theme.accent, theme.accentSofter) : null,
     hint ? <Text key="hint" numberOfLines={1} style={[type.caption, { color: theme.text3 }]}>{hint}</Text> : null,
@@ -882,7 +888,7 @@ function ItemGridCard({ theme, item, cat, weightUnit, width, onPress, onLongPres
   const category = cat?.name || t('gear.uncategorized');
   const CatGlyph = catIcon(cat?.name);
   const accent = cat?.color || theme.accent;
-  const weight = fmtWeight(itemWeight(item), weightUnit, true);
+  const weight = fmtItemWeight(itemWeight(item), weightUnit, true);
   const value = `¥${formatItemValue(itemPrice(item))}`;
   const imageHeight = Math.max(116, width - space.sm * 2);
   const shell = { width, borderRadius: radius.feature, padding: space.sm, backgroundColor: theme.fieldSurface } as const;

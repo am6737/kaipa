@@ -14,8 +14,47 @@ function parseStart(value: string, fallbackYear: number): Date | null {
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : null;
 }
 
-export function formatJourneyDetailDate(journey: JourneyDates, locale: 'zh' | 'en', now = new Date()): string | null {
+/** The day the journey starts, when its stored labels carry one. A journey with
+ *  no date decided yet has no start, so callers show nothing rather than today. */
+export function journeyStartDate(journey: JourneyDates, now = new Date()): Date | null {
   const value = journey.plannedDate?.trim() || journey.date?.trim();
+  if (!value) return null;
+  return parseStart(value, Number(journey.date?.match(/^(\d{4})\b/)?.[1] ?? now.getFullYear()));
+}
+
+const itineraryLength = (journey: JourneyDates): number => {
+  const legacyDays = journey.days?.trim().match(/^(\d+)\s*(?:天|days?|d)$/i);
+  const count = journey.totalDays ?? (legacyDays ? Number(legacyDays[1]) : undefined);
+  return count != null && Number.isSafeInteger(count) && count > 0 ? count : 1;
+};
+
+/** The journey's last day, inclusive; a one-day journey ends the day it starts. */
+export function journeyEndDate(journey: JourneyDates, now = new Date()): Date | null {
+  const start = journeyStartDate(journey, now);
+  if (!start) return null;
+  const end = new Date(start);
+  // Calendar arithmetic keeps inclusive date ranges correct across DST changes.
+  end.setDate(end.getDate() + itineraryLength(journey) - 1);
+  return Number.isFinite(end.getTime()) ? end : start;
+}
+
+const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+/** Where today falls against the journey, counted in local calendar days. A
+ *  journey with no date yet has not started, so it reads as `before`. */
+export function journeyDatePhase(
+  journey: JourneyDates,
+  now = new Date(),
+): 'before' | 'during' | 'after' {
+  const start = journeyStartDate(journey, now);
+  if (!start) return 'before';
+  const today = startOfDay(now).getTime();
+  if (today < startOfDay(start).getTime()) return 'before';
+  const end = journeyEndDate(journey, now);
+  return end && today > startOfDay(end).getTime() ? 'after' : 'during';
+}
+
+export function formatJourneyDetailDate(journey: JourneyDates, locale: 'zh' | 'en', now = new Date()): string | null {  const value = journey.plannedDate?.trim() || journey.date?.trim();
   if (!value) return null;
   const currentYear = now.getFullYear();
   const storedYear = journey.date?.match(/^(\d{4})\b/)?.[1];

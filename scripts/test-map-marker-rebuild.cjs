@@ -21,6 +21,10 @@ function loadExtent() {
 
 const MAP_GLOBE = 'src/components/globe/MapGlobe.tsx';
 const IOS_MAP = 'src/components/maps/NativeMap.ios.tsx';
+// StaggerIn's two shared constants, spelled out here so the harness and the
+// assertions it makes about the cascade agree on what the rhythm is.
+const STAGGER_STEP = 55;
+const STAGGER_TOTAL = 660;
 
 function transpile(file) {
   return ts.transpileModule(fs.readFileSync(file, 'utf8'), {
@@ -42,6 +46,11 @@ function realm(js, mocks, globals) {
   };
   vm.runInNewContext(js, context);
   return context.exports;
+}
+
+/** A module with no imports can be loaded for real by any harness. */
+function loadDependencyFree(file) {
+  return realm(transpile(file), {}, {});
 }
 
 function sameDeps(previous, next) {
@@ -167,6 +176,12 @@ function loadGlobe() {
       },
       Easing: { out: (fn) => fn, cubic: (t) => t },
       Platform: { OS: 'ios' },
+      // The cascade stands down when the OS asks for reduced motion; the harness
+      // reads it as off, which is what a device without that setting reports.
+      AccessibilityInfo: {
+        isReduceMotionEnabled: () => Promise.resolve(false),
+        addEventListener: () => ({ remove() {} }),
+      },
       StyleSheet: { create: (styles) => styles, absoluteFill: {}, hairlineWidth: 1 },
       useWindowDimensions: () => ({ width: 390, height: 844 }),
     },
@@ -179,7 +194,12 @@ function loadGlobe() {
     // the pin memo must survive.
     '../maps/extent': loadExtent(),
     '../maps/types': { isValidMapCoordinate, keepValidCoordinates: (coords) => (coords ?? []).filter(isValidMapCoordinate) },
-    '../StaggerIn': { STAGGER_MAX_DELAY_MS: 660, STAGGER_STEP_MS: 55 },
+    // The Android "you are here" bitmap and the compass cone are neither under
+    // test here; the harness runs on iOS, where the marker is the SDK's own.
+    '../maps/locationImage': { platformLocationImage: () => null },
+    '../maps/distanceMarkers': { cappedStepKm: (stepKm) => stepKm },
+    '../../lib/compassHeading': { useCompassHeading: () => null },
+    '../StaggerIn': { STAGGER_MAX_DELAY_MS: STAGGER_TOTAL, STAGGER_STEP_MS: STAGGER_STEP },
     './CurrentLocationMarker': { CurrentLocationMarker: 'CurrentLocationMarker' },
     './PhotoPin': {
       PhotoPin: 'PhotoPin',
@@ -191,6 +211,8 @@ function loadGlobe() {
     },
     // The real geometry: a press on a hidden pin now resolves through it.
     '../../lib/pinOverlap': realm(transpile('src/lib/pinOverlap.ts'), {}, {}),
+    // The real reveal schedule, so the cascade asserted below is the shipped one.
+    '../../lib/pinVisibility': loadDependencyFree('src/lib/pinVisibility.ts'),
     '../../lib/routeSegments': { measureTrack: () => ({ totalMeters: 42000 }), positionAtDistance: () => ({ coordinate: [100, 30] }) },
   };
   const component = realm(transpile(MAP_GLOBE), mocks, globals).default;
@@ -501,7 +523,53 @@ test('late-mounted route pins preserve the pending stagger animation', () => {
 
 test('an empty catalog does not consume the first mode entrance', () => {
   const discover = fs.readFileSync('src/screens/DiscoverScreen.tsx', 'utf8');
-  assert.match(discover, /if \(visiblePinKeys\.size > 0\) pushedModeRef\.current = subTab;/);
+  assert.match(discover, /if \(visiblePinKeys\.size > 0\) pinsEnteredRef\.current = true;/);
+});
+
+test('a big reveal sweeps outward from the middle inside the total', () => {
+  // 12 pins keep the shared 55ms step; a country's worth compress so the last one
+  // still lands inside 660ms rather than arriving in a burst at the cap.
+  const globe = loadGlobe();
+  const api = { current: null };
+  const many = Array.from({ length: 150 }, (_, index) => ({
+    id: `r${index}`,
+    lng: 100 + (index % 12) * 0.5,
+    lat: 22 + Math.floor(index / 12) * 0.4,
+    label: `路线 ${index}`,
+    layer: 'explore',
+  }));
+  globe.render(baseProps({ pois: many, pinVisibilityApi: api }));
+  globe.animations.length = 0;
+  api.current.apply(new Set(many.map((poi) => `explore:${poi.id}`)), { stagger: true });
+
+  const delays = globe.animations.map((steps) => steps[0].delay);
+  assert.equal(delays.length, many.length, 'every pin that appeared got its own reveal');
+  assert.ok(delays.every((delay) => delay < STAGGER_TOTAL), `the cascade ran past its total: ${Math.max(...delays)}`);
+  assert.equal(new Set(delays).size, many.length, 'pins share a delay and arrive in a burst');
+
+  // The order is the middle of the group outward, not whatever order the catalog
+  // happens to keep them in. A degree of longitude is shorter than one of latitude
+  // away from the equator, so the rank is measured with that squeeze.
+  const centreLng = many.reduce((sum, poi) => sum + poi.lng, 0) / many.length;
+  const centreLat = many.reduce((sum, poi) => sum + poi.lat, 0) / many.length;
+  const fromCentre = (poi) => {
+    const dx = (poi.lng - centreLng) * Math.cos((poi.lat * Math.PI) / 180);
+    const dy = poi.lat - centreLat;
+    return dx * dx + dy * dy;
+  };
+  const pinValue = (poi) => globe.markers
+    .find((marker) => marker.id === `poi-explore:${poi.id}`)
+    .content.props.children[0].props.style.opacity;
+  const revealRank = new Map();
+  globe.animations.forEach((steps, index) => revealRank.set(steps[1].value, index));
+  const swept = many.map((poi) => revealRank.get(pinValue(poi)));
+  assert.ok(swept.every((rank) => rank != null), 'a pin on the map never got its reveal');
+  const outward = [...many].sort((a, b) => fromCentre(a) - fromCentre(b)).map((poi) => revealRank.get(pinValue(poi)));
+  assert.deepEqual(
+    outward,
+    outward.map((_, index) => index),
+    'the sweep does not run from the middle outward',
+  );
 });
 
 test('a press the rail blocks is re-attributed to the visible pin under the frame', () => {

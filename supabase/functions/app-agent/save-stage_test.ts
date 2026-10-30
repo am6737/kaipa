@@ -26,12 +26,12 @@ function decision(operations: TaskDecision['operations']): TaskDecision {
 // its (run, tool, arguments_hash) uniqueness, the versioned context RPCs and
 // the atomic write transaction. Receipts recorded by one pass are returned by
 // the next, so replay is exercised for real instead of being stubbed out.
-function saveHarness(options: { operations?: TaskDecision['operations']; fail?: string[]; error?: unknown; existing?: boolean; groups?: string[] } = {}) {
+function saveHarness(options: { operations?: TaskDecision['operations']; fail?: string[]; error?: unknown; existing?: boolean; groups?: string[]; totalDays?: number } = {}) {
   const runId = crypto.randomUUID();
   const state: TaskState = { runId, journeyId: null, decision: decision(options.operations || ['create_journey', 'add_itinerary_items', 'set_itinerary_group_endpoints', 'set_journey_map_location']), outcome: null };
   const context: AgentContext = { userId: 'user', threadId: 'thread', runId, originalUserMessage: '帮我规划两天徒步', task: state };
   if (options.existing) { state.journeyId = 'j1'; context.currentJourneyId = 'j1'; }
-  let journey = { ...JOURNEY, planned_date: null as string | null };
+  let journey = { ...JOURNEY, total_days: options.totalDays ?? JOURNEY.total_days, planned_date: null as string | null };
   let groups = options.groups || [];
   let versions = { ...VERSIONS };
   const changes: Array<Record<string, any>> = [];
@@ -309,6 +309,20 @@ Deno.test('an app-created empty journey saves groups before its first schedule',
     assert(!artifact.failed.length, `empty journey failed: ${JSON.stringify(artifact)}`);
     assert(h.executed.join() === 'add_itinerary_items,update_journey_schedule', 'groups must precede the initial schedule');
     assert(h.changes[1].dayAssignments.length === 5, 'schedule must use actual saved groups rather than the model outline');
+  } finally { h.dispose(); }
+});
+
+Deno.test('an empty journey shorter than the plan is lengthened before the items', async () => {
+  const h = saveHarness({ operations: ['add_itinerary_items', 'update_journey_schedule'], existing: true, totalDays: 2 });
+  try {
+    const artifact = await runSaveStage(h.client, h.context, plan({
+      journey: null,
+      itineraryItems: Array.from({ length: 3 }, (_, index) => ({ day: `Day ${index + 1}`, title: '具体地点' })),
+      schedule: { totalDays: 3, plannedDate: null, dayAssignments: [] },
+    }));
+    assert(!artifact.failed.length, `longer plan failed: ${JSON.stringify(artifact)}`);
+    assert(h.executed.join() === 'update_journey_schedule,add_itinerary_items', `the journey must grow first, got ${h.executed.join()}`);
+    assert(h.changes[0].totalDays === 3 && h.changes[0].dayAssignments.length === 0, 'nothing to move on an empty journey');
   } finally { h.dispose(); }
 });
 

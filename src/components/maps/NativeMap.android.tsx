@@ -39,6 +39,22 @@ function shiftedTarget(
 
 export const NATIVE_MAP_AVAILABLE = !!AMap;
 
+/**
+ * Same cache as the MapKit map: every prop of the elements below comes off the
+ * descriptor, so an unchanged descriptor hands React the identical element and
+ * reconciliation skips its PhotoPin subtree. Without it each render of this map
+ * rebuilt every marker; the tab switch back to 发现 always renders it once, and
+ * with 全国 selected that walked every pin and dropped frames.
+ */
+const elementCache = new WeakMap<object, React.ReactElement>();
+function cachedElement(descriptor: object, build: () => React.ReactElement): React.ReactElement {
+  const hit = elementCache.get(descriptor);
+  if (hit) return hit;
+  const element = build();
+  elementCache.set(descriptor, element);
+  return element;
+}
+
 export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function NativeMap({
   style,
   initialCenter,
@@ -310,7 +326,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           zIndex={0}
         />
       ) : null}
-      {polylines.map((line) => (
+      {polylines.map((line) => cachedElement(line, () => (
         <Polyline
           key={line.id}
           points={projectTrack(line.coordinates)}
@@ -318,8 +334,8 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           strokeWidth={line.width}
           dotted={line.dashed}
         />
-      ))}
-      {markers.map((marker) => (
+      )))}
+      {markers.map((marker) => cachedElement(marker, () => (
         <Marker
           key={marker.id}
           position={point(marker.coordinate)}
@@ -335,11 +351,15 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           pinColor={marker.content || marker.image ? undefined : 'red'}
           cacheKey={marker.image ? `${marker.id}|${marker.image.uri}` : marker.id}
           zIndex={marker.zIndex}
+          // Read off the descriptor like everything else, so a descriptor that
+          // only changed in `grow` still builds a fresh element and the native
+          // marker is handed the animation.
+          growAnimation={marker.grow}
           onMarkerPress={() => marker.onPress?.()}
         >
           {marker.image ? null : marker.content}
         </Marker>
-      ))}
+      )))}
     </MapView>
     </View>
   );

@@ -33,7 +33,8 @@ export type SocialPage =
   | { kind: 'profile'; userId: string }
   | { kind: 'people'; userId: string; tab: 'followers' | 'following' | 'find' }
   | { kind: 'gearSet'; setId: string }
-  | { kind: 'track'; trackId: string };
+  | { kind: 'track'; trackId: string }
+  | { kind: 'ownTrack'; trackId: string };
 
 export interface ActionSheetConfig {
   title?: string;
@@ -152,6 +153,8 @@ export interface NavValue {
   /** Set when another layer asks 我的 to show one library track, e.g. one just saved. */
   trackPageRequest: string | null;
   openTrackPage: (trackId: string) => void;
+  /** Opens one of the user's own library tracks in place, over whatever page is showing. */
+  openOwnTrack: (trackId: string) => void;
   clearTrackPageRequest: () => void;
 
   elevFull: OverlayCfg | null;
@@ -614,6 +617,7 @@ export function NavProvider({
       }),
       openPeople: (userId, tab) => setSocialStack((stack) => [...stack, { kind: 'people', userId, tab }]),
       openGearSetPreview: (setId) => setSocialStack((stack) => [...stack, { kind: 'gearSet', setId }]),
+      openOwnTrack: (trackId) => setSocialStack((stack) => [...stack, { kind: 'ownTrack', trackId }]),
       openPublishedTrack: (trackId) => setSocialStack((stack) => [...stack, { kind: 'track', trackId }]),
       closeSocialPage: () => setSocialStack((stack) => stack.slice(0, -1)),
       journeyHistory,

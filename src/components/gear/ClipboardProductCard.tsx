@@ -8,7 +8,7 @@ import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { useI18n } from '../../i18n';
-import { WeightUnit, fmtWeight } from '../../data/gear';
+import { WeightUnit, fmtItemWeight } from '../../data/gear';
 import { radius, space, type } from '../../design-system';
 import { GearLinkPreview } from '../../lib/gearLinkPreview';
 import { providerLabel } from './gearRecognition';
@@ -77,7 +77,7 @@ export function ClipboardProductCard({ theme, preview, weightUnit, onAdd, onClos
   // Douyin-style bounce instead of flattening it.
   const cardScale = progress.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1], extrapolate: 'extend' });
   const price = item.priceCny && item.priceCny > 0 ? `¥${formatItemValue(item.priceCny)}` : '--';
-  const weight = item.weightKg && item.weightKg > 0 ? fmtWeight(item.weightKg, weightUnit) : '--';
+  const weight = item.weightKg && item.weightKg > 0 ? fmtItemWeight(item.weightKg, weightUnit) : '--';
 
   return (
     <Modal transparent visible statusBarTranslucent animationType="none" onRequestClose={onClose}>

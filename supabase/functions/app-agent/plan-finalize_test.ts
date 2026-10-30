@@ -270,16 +270,18 @@ Deno.test('travel uses total trip days while review times use first hiking day',
   const candidate = roundTripCandidate();
   const within = finalizePlan(candidate, pipelineOf(task), null, null, 5);
   assert(!within.blocker && !within.pendingQuestion, 'five-day journey with two hiking days and travel fits');
-  candidate.transport.inbound[0].arrival = 6000;
+  candidate.transport.outbound[0].departure = -3000;
   const outside = finalizePlan(candidate, pipelineOf(task), null, null, 5);
-  assert(outside.blocker?.includes('全程日期范围'), 'return outside the total trip must be flagged');
+  assert(outside.blocker?.includes('全程日期范围'), 'travel before Day 1 must be flagged');
 });
 
-Deno.test('a missing return leg cannot complete a full journey', () => {
+Deno.test('a full journey needs only the way there', () => {
+  const task = decisionOf({ fullHikingPlan: true, days: 5, includeRoundTripTransport: true });
+  const plan = finalizePlan(roundTripCandidate(), pipelineOf(task), null, null, 5);
+  assert(!plan.blocker && plan.transport?.direction === 'outbound' && plan.transport.inbound.length === 0, 'a model return chain is not kept');
   const candidate = roundTripCandidate();
-  candidate.transport.inbound = [];
-  const plan = finalizePlan(candidate, pipelineOf(decisionOf({ fullHikingPlan: true, days: 5, includeRoundTripTransport: true })), null, null, 5);
-  assert(plan.blocker?.includes('往返交通链路'), 'outbound-only plan must stay incomplete');
+  candidate.transport.outbound = [];
+  assert(finalizePlan(candidate, pipelineOf(task), null, null, 5).blocker?.includes('去程交通链路'), 'a missing way there stays incomplete');
 });
 
 Deno.test('total duration estimate includes travel and remains distinct from user days', () => {
@@ -502,13 +504,13 @@ Deno.test('queried return day extends only an undecided candidate and updates it
 Deno.test('system prerequisites stay hard and transport review mismatch is a Chinese caveat', () => {
   const task = decisionOf({ fullHikingPlan: true, days: 5, includeRoundTripTransport: true });
   const candidate = roundTripCandidate();
-  candidate.transport.inbound[0].from = '另一个地点';
+  candidate.transport.outbound[0].to = '另一个地点';
   const plan = finalizePlan({ ...candidate, blocker: '营地许可待核实', pendingQuestion: '是否接受？' }, pipelineOf(task), null, null, 5);
   assert(plan.blocker === null && plan.pendingQuestion === null && plan.followUpSuggestion === '是否接受？', 'model caveats must be demoted');
   assert(plan.unverified[0] === '营地许可待核实' && plan.unverified.some(value => value.includes('衔接尚需核对')), 'review mismatch must be a caveat');
-  assert(!plan.unverified.some(value => value.includes('Return:')) && plan.transport?.reviewIssues.some(value => value.includes('Return:')), 'English review issues must remain internal');
-  const incomplete = finalizePlan({ ...candidate, transport: { ...candidate.transport, inbound: [] }, blocker: '营地许可待核实' }, pipelineOf(task), null, null, 5);
-  assert(incomplete.blocker?.includes('往返交通链路'), 'missing return leg must remain hard');
+  assert(!plan.unverified.some(value => value.includes('Outbound:')) && plan.transport?.reviewIssues.some(value => value.includes('Outbound:')), 'English review issues must remain internal');
+  const incomplete = finalizePlan({ ...candidate, transport: { ...candidate.transport, outbound: [] }, blocker: '营地许可待核实' }, pipelineOf(task), null, null, 5);
+  assert(incomplete.blocker?.includes('去程交通链路'), 'missing way there must remain hard');
   const origin = finalizePlan({ ...candidate, transport: null, pendingQuestion: '是否接受？' }, pipelineOf(task), null, null, 5);
   assert(origin.journey === null && origin.pendingQuestion?.includes('哪个城市'), 'missing origin must remain a hard question');
 });
