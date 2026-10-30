@@ -322,10 +322,11 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
     })];
   }, [openWaypoint, openWaypointItem, theme, waypointLine, waypointPinLoad, waypointPinReady, waypointPinRevision]);
 
-  // "You are here", drawn from the recorder's fix on both platforms, so it
+  // "You are here", drawn from the recorder's fix on Android, so it
   // holds still while the phone lies still (AMap's own location layer would
   // wander with every raw fix). Android draws the shared marker's image rather
   // than its view: a snapshotted custom view did not show up on device there.
+  // iOS skips all of this and lets MapKit draw its own dot, as Discover does.
   const headingKey = fix?.heading != null ? Math.round(fix.heading / 15) * 15 : null;
   // Marked spots, numbered in the order they were marked: the number is what
   // the saved track names them by (标注点 1, 2, …).
@@ -383,10 +384,10 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
   }, [openMark != null, session?.marks, t]);
   const markers = useMemo<NativeMapMarker[]>(() => {
     const base = [...kmMarkers, ...waypointMarkers, ...endpointMarkers, ...markMarkers, ...waypointPin, ...markPin];
-    if (!fix) return base;
+    if (!fix || Platform.OS !== 'android') return base;
     const image = platformLocationImage(theme.accent, headingKey != null);
     return [...base, {
-      id: Platform.OS === 'android' ? 'trail-location' : `trail-location-${headingKey ?? 'none'}`,
+      id: 'trail-location',
       coordinate: [fix.lng, fix.lat],
       anchor: { x: 0.5, y: 0.5 },
       zIndex: 10,
@@ -680,6 +681,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
           mapStyle={mapStyle}
           polylines={polylines}
           markers={markers}
+          showUserLocation={Platform.OS === 'ios'}
           onUserLocationChange={(coordinate) => {
             mapLocation.current = coordinate;
             // Until the recorder has a fix, the map's dot leads the camera.
