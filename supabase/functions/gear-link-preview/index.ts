@@ -885,8 +885,10 @@ async function douyinPreview(shareUrl: URL, shareText: string): Promise<Preview>
   }
 
   // goods_detail is undocumented, so other share entry points (live rooms and
-  // the like) can redirect without it. The share text still names the product.
-  if (pastedTitle) {
+  // the like) can redirect without it. The share text still names the product,
+  // but only a resolved product id or the mall tag says it is a product at all:
+  // v.douyin.com also shortens video shares.
+  if (pastedTitle && (id || shareText.includes('【抖音商城】'))) {
     return {
       provider: 'douyin',
       sourceUrl: id ? douyinSourceUrl(id) : shareUrl.toString(),

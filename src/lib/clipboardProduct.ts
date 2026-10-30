@@ -20,7 +20,10 @@ export function productLinkFromText(text: string): string {
   if (!link) return '';
   const host = linkHost(link);
   if (!host) return '';
-  return PRODUCT_HOSTS.some((supported) => host === supported || host.endsWith(`.${supported}`)) ? link : '';
+  if (!PRODUCT_HOSTS.some((supported) => host === supported || host.endsWith(`.${supported}`))) return '';
+  // v.douyin.com also shortens video shares; only mall shares carry the 【抖音商城】 tag.
+  if ((host === 'douyin.com' || host.endsWith('.douyin.com')) && !text.includes('【抖音商城】')) return '';
+  return link;
 }
 
 /** Short stable id for one clipboard dump: FNV-1a over the text plus its length. */
