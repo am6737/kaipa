@@ -1,0 +1,19 @@
+services:
+  rail-timetable-refresher:
+    image: node:22-alpine
+    container_name: kaipa-rail-timetable-refresher
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      SUPABASE_URL: http://kong:8000
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      RAIL_REFRESH_START_HOUR: ${RAIL_REFRESH_START_HOUR:-1}
+      RAIL_REFRESH_END_HOUR: ${RAIL_REFRESH_END_HOUR:-6}
+      RAIL_REFRESH_PAUSE_MS: ${RAIL_REFRESH_PAUSE_MS:-20000}
+      RAIL_REFRESH_FRESH_DAYS: ${RAIL_REFRESH_FRESH_DAYS:-3}
+    volumes:
+      - ./rail-timetable-refresher.mjs:/app/rail-timetable-refresher.mjs:ro
+    command: [node, /app/rail-timetable-refresher.mjs]
