@@ -155,7 +155,7 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   return data;
 }
 
-export function sendAgentTurn(args: { message: string; displayMessage?: string; threadId?: string; currentJourneyId?: string; currentLocation?: import('./agentLocation').AgentLocation; departure?: string; departureWithRequest?: boolean; askDeparture?: boolean; intent?: AgentIntent; locale?: 'zh' | 'en'; clientRunId?: string; attachments?: AgentAttachment[]; clientLocalDate?: string; clientLocalTime?: string; clientTimeZone?: string; clientTimestamp?: string }) {
+export function sendAgentTurn(args: { message: string; displayMessage?: string; threadId?: string; currentJourneyId?: string; currentGearSetId?: string; gearSetReviewFingerprint?: string; currentLocation?: import('./agentLocation').AgentLocation; departure?: string; departureWithRequest?: boolean; askDeparture?: boolean; intent?: AgentIntent; locale?: 'zh' | 'en'; clientRunId?: string; attachments?: AgentAttachment[]; clientLocalDate?: string; clientLocalTime?: string; clientTimeZone?: string; clientTimestamp?: string }) {
   return invoke<AgentTurnResponse>({ action: 'turn', ...args });
 }
 
@@ -202,6 +202,11 @@ export async function getJourneyAgentThread(journeyId: string) {
     .maybeSingle());
   if (result.error) throw result.error;
   return { threadId: result.data?.id || null };
+}
+
+export async function getGearSetAgentThread(gearSetId: string) {
+  const result = await invoke<{ threadId: string | null; reviewFingerprint: string | null }>({ action: 'gear_set_thread', currentGearSetId: gearSetId });
+  return { threadId: result.threadId || null, reviewFingerprint: result.reviewFingerprint || null };
 }
 
 export async function getAgentRunActivity(runId: string) {

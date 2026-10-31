@@ -24,6 +24,7 @@ import { GearItemRow, yuan, yuanWithGap } from './parts';
 import { DetailPage, layout, radius, space, type, type DetailEntryVariant } from '../../design-system';
 import { LabeledDonut, Row } from './LabeledDonut';
 import { buildGearSetText, GearSetExportData, GearSetPoster } from './GearSetExport';
+import { gearSetFingerprint } from '../../lib/gearSetFingerprint';
 import { GearMenuTransition, usePendingMenuAction } from './GearMenuTransition';
 import { BottomControl, EmptyPlaceholderCards, SummaryStat } from './GearItemsList';
 
@@ -462,14 +463,17 @@ function GearSetDetailView({
   };
   // The hidden prompts carry the set ID so the assistant works on this exact
   // set; the conversation shows only the readable request. An empty set is
-  // filled directly; a set with gear is reviewed first (清单判官).
+  // filled directly; a set with gear is reviewed first (清单判官). Both reopen
+  // this set's own conversation instead of starting a new one, and the review
+  // carries what the set holds so an unchanged set does not run the judge again.
   const openAiFill = () => nav.openAssistant(
     t('gear.setDetail.aiFillPrompt', { name: set.name, id: set.id }), undefined, true,
-    t('gear.setDetail.aiFillDisplay', { name: set.name }), true, 'gear_set_onboarding',
+    t('gear.setDetail.aiFillDisplay', { name: set.name }), false, 'gear_set_onboarding', set.id,
   );
   const openAiReview = () => nav.openAssistant(
     t('gear.setDetail.aiReviewPrompt', { name: set.name, id: set.id }), undefined, true,
-    t('gear.setDetail.aiReviewDisplay', { name: set.name }), true, 'gear_set_review',
+    t('gear.setDetail.aiReviewDisplay', { name: set.name }), false, 'gear_set_review', set.id,
+    gearSetFingerprint(set, setItems),
   );
   const toggleDisplayExpanded = () => {
     const next = !displayExpanded;

@@ -488,6 +488,8 @@ function AppShell() {
         autoSubmitIntent={nav.assistantIntent}
         startNewConversation={nav.assistantStartNewConversation}
         currentJourneyId={nav.assistantJourneyId}
+        currentGearSetId={nav.assistantGearSetId}
+        gearSetReviewFingerprint={nav.assistantGearSetReviewFingerprint}
         onClearPrompt={() => nav.clearAssistantPrompt()}
         onClose={() => nav.closeAssistant()}
         onOpenJourney={async (journeyId, focus) => {

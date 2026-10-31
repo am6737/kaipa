@@ -463,7 +463,7 @@ Deno.serve(async (req) => {
     activeUserId = user.id;
 
     let body = await boundedJson(req) as {
-      action?: 'turn' | 'history' | 'threads' | 'journey_thread' | 'run_activity' | 'delete_thread' | 'undo' | 'execute_job' | 'retry_run' | 'cancel_run';
+      action?: 'turn' | 'history' | 'threads' | 'journey_thread' | 'gear_set_thread' | 'run_activity' | 'delete_thread' | 'undo' | 'execute_job' | 'retry_run' | 'cancel_run';
       leaseToken?: string;
       threadId?: string;
       runId?: string;
@@ -471,6 +471,12 @@ Deno.serve(async (req) => {
       message?: string;
       displayMessage?: string;
       currentJourneyId?: string;
+      // The gear set (装备清单) this turn works on; its thread is reused across
+      // taps instead of starting a new conversation each time.
+      currentGearSetId?: string;
+      // Set contents the app is reviewing, stored on the thread so the next tap
+      // can tell whether 清单判官 has anything new to look at.
+      gearSetReviewFingerprint?: string;
       currentLocation?: unknown;
       // Departure the user picked in the app before planning; it confirms the
       // trip's origin without another model turn.
@@ -598,6 +604,35 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (thread.error) throw thread.error;
       return json({ threadId: thread.data?.id || null });
+    }
+
+    if (body.action === 'gear_set_thread') {
+      if (!body.currentGearSetId) return json({ error: { code: 'gear_set_required', message: '请选择装备清单' } }, 400);
+      const thread = await client
+        .from('agent_threads')
+        .select('id,gear_set_review_fingerprint')
+        .eq('gear_set_id', body.currentGearSetId)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (thread.error) throw thread.error;
+      let reviewFingerprint = thread.data?.gear_set_review_fingerprint || null;
+      // The fingerprint is written when the review is submitted, so a run that
+      // never produced its answer must not count: its status is 'failed' (a user
+      // 停止 stores that same status with cancelled_by_user), and the next tap has
+      // to review again instead of opening a thread with no review in it.
+      if (reviewFingerprint && thread.data) {
+        const latestRun = await client
+          .from('agent_runs')
+          .select('status')
+          .eq('thread_id', thread.data.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (latestRun.error) throw latestRun.error;
+        if (latestRun.data?.status === 'failed') reviewFingerprint = null;
+      }
+      return json({ threadId: thread.data?.id || null, reviewFingerprint });
     }
 
     if (body.action === 'run_activity') {
@@ -749,20 +784,44 @@ Deno.serve(async (req) => {
       // writing to an older thread with the same journey title.
       threadId = existing.data?.id || threadId;
     }
+    // 清单判官 records what it reviewed; anything else leaves the fingerprint of
+    // the last review alone.
+    const gearSetReviewFingerprint = body.currentGearSetId && body.intent === 'gear_set_review'
+      ? body.gearSetReviewFingerprint?.trim().slice(0, 200) || undefined
+      : undefined;
+    if (body.currentGearSetId && !jobLease) {
+      const existing = await client
+        .from('agent_threads')
+        .select('id')
+        .eq('gear_set_id', body.currentGearSetId)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (existing.error) throw existing.error;
+      // A gear set has one conversation, for the same reason a journey does.
+      threadId = existing.data?.id || threadId;
+    }
     if (threadId) {
-      const thread = await client.from('agent_threads').select('id,current_journey_id').eq('id', threadId).single();
+      const thread = await client.from('agent_threads').select('id,current_journey_id,gear_set_id').eq('id', threadId).single();
       if (thread.error) return json({ error: { code: 'thread_not_found', message: '对话不存在' } }, 404);
       if (body.currentJourneyId && thread.data.current_journey_id && thread.data.current_journey_id !== body.currentJourneyId) {
         return json({ error: { code: 'journey_thread_mismatch', message: '该会话属于另一个旅程' } }, 409);
       }
-      if (body.currentJourneyId) {
-        const updated = await client.from('agent_threads').update({ current_journey_id: body.currentJourneyId }).eq('id', threadId);
+      if (body.currentGearSetId && thread.data.gear_set_id && thread.data.gear_set_id !== body.currentGearSetId) {
+        return json({ error: { code: 'gear_set_thread_mismatch', message: '该会话属于另一个装备清单' } }, 409);
+      }
+      const links: Record<string, unknown> = {};
+      if (body.currentJourneyId) links.current_journey_id = body.currentJourneyId;
+      if (body.currentGearSetId) links.gear_set_id = body.currentGearSetId;
+      if (gearSetReviewFingerprint) links.gear_set_review_fingerprint = gearSetReviewFingerprint;
+      if (Object.keys(links).length) {
+        const updated = await client.from('agent_threads').update(links).eq('id', threadId);
         if (updated.error) throw updated.error;
       }
       resolvedCurrentJourneyId = body.currentJourneyId || thread.data.current_journey_id || undefined;
     } else {
       const newThreadId = validClientRunId(body.clientRunId) || crypto.randomUUID();
-      const created = await client.from('agent_threads').upsert({ id: newThreadId, user_id: user.id, current_journey_id: body.currentJourneyId || null, title: displayMessage.slice(0, 36) }, { onConflict: 'id', ignoreDuplicates: true });
+      const created = await client.from('agent_threads').upsert({ id: newThreadId, user_id: user.id, current_journey_id: body.currentJourneyId || null, gear_set_id: body.currentGearSetId || null, gear_set_review_fingerprint: gearSetReviewFingerprint || null, title: displayMessage.slice(0, 36) }, { onConflict: 'id', ignoreDuplicates: true });
       if (created.error) throw created.error;
       threadId = newThreadId;
     }

@@ -240,7 +240,11 @@ export interface NavValue {
   // Sent with an auto-submitted prompt; plan_journey when not given.
   assistantIntent?: AgentIntent;
   assistantStartNewConversation: boolean;
-  openAssistant: (prompt?: string, journeyId?: string, autoSubmit?: boolean, displayPrompt?: string, startNewConversation?: boolean, intent?: AgentIntent) => void;
+  // Set when the conversation belongs to one 装备清单: 清单判官 and AI 配装 reopen
+  // that set's own thread instead of starting a new one.
+  assistantGearSetId?: string;
+  assistantGearSetReviewFingerprint?: string;
+  openAssistant: (prompt?: string, journeyId?: string, autoSubmit?: boolean, displayPrompt?: string, startNewConversation?: boolean, intent?: AgentIntent, gearSetId?: string, gearSetReviewFingerprint?: string) => void;
   clearAssistantPrompt: () => void;
   closeAssistant: () => void;
 
@@ -324,6 +328,8 @@ export function NavProvider({
   const [assistantAutoSubmit, setAssistantAutoSubmit] = useState(false);
   const [assistantIntent, setAssistantIntent] = useState<AgentIntent>();
   const [assistantStartNewConversation, setAssistantStartNewConversation] = useState(false);
+  const [assistantGearSetId, setAssistantGearSetId] = useState<string>();
+  const [assistantGearSetReviewFingerprint, setAssistantGearSetReviewFingerprint] = useState<string>();
   const [toast, setToast] = useState<{ message: string; placement: 'top' | 'bottom' } | null>(null);
   const [tabBarHiddenSources, setTabBarHiddenSources] = useState<Set<string>>(() => new Set());
   const setTabBarHidden = useCallback((source: string, hidden: boolean) => {
@@ -680,13 +686,17 @@ export function NavProvider({
       assistantAutoSubmit,
       assistantIntent,
       assistantStartNewConversation,
-      openAssistant: (prompt, journeyId, autoSubmit = false, displayPrompt, startNewConversation = false, intent) => {
+      assistantGearSetId,
+      assistantGearSetReviewFingerprint,
+      openAssistant: (prompt, journeyId, autoSubmit = false, displayPrompt, startNewConversation = false, intent, gearSetId, gearSetReviewFingerprint) => {
         setAssistantPrompt(prompt);
         setAssistantDisplayPrompt(displayPrompt);
         setAssistantJourneyId(journeyId);
         setAssistantAutoSubmit(autoSubmit);
         setAssistantIntent(intent);
         setAssistantStartNewConversation(startNewConversation);
+        setAssistantGearSetId(gearSetId);
+        setAssistantGearSetReviewFingerprint(gearSetReviewFingerprint);
         setAssistantOpen(true);
       },
       clearAssistantPrompt: () => {
@@ -703,6 +713,8 @@ export function NavProvider({
         setAssistantAutoSubmit(false);
         setAssistantIntent(undefined);
         setAssistantStartNewConversation(false);
+        setAssistantGearSetId(undefined);
+        setAssistantGearSetReviewFingerprint(undefined);
       },
       savedRoutes,
       extraJourneys,
@@ -771,6 +783,8 @@ export function NavProvider({
       assistantAutoSubmit,
       assistantIntent,
       assistantStartNewConversation,
+      assistantGearSetId,
+      assistantGearSetReviewFingerprint,
       savedRoutes,
       extraJourneys,
       toast,

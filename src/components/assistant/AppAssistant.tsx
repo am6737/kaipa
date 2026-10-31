@@ -16,7 +16,7 @@ import { useI18n } from '../../i18n';
 import type { TKey } from '../../i18n';
 import { refetchJourneyPacking } from '../../hooks/useJourneyPacking';
 import { refetchJourneyTimeline } from '../../hooks/useTimeline';
-import { cancelAgentRun, deleteAgentThread, getAgentHistory, getAgentRunActivity, getAgentThreads, getJourneyAgentThread, sendAgentTurn, undoAgentRun, type AgentAttachment, type AgentHistoryResponse, type AgentIntent, type AgentMessageUi, type AgentModelMetric, type AgentPlanPreview, type AgentQuickReply, type AgentRunActivity, type AgentSource, type AgentStage, type AgentThreadSummary, type AgentTurnResponse, type AgentUndoAction } from '../../lib/appAgent';
+import { cancelAgentRun, deleteAgentThread, getAgentHistory, getAgentRunActivity, getAgentThreads, getGearSetAgentThread, getJourneyAgentThread, sendAgentTurn, undoAgentRun, type AgentAttachment, type AgentHistoryResponse, type AgentIntent, type AgentMessageUi, type AgentModelMetric, type AgentPlanPreview, type AgentQuickReply, type AgentRunActivity, type AgentSource, type AgentStage, type AgentThreadSummary, type AgentTurnResponse, type AgentUndoAction } from '../../lib/appAgent';
 import { useAgentRunRealtime } from '../../hooks/useAgentRunRealtime';
 import { uploadAgentAttachment, uploadBatch } from '../../lib/storage';
 import type { Theme } from '../../theme/theme';
@@ -68,7 +68,7 @@ type Turn = {
   createJourneyFlow?: AgentMessageUi['createJourneyFlow'];
 };
 
-const storageKey = (userId: string, journeyId?: string) => `kaipa_agent_thread_v1:${userId}:${journeyId || 'global'}`;
+const storageKey = (userId: string, journeyId?: string, gearSetId?: string) => `kaipa_agent_thread_v1:${userId}:${gearSetId ? `gear:${gearSetId}` : journeyId || 'global'}`;
 const departuresKey = (userId: string) => `kaipa_agent_departures_v1:${userId}`;
 
 // Runs that stopped for an origin before the card existed stored only the
@@ -1323,7 +1323,7 @@ function ThreadSwipeActions({
   );
 }
 
-export function AppAssistant({ theme, visible, initialPrompt, initialDisplayPrompt, autoSubmitInitialPrompt = false, autoSubmitIntent, startNewConversation = false, currentJourneyId, onClose, onClearPrompt, onOpenJourney, onOpenRoute, onOpenGear }: {
+export function AppAssistant({ theme, visible, initialPrompt, initialDisplayPrompt, autoSubmitInitialPrompt = false, autoSubmitIntent, startNewConversation = false, currentJourneyId, currentGearSetId, gearSetReviewFingerprint, onClose, onClearPrompt, onOpenJourney, onOpenRoute, onOpenGear }: {
   theme: Theme;
   visible: boolean;
   initialPrompt?: string;
@@ -1332,6 +1332,10 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   autoSubmitIntent?: AgentIntent;
   startNewConversation?: boolean;
   currentJourneyId?: string;
+  // The 装备清单 whose conversation this is (清单判官 / AI 配装). One thread per
+  // set, and a review is not re-run while the set matches what it reviewed.
+  currentGearSetId?: string;
+  gearSetReviewFingerprint?: string;
   onClose: () => void;
   onClearPrompt: () => void;
   onOpenJourney: (journeyId: string, focus?: AssistantJourneyFocus) => void;
@@ -1599,7 +1603,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       const resolvedThreadId = result.threadId || threadId || pending?.args.threadId || activeRunId;
       if (result.threadId && result.threadId !== threadId) {
         setThreadId(result.threadId);
-        void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId), result.threadId);
+        void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId, currentGearSetId), result.threadId);
       }
       const changed = activityFingerprint(runActivitiesRef.current) !== activityFingerprint(result.activities);
       runActivitiesRef.current = result.activities;
@@ -1677,8 +1681,8 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     const autoDisplayPrompt = autoSubmitInitialPrompt ? initialDisplayPrompt : undefined;
     pendingAutoSubmitRef.current = undefined;
     pendingAutoDisplayRef.current = undefined;
-    const key = storageKey(data.userId, currentJourneyId);
-    const scope = `${data.userId}:${currentJourneyId || 'global'}`;
+    const key = storageKey(data.userId, currentJourneyId, currentGearSetId);
+    const scope = `${data.userId}:${currentGearSetId ? `gear:${currentGearSetId}` : currentJourneyId || 'global'}`;
     const canReuseCurrentView = !startNewConversation && restoredScopeRef.current === scope;
     setRestoring(!canReuseCurrentView);
     if (!canReuseCurrentView) {
@@ -1699,6 +1703,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       setSelectedAttachments([]);
     }
     const restore = async () => {
+      let skipAutoSubmit = false;
       try {
         if (startNewConversation) {
           await AsyncStorage.multiRemove([key, `${key}:pending`]);
@@ -1716,9 +1721,26 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         }
         let savedThreadId = (await AsyncStorage.getItem(key)) || undefined;
         savedThreadId ||= pendingRequestRef.current?.args.threadId;
-        if (currentJourneyId && !savedThreadId) {
+        // The set's thread lives on the server, along with what the last
+        // 清单判官 reviewed there.
+        let gearSetThread: Awaited<ReturnType<typeof getGearSetAgentThread>> | undefined;
+        if (currentGearSetId) {
+          gearSetThread = await getGearSetAgentThread(currentGearSetId)
+            .catch((error) => {
+              console.warn('[AppAgent] gear set thread lookup failed', error);
+              return undefined;
+            });
+          if (!active) return;
+          savedThreadId = gearSetThread?.threadId || savedThreadId;
+        } else if (currentJourneyId && !savedThreadId) {
           const result = await getJourneyAgentThread(currentJourneyId);
           savedThreadId = result.threadId || undefined;
+        }
+        // A review of a set that has not changed since only opens the answer it
+        // already has. Without the lookup there is no way to know, and running
+        // the judge again is worse than showing the previous review.
+        if (currentGearSetId && autoSubmitIntent === 'gear_set_review' && savedThreadId) {
+          skipAutoSubmit = !gearSetThread || gearSetThread.reviewFingerprint === gearSetReviewFingerprint;
         }
         if (!active) return;
         if (!savedThreadId) {
@@ -1799,16 +1821,16 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         if (active && pendingRequestRef.current) setRequestPhase('reconnecting');
       } finally {
         if (active) {
-          pendingAutoSubmitRef.current = autoSubmitPrompt;
-          pendingAutoDisplayRef.current = autoDisplayPrompt;
-          if (initialPrompt && !autoSubmitPrompt) onClearPrompt();
+          pendingAutoSubmitRef.current = skipAutoSubmit ? undefined : autoSubmitPrompt;
+          pendingAutoDisplayRef.current = skipAutoSubmit ? undefined : autoDisplayPrompt;
+          if (initialPrompt && (!autoSubmitPrompt || skipAutoSubmit)) onClearPrompt();
           setRestoring(false);
         }
       }
     };
     void restore();
     return () => { active = false; };
-  }, [currentJourneyId, data.userId, t, visible, startNewConversation]);
+  }, [currentJourneyId, currentGearSetId, data.userId, t, visible, startNewConversation]);
 
   useEffect(() => {
     if (!visible || !threadId || loading || restoring || attachmentUploading) return;
@@ -1838,7 +1860,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   const appendResponse = (response: AgentTurnResponse, createdThreadTitle?: string, activities = response.ui?.activities) => {
     setThreadId(response.threadId);
     if (createdThreadTitle) setThreadTitle(createdThreadTitle);
-    void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId), response.threadId);
+    void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId, currentGearSetId), response.threadId);
     if (response.ui?.trackPrompt) setTrackPrompt(response.ui.trackPrompt);
     setTurns((current) => [...current, { id: response.messageId || `a_${Date.now()}`, role: 'assistant', text: response.message || t('agent.executed'), quickReplies: response.quickReplies, travelContext: response.ui?.travelContext, waiting: response.ui?.taskOutcome?.status === 'waiting' || undefined, departurePrompt: departurePromptOf(response.ui), sources: response.ui?.sources, planPreview: response.ui?.planPreview, itineraryCard: response.ui?.itineraryCard, activities, modelMetrics: response.ui?.modelMetrics, runTiming: response.ui?.runTiming, undoAction: response.ui?.undoAction, createJourneyFlow: response.ui?.createJourneyFlow }]);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
@@ -1862,7 +1884,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       const response = await sendAgentTurn(pending.args);
       if (pendingRequestRef.current !== pending) return;
       setThreadId(response.threadId);
-      void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId), response.threadId);
+      void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId, currentGearSetId), response.threadId);
       if (response.status === 'running') {
         setRequestPhase('queued');
         setActiveRunId(response.runId);
@@ -1896,7 +1918,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       const response = await retryAgentRun(runId);
       if (generation !== submitGenerationRef.current) return;
       setThreadId(response.threadId);
-      void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId), response.threadId);
+      void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId, currentGearSetId), response.threadId);
       const history = await getAgentHistory(response.threadId);
       if (generation !== submitGenerationRef.current) return;
       setTurns(historyTurns(history));
@@ -2079,8 +2101,8 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         if (generation !== submitGenerationRef.current) return;
         setRequestPhase('sending');
       }
-      const args = { message, displayMessage: visibleMessage !== message ? visibleMessage : undefined, threadId, currentJourneyId: activeJourneyId, departure: departure?.place, departureWithRequest: departure?.withRequest || undefined, askDeparture: askDeparture || undefined, intent, locale: resolved, clientRunId, attachments, currentLocation, ...localAgentTimeContext() };
-      const pending = { args, storageKey: `${storageKey(data.userId, currentJourneyId)}:pending`, startedAt: Date.now() };
+      const args = { message, displayMessage: visibleMessage !== message ? visibleMessage : undefined, threadId, currentJourneyId: activeJourneyId, currentGearSetId, gearSetReviewFingerprint: intent === 'gear_set_review' ? gearSetReviewFingerprint : undefined, departure: departure?.place, departureWithRequest: departure?.withRequest || undefined, askDeparture: askDeparture || undefined, intent, locale: resolved, clientRunId, attachments, currentLocation, ...localAgentTimeContext() };
+      const pending = { args, storageKey: `${storageKey(data.userId, currentJourneyId, currentGearSetId)}:pending`, startedAt: Date.now() };
       pendingRequestRef.current = pending;
       await AsyncStorage.setItem(pending.storageKey, JSON.stringify(pending));
       setActiveRunId(clientRunId);
@@ -2091,7 +2113,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         setRequestPhase('queued');
         setThreadId(response.threadId);
         if (creatingThread) setThreadTitle(visibleMessage.slice(0, 36));
-        void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId), response.threadId);
+        void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId, currentGearSetId), response.threadId);
         setActiveRunId(response.runId);
         return;
       }
@@ -2178,7 +2200,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     setSelectedAttachments([]);
     setTrackPicking(false);
     setThreadSheetOpen(false);
-    void AsyncStorage.removeItem(storageKey(data.userId, currentJourneyId));
+    void AsyncStorage.removeItem(storageKey(data.userId, currentJourneyId, currentGearSetId));
   };
 
   const openMenu = async () => {
@@ -2259,7 +2281,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         setInput('');
         setAttachmentTrayOpen(false);
         setSelectedAttachments([]);
-        await AsyncStorage.removeItem(storageKey(data.userId, currentJourneyId));
+        await AsyncStorage.removeItem(storageKey(data.userId, currentJourneyId, currentGearSetId));
       }
       setDeleteThreadCandidate(undefined);
     } catch (error) {

@@ -52,6 +52,22 @@ the rubric there; it ships with an app-agent deploy, not an app release.
   “AI 补充装备”). Both send a hidden prompt carrying the set ID plus their app entry.
 - The assistant shows a result card (“已加入 N 件装备，其中 M 件待购”) that opens the
   sets page.
+- One conversation per set: `agent_threads.gear_set_id` (migration
+  `20261031180000_agent_gear_set_thread.sql`) links a thread to its set the way
+  `current_journey_id` links it to a journey, and both entries reopen that thread
+  instead of starting a new one. The server treats the newest thread for the set
+  as authoritative.
+- 清单判官 does not re-review an unchanged set. The app sends a fingerprint of the
+  contents (`src/lib/gearSetFingerprint.ts`: sorted item ID, name, category,
+  owned, weight, qty, status, note, plus the set's name and description) with the
+  review turn; the server keeps it as `gear_set_review_fingerprint`, and the next
+  tap opens the previous review without running the model when it matches. A
+  different or missing fingerprint (an old thread, AI 配装) reviews again, in the
+  same thread. The stored fingerprint counts only while the thread's newest run is
+  not `failed`, so a review that died or was stopped re-runs.
+- Offline the lookup fails: the app opens the thread id cached under
+  `kaipa_agent_thread_v1:<user>:gear:<setId>` and does not auto-submit a review it
+  cannot place.
 
 ## Adding to the library by naming gear
 
