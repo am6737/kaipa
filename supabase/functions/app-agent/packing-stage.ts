@@ -1,6 +1,8 @@
 // Packing stage: reuse the durable draft state machine, but drive it from the
 // pipeline instead of from a free-running tool loop. Generation and repair each
 // get exactly one model call, then the deterministic commit path runs.
+// The build half touches only this run's draft, so an official plan can start it
+// beside the transport query; the commit half stays after the save stage.
 import { z } from 'npm:zod@4.1.12';
 import { packingItem, packingPlanProfile, type PackingProfile } from './packing-schema.ts';
 import { draftFeedback, draftPatchSchema } from './packing-draft.ts';
@@ -67,27 +69,42 @@ export type PackingArtifact = {
   error?: string;
 };
 
-export async function runPackingStage(deps: PackingRunners & {
+type PackingStageDeps = PackingRunners & {
   client: any;
   context: AgentContext;
   signal: AbortSignal;
   planProfile: PackingProfile | null;
   planInput: string;
-}): Promise<PackingArtifact> {
-  const { client, context } = deps;
+  // The trip length the checklist is sized for. Only the pre-save generation
+  // can supply it: the journey row still holds the previous length there.
+  plannedDays?: number | null;
+};
+
+type DraftBuild = { journeyId: string; feedback: DraftFeedback } | { artifact: PackingArtifact };
+
+// Generation and repair touch only this run's durable draft, so they can start
+// while the transport stage is still querying. The commit half is separate
+// because it is the part that must follow the saved plan.
+async function buildPackingDraft(deps: PackingStageDeps): Promise<DraftBuild> {
+  const { context } = deps;
   const runContext = { context } as RunContext;
   const journeyId = boundJourneyId(context);
-  if (!journeyId) return { status: 'skipped', revision: null, itemCount: null, issues: [], error: '缺少旅程，无法生成清单' };
+  if (!journeyId) return { artifact: { status: 'skipped', revision: null, itemCount: null, issues: [], error: '缺少旅程，无法生成清单' } };
 
   try {
     const planProfile = deps.planProfile ?? { accommodation: 'unknown', waterRefill: 'unknown', mealPreparation: 'unknown' } as PackingProfile;
-    const needs = await runEstimatePersonalPacking({ journeyId, planProfile }, runContext);
     const existing = await runReadPackingDraft({}, runContext) as DraftFeedback | { status: 'absent' };
+    const absent = existing.status === 'absent';
+    // Read the draft before sizing the trip: an existing draft already carries
+    // the length its quantities were planned for, and the needs estimate that
+    // feeds the repair prompt must use the same one validation judged it by.
+    const sizedFor = absent ? deps.plannedDays ?? null : (existing as DraftFeedback).plannedDays ?? null;
+    const needs = await runEstimatePersonalPacking({ journeyId, planProfile, plannedDays: sizedFor }, runContext);
     let feedback: DraftFeedback;
     // An existing draft is repaired, never regenerated (same rule as the light path).
-    if (existing.status === 'absent') {
+    if (absent) {
       const generated = await generateDraft(journeyId, runContext, deps, needs);
-      if ('error' in generated) return { status: 'failed', revision: null, itemCount: null, issues: [], error: generated.error };
+      if ('error' in generated) return { artifact: { status: 'failed', revision: null, itemCount: null, issues: [], error: generated.error } };
       feedback = generated.feedback;
     } else {
       // The runtime guarantee here is real (any non-absent read is a draft);
@@ -101,37 +118,52 @@ export async function runPackingStage(deps: PackingRunners & {
       if (next === feedback) break;
       feedback = next;
     }
+    return { journeyId, feedback };
+  } catch (error) {
+    return { artifact: { status: 'failed', revision: null, itemCount: null, issues: [], error: message(error) } };
+  }
+}
+
+// Save the draft to the personal checklist. A draft that still cannot pass
+// validation keeps the useful part of its rows rather than nothing.
+async function commitDraftToChecklist(deps: PackingStageDeps, journeyId: string, feedback: DraftFeedback): Promise<PackingArtifact> {
+  const runContext = { context: deps.context } as RunContext;
+  // Keep the useful part of a checklist even when a few rows or global
+  // completeness checks cannot be repaired. The partial writer drops
+  // only item-level invalid rows and deliberately ignores coverage and
+  // nutrition gates; those are reported as warnings to the response.
+  try {
+    await readJourneySections(deps.client, deps.context, journeyId, ['journey', 'track', 'itinerary', 'packing']);
+    await readAgentGear(deps.client, deps.context);
     if (feedback.status !== 'ready') {
-      // Keep the useful part of a checklist even when a few rows or global
-      // completeness checks cannot be repaired. The partial writer drops
-      // only item-level invalid rows and deliberately ignores coverage and
-      // nutrition gates; those are reported as warnings to the response.
-      try {
-        await readJourneySections(client, context, journeyId, ['journey', 'track', 'itinerary', 'packing']);
-        await readAgentGear(client, context);
-        const partial = await runCommitPackingDraftBestEffort({ revision: feedback.revision }, runContext) as { added?: number; skippedInvalid?: number };
-        if ((partial.added ?? 0) > 0) {
-          return { status: 'committed', revision: feedback.revision, itemCount: partial.added ?? 0, issues: feedback.issues };
-        }
-      } catch (error) {
-        return { status: 'failed', revision: feedback.revision, itemCount: feedback.itemCount, issues: feedback.issues, error: message(error) };
-      }
+      const partial = await runCommitPackingDraftBestEffort({ revision: feedback.revision }, runContext) as { added?: number; skippedInvalid?: number };
+      if ((partial.added ?? 0) > 0) return { status: 'committed', revision: feedback.revision, itemCount: partial.added ?? 0, issues: feedback.issues };
       return { status: 'needs_repair', revision: feedback.revision, itemCount: feedback.itemCount, issues: feedback.issues };
     }
     // The commit transaction compares the observed versions of every section
     // a full-list write depends on.
-    await readJourneySections(client, context, journeyId, ['journey', 'track', 'itinerary', 'packing']);
-    await readAgentGear(client, context);
     const committed = await runCommitPackingDraft({ revision: feedback.revision }, runContext) as { added?: number };
     return { status: 'committed', revision: feedback.revision, itemCount: committed?.added ?? feedback.itemCount, issues: [] };
   } catch (error) {
-    return { status: 'failed', revision: null, itemCount: null, issues: [], error: message(error) };
+    return { status: 'failed', revision: feedback.revision, itemCount: feedback.itemCount, issues: feedback.issues, error: message(error) };
   }
 }
 
-async function generateDraft(journeyId: string, runContext: RunContext, deps: PackingRunners & {
-  signal: AbortSignal; planProfile: PackingProfile | null; planInput: string;
-}, needs: unknown): Promise<{ feedback: DraftFeedback } | { error: string }> {
+export async function runPackingStage(deps: PackingStageDeps): Promise<PackingArtifact> {
+  const built = await buildPackingDraft(deps);
+  if ('artifact' in built) return built.artifact;
+  return commitDraftToChecklist(deps, built.journeyId, built.feedback);
+}
+
+// Start this run's draft generation now and ignore the result: the packing
+// stage re-reads the durable draft and re-validates it against the saved plan,
+// so a prewarm that fails or times out only costs the model call the stage then
+// repeats. Nothing here writes checklist items.
+export async function prewarmPackingDraft(deps: PackingStageDeps): Promise<void> {
+  await buildPackingDraft(deps);
+}
+
+async function generateDraft(journeyId: string, runContext: RunContext, deps: PackingStageDeps, needs: unknown): Promise<{ feedback: DraftFeedback } | { error: string }> {
   try {
     const planProfile = deps.planProfile ?? { accommodation: 'unknown', waterRefill: 'unknown', mealPreparation: 'unknown' } as PackingProfile;
     const proposalInput = [
@@ -150,7 +182,7 @@ async function generateDraft(journeyId: string, runContext: RunContext, deps: Pa
       console.warn('[AppAgent] packing generation failed, retrying from scratch', message(error).slice(0, 300));
       proposal = packingProposalSchema.parse(normalizePackingModel(await deps.generate(proposalInput, deps.signal)));
     }
-    return { feedback: await runPreparePackingDraft({ journeyId, planProfile: proposal.planProfile ?? planProfile, items: proposal.items }, runContext) as DraftFeedback };
+    return { feedback: await runPreparePackingDraft({ journeyId, planProfile: proposal.planProfile ?? planProfile, items: proposal.items, plannedDays: deps.plannedDays ?? null }, runContext) as DraftFeedback };
   } catch (error) {
     return { error: message(error) };
   }
@@ -202,7 +234,9 @@ async function repairDraft(feedback: DraftFeedback, runContext: RunContext, deps
     feedback.next,
   ].join('\n');
   try {
-    const patch = draftPatchSchema.parse(await deps.repair(input, deps.signal));
+    // The provider schema makes every patch field present, null when unchanged;
+    // the strict draft patch only accepts the fields that change.
+    const patch = draftPatchSchema.parse(normalizePackingModel(await deps.repair(input, deps.signal)));
     return await runRepairPackingDraft({ ...patch, revision: feedback.revision }, runContext) as DraftFeedback;
   } catch (error) {
     if (deps.signal.aborted) return feedback;
@@ -211,10 +245,10 @@ async function repairDraft(feedback: DraftFeedback, runContext: RunContext, deps
     // it, while a second failure means the model cannot patch this draft.
     console.warn('[AppAgent] packing repair rejected, re-asking with the error', message(error).slice(0, 300));
     try {
-      const patch = draftPatchSchema.parse(await deps.repair([
+      const patch = draftPatchSchema.parse(normalizePackingModel(await deps.repair([
         `上一次补丁未通过：${message(error).slice(0, 300)}。请只使用上面列出的稳定 ID 修补，changes 与 removals 不能使用同一个 ID，也不能使用不存在的 ID；additions 是完整的新条目，不需要 ID；重新输出完整补丁。`,
         input,
-      ].join('\n'), deps.signal));
+      ].join('\n'), deps.signal)));
       return await runRepairPackingDraft({ ...patch, revision: feedback.revision }, runContext) as DraftFeedback;
     } catch (second) {
       // Keep the un-repaired feedback so the caller reports the real issues.

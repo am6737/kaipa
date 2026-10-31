@@ -4,6 +4,7 @@ import type {
   TransportPlan,
 } from "./plan-document.ts";
 import { canonicalJourneyDay, journeyDayOrdinal } from "./journey-days.ts";
+import { isHubIncomingMode } from "./incoming-mode.ts";
 import { itineraryMinutes } from "./itinerary-time.ts";
 import { validIsoDate } from "./itinerary-validation.ts";
 
@@ -434,7 +435,8 @@ export function validatePlanFeasibility(plan: PlanDocument, ctx: {
       const segments = matchingSegments(item, ctx.transportPlan);
       const legs = matchingLegs(item, plan);
       // An arrival point is a marker, not a second duration-unknown journey.
-      const timed = duration(item) ?? (item.location?.incomingMode ? 0 : null);
+      // A road leg still owes its driving time, so it stays unmeasured here.
+      const timed = duration(item) ?? (isHubIncomingMode(item.location?.incomingMode) ? 0 : null);
       const knownSegments = segments.filter((segment) =>
         segment.mode !== "unknown" && finite(segment.durationMinutes)
       );
@@ -470,7 +472,7 @@ export function validatePlanFeasibility(plan: PlanDocument, ctx: {
       );
       const crossRegion =
         /路线间|跨城|异地|跨(?:区|地区|区域)|长途/.test(item.title) ||
-        LONG_DISTANCE.test(item.title) && !item.location?.incomingMode;
+        LONG_DISTANCE.test(item.title) && !isHubIncomingMode(item.location?.incomingMode);
       const unknownSegment = segments.some((segment) =>
         segment.mode === "unknown" || segment.durationMinutes == null
       );
@@ -490,7 +492,7 @@ export function validatePlanFeasibility(plan: PlanDocument, ctx: {
           );
         }
       }
-      if (LONG_DISTANCE.test(item.title) || item.location?.incomingMode) {
+      if (LONG_DISTANCE.test(item.title) || isHubIncomingMode(item.location?.incomingMode)) {
         longDistanceDays.add(day);
       }
     }

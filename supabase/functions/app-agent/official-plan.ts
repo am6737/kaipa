@@ -10,6 +10,7 @@
 // walk ends; a way home is only added when the user asks for one in chat.
 import { planDocumentSchema, type PlanDocument } from './plan-document.ts';
 import { rangeMetrics, routeTrackFacts, type RouteTrackFacts } from './track-metrics.ts';
+import type { IncomingMode } from './incoming-mode.ts';
 import type { PlanStop } from './official-stops.ts';
 
 type Client = any;
@@ -184,9 +185,11 @@ export function officialPlanDocument(selection: OfficialSelection): PlanDocument
   const items: Array<Record<string, unknown>> = [];
   const groupNotes: Array<{ day: string; note: string }> = [];
   const endpoints: Array<Record<string, unknown>> = [];
-  const place = (day: string, title: string, name = title, kind: 'activity' | 'stay' | 'custom' = 'activity') =>
-    items.push({ day, title: title.slice(0, 120), kind, location: { name: name.slice(0, 160), source: 'custom' } });
-  const transfer = (day: string, value: Transfer) => place(day, transferTitle(value), value.to);
+  const place = (day: string, title: string, name = title, kind: 'activity' | 'stay' | 'custom' = 'activity', incomingMode: IncomingMode | null = null) =>
+    items.push({ day, title: title.slice(0, 120), kind, location: { name: name.slice(0, 160), source: 'custom', incomingMode } });
+  // A plan's transfers are its shared rides between a town and the trail, never
+  // the big-transport leg, so every one of them is a road arrival.
+  const transfer = (day: string, value: Transfer) => place(day, transferTitle(value), value.to, 'activity', 'road');
 
   // The town night is a stay, not a walking stop: a day boundary is only
   // owed to days that walk the track. A title ending in 住宿 reads as generic

@@ -112,3 +112,74 @@ export function packingValidationError(issues: PackingValidationIssue[]) {
   const remainder = issues.length > 12 ? `\n另有 ${issues.length - 12} 项不合格。` : '';
   return `装备清单未达到可直接备齐的标准，请修正所有问题后重新调用 add_packing_items：\n${details}${remainder}`;
 }
+
+// The weight and capacity the model writes into a name, matched with the same
+// boundaries as WEIGHT_IN_NAME, so the token is cut out rather than rejected.
+const WEIGHT_TOKEN = /(^|[\s（(])(?:约\s*)?(\d+(?:\.\d+)?)\s*(g|克|kg|千克)(?=[\s）)]|$)/i;
+const CAPACITY_TOKEN = /(?:约\s*)?\d+(?:\.\d+)?\s*(?:ml|毫升|l|升)(?:\s*\/\s*(?:瓶|个|袋))?/i;
+
+function tidyName(name: string) {
+  return name.replace(/[（(]\s*[）)]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function weightKgOf(amount: string, unit: string) {
+  const value = Number(amount);
+  return /^(?:kg|千克)$/i.test(unit) ? value : value / 1000;
+}
+
+// Fix the item rules whose correction is mechanical before the model is asked:
+// moving a weight or capacity to its field and dropping a common-sense
+// attribute need no judgement, and each repair round costs a model call. Rules
+// that need a real choice (which kit contents, which food) stay with the model.
+export function autoFixPackingItem<T extends PackingItemDraft & { weightKg?: number | null }>(item: T): T {
+  let name = compact(item.name);
+  let attributes = item.attributes ? [...item.attributes] : item.attributes;
+  let weightKg = item.weightKg;
+  const takeWeight = (kg: number) => {
+    if (!(weightKg && weightKg > 0) && kg > 0 && kg <= 100) weightKg = Number(kg.toFixed(3));
+  };
+
+  if (!PACKAGED_TRAIL_FOOD.test(name) && !FUEL_BY_WEIGHT.test(name)) {
+    for (let guard = 0; guard < 3; guard += 1) {
+      const match = name.match(WEIGHT_TOKEN);
+      const rest = match ? tidyName(name.replace(WEIGHT_TOKEN, '$1')) : '';
+      if (!match || !rest) break;
+      takeWeight(weightKgOf(match[2], match[3]));
+      name = rest;
+    }
+    if (attributes?.length) {
+      attributes = attributes.filter((attribute) => {
+        const value = compact(attribute.value);
+        if (!/重量|净重/i.test(attribute.name) || !WEIGHT_ONLY_SPECIFICATION.test(value)) return true;
+        const [, amount, unit] = value.match(/(\d+(?:\.\d+)?)\s*(g|克|kg|千克)/i) || [];
+        if (amount) takeWeight(weightKgOf(amount, unit));
+        return false;
+      });
+    }
+  }
+
+  if (BOTTLED_WATER.test(name) && WATER_CAPACITY.test(name)) {
+    const capacity = name.match(CAPACITY_TOKEN)?.[0];
+    const rest = capacity ? tidyName(name.replace(capacity, '')) : '';
+    if (capacity && rest) {
+      name = rest;
+      const known = (attributes || []).some((attribute) => WATER_CAPACITY.test(attribute.value));
+      if (!known && (attributes?.length ?? 0) < 6) attributes = [...(attributes || []), { name: '容量', value: capacity.replace(/\s+/g, '') }];
+    }
+  }
+
+  // A packaged food's portion is its per-unit weightKg, which the model fills
+  // even when it leaves the 单份净重 attribute out.
+  const portionText = `${name} ${(attributes || []).map((attribute) => `${attribute.name} ${attribute.value}`).join(' ')}`;
+  if (PACKAGED_TRAIL_FOOD.test(name) && !PORTION_SIZE.test(portionText) && weightKg && weightKg > 0 && weightKg <= 2 && (attributes?.length ?? 0) < 6) {
+    const unit = /[棒条根]$/.test(name) ? '根' : /片$/.test(name) ? '片' : /袋$/.test(name) ? '袋' : /包$/.test(name) ? '包' : '份';
+    attributes = [...(attributes || []), { name: '单份净重', value: `${Math.round(weightKg * 1000)}g/${unit}` }];
+  }
+
+  const redundant = REDUNDANT_ATTRIBUTE_RULES.filter((rule) => rule.item.test(name));
+  if (redundant.length && attributes?.length) {
+    attributes = attributes.filter((attribute) => !redundant.some((rule) => rule.attribute.test(`${attribute.name} ${attribute.value}`)));
+  }
+
+  return { ...item, name, attributes: attributes?.length ? attributes : item.attributes == null ? item.attributes : null, ...(weightKg === undefined ? {} : { weightKg }) };
+}

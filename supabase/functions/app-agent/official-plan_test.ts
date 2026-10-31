@@ -53,6 +53,22 @@ Deno.test('official plan days follow the day there and end with the walk', () =>
   assert(shown('Day 2').includes('包车从丹巴到党岭村（约 3 小时）'), 'shuttle title survives presentation');
 });
 
+Deno.test('plan shuttle rows are road arrivals and nothing else is', () => {
+  const doc = officialPlanDocument(select(threeDay, { accessDay: true }, 6));
+  const roads = doc.itineraryItems.filter(item => item.location?.incomingMode === 'road');
+  assert(roads.length === 2, 'both plan rides are marked as road legs');
+  assert(roads.map(item => `${item.title}|${item.location?.name}`).join('\n')
+    === '包车从丹巴到党岭村（约 3 小时）|党岭村\n包车从卡尔杂村到丹巴（约 3 小时）|丹巴',
+    'a road row sits at the place its ride drives to');
+  assert(doc.itineraryItems.filter(item => item.location?.incomingMode !== 'road')
+    .every(item => item.location?.incomingMode == null), 'stops, stays and the town night claim no arrival mode');
+
+  const presented = presentItinerary(carryDailyStarts(doc.itineraryItems), doc.groupNotes, 4);
+  const shown = presented.items.filter(item => item.location?.incomingMode === 'road');
+  assert(shown.length === 2 && shown.every(item => /^包车从.+到.+（约 3 小时）$/.test(item.title)),
+    'presentation keeps the road marker and its words');
+});
+
 Deno.test('shared ride cost and booking go to the day note, not the title', () => {
   const ride = { from: '新乡', to: '马武寨', mode: 'shared', duration: '约 1.5 至 2 小时', costRef: '拼车约 60～70 元/人', booking: '提前约好往返车', position: 'start' as const };
   const doc = officialPlanDocument(select(plan('ride', [day('hike', '马武寨 → 张沟', [ride], '张沟', '带头灯')]), { accessDay: true }, 2));
@@ -115,6 +131,25 @@ Deno.test('a walk that starts on the arrival day keeps the plan days as the trip
   assert(last.includes('徒步约 18.4 km，爬升约 1080 m，下降约 1880 m') && !last.includes('返程'), `day 2 note: ${last}`);
   assert(JSON.stringify(doc.endpoints.map(endpoint => [endpoint.day, endpoint.officialStop?.dayIndex])) === '[["Day 1",0],["Day 2",1]]', 'each walking day ends at its last stop');
   assert(doc.assumptions.includes('K2276 次赶得上集合'), 'the timetable basis is disclosed');
+});
+
+Deno.test('the merged plan keeps its road rides beside the rail hub chain', () => {
+  const doc = officialPlanDocument(select(staged(), { accessDay: false }, null, { track }));
+  const main = {
+    hubs: [{ mode: 'rail', outboundOrigin: '郑州', outboundDestination: '新乡', returnOrigin: '新乡', returnDestination: '郑州',
+      outboundOriginCity: '郑州市', outboundDestinationCity: '新乡市', returnOriginCity: '新乡市', returnDestinationCity: '郑州市',
+      outboundUserCity: '郑州市', returnUserCity: '郑州市', railAlternatives: [],
+      outboundOriginDisplayName: null, outboundDestinationDisplayName: null, returnOriginDisplayName: null, returnDestinationDisplayName: null }],
+    queries: [], unresolved: [], itineraryItems: [], suggestedDays: null, durationBasis: '',
+    request: { modes: ['rail'], adults: 1, origin: '郑州', returnDestination: '郑州', modesQuote: '', originQuote: '' },
+  } as unknown as MainTransport;
+  const merged = mergeMainTransportItems(doc.itineraryItems, main, { totalDays: 3, originCity: '郑州市' });
+  const titles = merged.filter(item => item.location?.incomingMode === 'road').map(item => `${item.day} ${item.title}`);
+  assert(titles.join('|') === 'Day 1 拼车从新乡到马武寨|Day 2 拼车从韩口到新乡', `both rides stay road legs, got ${titles.join('|')}`);
+  const hub = merged.filter(item => item.location?.incomingMode === 'rail').map(item => `${item.day} ${item.title}`);
+  assert(hub.join('|') === 'Day 1 抵达新乡', `the hub arrival stays the rail row, got ${hub.join('|')}`);
+  const day1 = merged.filter(item => item.day === 'Day 1').map(item => item.location!.name);
+  assert(day1.join('→') === '郑州→新乡→马武寨→西莲→张沟', `the fixed chain still opens the trip, got ${day1.join('→')}`);
 });
 
 Deno.test('a trip that must arrive the evening before gets a town night first', () => {

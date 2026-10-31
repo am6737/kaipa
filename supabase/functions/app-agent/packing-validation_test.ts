@@ -1,4 +1,4 @@
-import { packingItemDisplayName, packingItemIdentityKey, packingValidationError, validatePackingItems } from './packing-validation.ts';
+import { autoFixPackingItem, packingItemDisplayName, packingItemIdentityKey, packingValidationError, validatePackingItems, type PackingItemDraft } from './packing-validation.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -114,4 +114,33 @@ Deno.test('pure bottled water is not mistaken for a purification device', () => 
   if (!issues.some(issue => issue.message.includes('容量'))) throw new Error('Pure water still bypasses capacity validation');
   const device = validatePackingItems([{ name: '净水壶', quantity: 1 }]);
   if (device.some(issue => issue.message.includes('容量'))) throw new Error('Treatment device was mistaken for carried water');
+});
+
+Deno.test('a weight or capacity written into the name is moved to its field', () => {
+  const cup = autoFixPackingItem({ name: '钛合金水杯（约 120g）', quantity: 1, weightKg: 0 });
+  assert(cup.name === '钛合金水杯' && cup.weightKg === 0.12, `unexpected ${JSON.stringify(cup)}`);
+  const kept = autoFixPackingItem({ name: '折叠坐垫 80g', quantity: 1, weightKg: 0.075 });
+  assert(kept.name === '折叠坐垫' && kept.weightKg === 0.075, 'a weight already in weightKg wins over the name');
+  const attribute = autoFixPackingItem({ name: '速干毛巾', attributes: [{ name: '重量', value: '约 60g' }], quantity: 1, weightKg: 0 });
+  assert(attribute.weightKg === 0.06 && attribute.attributes == null, `unexpected ${JSON.stringify(attribute)}`);
+  const water = autoFixPackingItem<PackingItemDraft & { weightKg: number }>({ name: '瓶装矿泉水 1.5L', quantity: 2, weightKg: 1.5 });
+  assert(water.name === '瓶装矿泉水' && water.attributes?.[0]?.value === '1.5L', `unexpected ${JSON.stringify(water)}`);
+  const lamp = autoFixPackingItem({ name: '头灯', attributes: [{ name: '亮度', value: '可调亮度' }, { name: '电池', value: 'AAA×3' }], quantity: 1 });
+  assert(lamp.attributes?.length === 1, 'common-sense attributes are dropped');
+  for (const item of [cup, kept, attribute, water, lamp]) {
+    assert(validatePackingItems([item]).length === 0, `${item.name} still fails: ${packingValidationError(validatePackingItems([item]))}`);
+  }
+});
+
+Deno.test('packaged food keeps its portion weight in the name', () => {
+  const bar = { name: '能量棒 50g', quantity: 4, weightKg: 0.05 };
+  assert(autoFixPackingItem(bar).name === '能量棒 50g', 'the trail-food rule allows a portion size');
+});
+
+Deno.test('a packaged food without a portion gets one from its per-unit weight', () => {
+  const bar = autoFixPackingItem<PackingItemDraft & { weightKg: number }>({ name: '巧克力棒', attributes: null, quantity: 4, weightKg: 0.04 });
+  assert(bar.attributes?.[0]?.value === '40g/根', `unexpected ${JSON.stringify(bar)}`);
+  assert(validatePackingItems([bar]).length === 0, packingValidationError(validatePackingItems([bar])));
+  const unknown = autoFixPackingItem({ name: '坚果包', attributes: null, quantity: 2, weightKg: 0 });
+  assert(validatePackingItems([unknown]).length === 1, 'without a weight the portion is left to the model');
 });

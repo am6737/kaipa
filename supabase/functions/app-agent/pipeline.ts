@@ -1,4 +1,5 @@
 import { presentItinerary, removeOutOfRangeArrivals } from './itinerary-presentation.ts';
+import { isHubIncomingMode } from './incoming-mode.ts';
 import { addTrackDayLocations, type ItineraryTrack } from './itinerary-track-locations.ts';
 import { carryDailyStarts } from './itinerary-locations.ts';
 import { chooseOfficialPlan, dayRange, expectedTravelDays, loadOfficialPlans, officialPlanDocument, officialTowns, type OfficialSelection } from './official-plan.ts';
@@ -12,13 +13,14 @@ import { chooseOfficialPlan, dayRange, expectedTravelDays, loadOfficialPlans, of
 // one declarative PlanDocument that deterministic code saves.
 import { resolveTravelRequest, travelIntake, travelContextFromRequest } from './travel-request.ts';
 import { collectMainTransport, collectOfficialTransport, mergeMainTransportItems, transportEndpointsSchema, type MainTransport, type MainTransportQuery, type OfficialTransport } from './main-transport.ts';
+import { railStationDirectory, resolveOfficialRailEndpoints } from './origin-endpoints.ts';
 import { assistantOutput } from './agent.ts';
 import { planningSkills } from './skills.ts';
 import { travelContextSchema } from './travel-context-schema.ts';
 import { planChunkSchema, planDocumentModelSchema, planDocumentSchema, planDraftFrom, planSkeletonSchema, researchBriefSchema, saveToolNames, transportPlanSchema, type PlanChunk, type PlanDocument, type ResearchBrief, type TransportPlan } from './plan-document.ts';
 import { boundJourneyId, runSaveStage, type SaveArtifact } from './save-stage.ts';
 import { contextPrompt, readJourneySections } from './context.ts';
-import { packingPatchModelSchema, packingProposalModelSchema, runPackingStage, type PackingArtifact } from './packing-stage.ts';
+import { packingPatchModelSchema, packingProposalModelSchema, prewarmPackingDraft, runPackingStage, type PackingArtifact } from './packing-stage.ts';
 import { getAppContext, getJourneyDetails, listGear, parseJsonString, readConversationHistory, searchRoutes, searchTransport, bindStageDeadline, releaseStageDeadline, runSearchTransport, runSearchGroundTransport } from './tools.ts';
 import { dbGuideLookup, getRouteGuide, guideEvidence, guideDisclosure, guidesFingerprint, recordGuideGaps, type GuideLookup, type GuideEvidence } from './trusted-guides.ts';
 import { journeyDayOrdinal } from './journey-days.ts';
@@ -173,6 +175,26 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
   const official = pipeline.task.decision.fullHikingPlan && !multiRoute
     ? await selectOfficialPlan(pipeline, needsMainTravel) : null;
   if (official) applyOfficialDays(pipeline, official);
+  // An official plan needs neither the plan document nor the saved itinerary to
+  // draft a checklist: the journey is already bound and the plan fixes its
+  // length, so the run's slowest model work starts beside the transport query.
+  // Only the draft is written here; items reach the journey after the save stage.
+  const packingPrewarm = official && pipeline.task.decision.packingMode === 'full'
+    && pipeline.task.decision.operations.includes('add_packing_items')
+    ? prewarmPackingDraft({
+      client: pipeline.client,
+      context: pipeline.context,
+      signal: withBudget(pipeline.signal, STAGE_BUDGETS.packing),
+      planProfile: null,
+      planInput: pipeline.userInput,
+      // A plan that fixes its own meeting point is expected to start on the
+      // arrival day, and only the timetable can add the day it fails to make.
+      // Sized for that longest version: a checklist that turns out to carry one
+      // day more than needed is a weight question, one day short is a supply one.
+      plannedDays: official.totalDays + (needsMainTravel && official.plan.payload.access ? 1 : 0),
+      ...packingStageRunners(pipeline),
+    }).catch(error => console.warn('[AppAgent] packing prewarm stopped', (error instanceof Error ? error.message : String(error)).slice(0, 300)))
+    : null;
   const transportPlan = multiRoute || needsMainTravel ? await runStage<TransportPlan>({
     name: 'transport', state, pipeline,
     execute: async signal => {
@@ -246,24 +268,25 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
 
   let packing: PackingArtifact | null = null;
   if (pipeline.task.decision.packingMode === 'full') {
-    // Both packing model calls are one-shot with a structured schema, so the
-    // only difference is the instructions and the shape they must return.
-    const packingCall = (name: string, instructions: string, outputType: unknown) =>
-      (input: string, budget: AbortSignal) => stageCall(pipeline, pipeline.stageAgent({
-        name, instructions, tools: [], outputType, 
-        model: pipeline.flashModel, stage: 'packing', temperature: 0,
-      }), input, { maxTurns: 1, signal: budget }, value => value);
+    const runners = packingStageRunners(pipeline);
     const packed = await runStage<PackingArtifact>({
       name: 'packing', state, pipeline,
-      execute: signal => runPackingStage({
-        client: pipeline.client,
-        context: pipeline.context,
-        signal,
-        planProfile: (plan.artifact as PlanDocument).packingProfile,
-        planInput: pipeline.userInput,
-        generate: packingCall('Kaipa Packing Planner', [packingInstructions, planningSkills.packing.body].join('\n\n'), packingProposalModelSchema),
-        repair: packingCall('Kaipa Packing Repair', packingRepairInstructions, packingPatchModelSchema),
-      }),
+      execute: async signal => {
+        // One draft writer at a time: the prewarm's repair rounds and this
+        // stage's must not patch the same revision concurrently.
+        await packingPrewarm;
+        // The draft keeps the length it was sized for; a timetable that moved
+        // the walk onto the arrival day leaves the checklist one day long,
+        // which is the safe direction and needs no repair round.
+        return runPackingStage({
+          client: pipeline.client,
+          context: pipeline.context,
+          signal,
+          planProfile: (plan.artifact as PlanDocument).packingProfile,
+          planInput: pipeline.userInput,
+          ...runners,
+        });
+      },
     });
     if (packed.aborted) return aborted();
     packing = packed.artifact;
@@ -283,6 +306,21 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
   return { finalOutput: withDeterministicDraft(respond.artifact, plan.artifact, save.artifact), aborted: false };
 }
 
+// Both packing model calls are one-shot with a structured schema, so the only
+// difference is the instructions and the shape they must return. Shared with
+// the prewarm, which runs the same model calls against the same draft.
+function packingStageRunners(pipeline: PipelineDeps) {
+  const packingCall = (name: string, instructions: string, outputType: unknown) =>
+    (input: string, budget: AbortSignal) => stageCall(pipeline, pipeline.stageAgent({
+      name, instructions, tools: [], outputType,
+      model: pipeline.flashModel, stage: 'packing', temperature: 0,
+    }), input, { maxTurns: 1, signal: budget }, value => value);
+  return {
+    generate: packingCall('Kaipa Packing Planner', [packingInstructions, planningSkills.packing.body].join('\n\n'), packingProposalModelSchema),
+    repair: packingCall('Kaipa Packing Repair', packingRepairInstructions, packingPatchModelSchema),
+  };
+}
+
 // The official plan's length is the trip's length. A total the user gave is
 // replaced, not kept beside it: the journey is saved with the plan's days, and
 // the plan document already says the total changed (requestedDays).
@@ -297,7 +335,7 @@ function applyOfficialDays(pipeline: PipelineDeps, official: OfficialSelection) 
 export function reconcileCandidateDays(plan: PlanDocument, pipeline: PipelineDeps, canExtend = true) {
   if (!pipeline.task.decision.fullHikingPlan || pipeline.task.decision.days != null || !plan.journey) return;
   const lastDay = Math.max(plan.journey.days, ...plan.itineraryItems
-    .filter(item => !(item.location?.incomingMode && /^(?:抵达|到达)/.test(item.title)))
+    .filter(item => !(isHubIncomingMode(item.location?.incomingMode) && /^(?:抵达|到达)/.test(item.title)))
     .map(item => journeyDayOrdinal(item.day) ?? 0));
   if (canExtend && lastDay <= 30 && lastDay > plan.journey.days) {
     plan.journey.days = lastDay;
@@ -887,29 +925,40 @@ async function runMainTransport(pipeline: PipelineDeps, signal: AbortSignal, res
     town: access.town, meetingPoint: access.meetingPoint, arriveBy: access.arriveBy,
     accessStations: access.stations.map(station => station.name),
   } : null;
-  const agent = pipeline.stageAgent({
-    name: 'Kaipa Main Transport Endpoints', model: pipeline.flashModel, stage: 'transport', temperature: 0,
-    tools: [], outputType: transportEndpointsSchema,
-    instructions: '你是独立大交通查询步骤，只确定实际查询所需的枢纽，不生成班次、时间、票价、余票或旅程文本。本轮只规划去程，不安排返程：每个用户选择的 mode 输出一组枢纽，return 开头的返程字段照去程反向对称填写即可，服务端不会查询或排入行程。rail 使用准确中文车站名（站名不加站字），flight 查询字段使用真实 IATA 三字码，同时必须填写 outboundOriginDisplayName、outboundDestinationDisplayName 两个中文机场显示名（例如南宁吴圩国际机场、成都天府国际机场），显示名只供服务端旅程骨架使用，不能把 IATA 码当作旅程地点名；self_drive 使用出发城市和实际进/出山道路起终点地名。依据默认当前位置或用户指定的出发/返回城市与路线起终点选择合理枢纽。每组端点都填写 outboundOriginCity、outboundDestinationCity、returnOriginCity、returnDestinationCity（各枢纽所在地级市或直辖市），以及 outboundUserCity、returnUserCity（用户出发地、返回地所在城市：市辖区填所属地级市或直辖市，如南宁良庆区填南宁市；县或县级市填其本身，如凌云县填凌云县）；服务端据此判断是否需要出发地到枢纽的地面接驳。rail 是精确车站查询，城市名不能代表全市车站；成都与成都东是不同站，去成都地区优先考虑高铁主枢纽成都东，不要直接把城市名成都填成到达站。若用户未指定具体车站，可给每个方向最多一个同城备选车站组合（railAlternatives），只在主组合结果为空时查询；用户明确指定车站时不得给替换该站的备选。总天数待定时，根据路线资料、去程耗时、进山接驳和必要缓冲，给出 suggestedDays 和 durationBasis 作为候选全程方案（从出发到徒步结束，不含返程）；明确标为估算，不得只复制 GPX 徒步天数。确实缺少依据时留空并写 unresolved。禁止编造技术代码。',
-  });
-  let endpoints;
-  try {
-    endpoints = await stageCall(pipeline, agent, `${pipeline.userInput}
+  // The plan fixes the arrival station, so on this path the model only ever
+  // answered "which station does the user board at" — a directory lookup. It is
+  // worth the ~15 s it saves, and only when the lookup can actually answer.
+  const settled = officialAccess && request.modes.includes('rail')
+    ? await resolveOfficialRailEndpoints({ request, access: officialAccess, directory: railStationDirectory(pipeline.admin) }).catch(() => null)
+    : null;
+  if (settled) console.info('[AppAgent] official origin station settled from the station directory', settled.basis);
+  const askEndpoints = async () => {
+    const agent = pipeline.stageAgent({
+      name: 'Kaipa Main Transport Endpoints', model: pipeline.flashModel, stage: 'transport', temperature: 0,
+      tools: [], outputType: transportEndpointsSchema,
+      instructions: '你是独立大交通查询步骤，只确定实际查询所需的枢纽，不生成班次、时间、票价、余票或旅程文本。本轮只规划去程，不安排返程：每个用户选择的 mode 输出一组枢纽，return 开头的返程字段照去程反向对称填写即可，服务端不会查询或排入行程。rail 使用准确中文车站名（站名不加站字），flight 查询字段使用真实 IATA 三字码，同时必须填写 outboundOriginDisplayName、outboundDestinationDisplayName 两个中文机场显示名（例如南宁吴圩国际机场、成都天府国际机场），显示名只供服务端旅程骨架使用，不能把 IATA 码当作旅程地点名；self_drive 使用出发城市和实际进/出山道路起终点地名。依据默认当前位置或用户指定的出发/返回城市与路线起终点选择合理枢纽。每组端点都填写 outboundOriginCity、outboundDestinationCity、returnOriginCity、returnDestinationCity（各枢纽所在地级市或直辖市），以及 outboundUserCity、returnUserCity（用户出发地、返回地所在城市：市辖区填所属地级市或直辖市，如南宁良庆区填南宁市；县或县级市填其本身，如凌云县填凌云县）；服务端据此判断是否需要出发地到枢纽的地面接驳。rail 是精确车站查询，城市名不能代表全市车站；成都与成都东是不同站，去成都地区优先考虑高铁主枢纽成都东，不要直接把城市名成都填成到达站。若用户未指定具体车站，可给每个方向最多一个同城备选车站组合（railAlternatives），只在主组合结果为空时查询；用户明确指定车站时不得给替换该站的备选。总天数待定时，根据路线资料、去程耗时、进山接驳和必要缓冲，给出 suggestedDays 和 durationBasis 作为候选全程方案（从出发到徒步结束，不含返程）；明确标为估算，不得只复制 GPX 徒步天数。确实缺少依据时留空并写 unresolved。禁止编造技术代码。',
+    });
+    try {
+      return await stageCall(pipeline, agent, `${pipeline.userInput}
 已确认大交通需求：${JSON.stringify(request)}
 路线事实：${JSON.stringify(research)}${official ? officialAccess ? `
 开爬官方方案：${official.plan.payload.name}。去程到达站已由方案固定为 ${officialAccess.accessStations[0]}，不要另选；只需确定用户出发地的车站（可给一个同城备选）。天数由服务端按时刻表决定，不必估算。` : `
 开爬官方方案：${official.plan.payload.name}，进山前在${officialTowns(official.plan).start ?? '未知'}集合；全程 ${official.totalDays} 天（含去程交通）。去程枢纽按集合地选择。` : ''}`, { maxTurns: 1, signal }, value => transportEndpointsSchema.parse(value));
-  } catch (error) {
-    if (signal.aborted) throw error;
-    console.warn('[AppAgent] transport endpoints unavailable, falling back to ground estimates', String(error instanceof Error ? error.message : error).slice(0, 300));
-    endpoints = transportEndpointsSchema.parse({ endpoints: [], unresolved: ['大交通查询枢纽未能确定。'] });
-  }
+    } catch (error) {
+      if (signal.aborted) throw error;
+      console.warn('[AppAgent] transport endpoints unavailable, falling back to ground estimates', String(error instanceof Error ? error.message : error).slice(0, 300));
+      return transportEndpointsSchema.parse({ endpoints: [], unresolved: ['大交通查询枢纽未能确定。'] });
+    }
+  };
+  const endpoints = settled ? settled.endpoints : await askEndpoints();
   const query = async (query: MainTransportQuery) => {
     if (signal.aborted) throw signal.reason;
     const raw = query.mode === 'self_drive'
       ? await runSearchGroundTransport({ origin: query.origin, destination: query.destination }, { context: pipeline.context } as never)
       : await runSearchTransport({ mode: query.mode, origin: query.origin, destination: query.destination,
-        departureDate: query.departureDate!, adults: request.adults, earliestHour: query.earliestHour, viaStation: null }, { context: pipeline.context } as never);
+        departureDate: query.departureDate!, adults: request.adults, earliestHour: query.earliestHour, viaStation: null },
+        // A stored timetable answers in milliseconds; the plan marks its trains as a reference.
+        { context: pipeline.context, timetableReference: true } as never);
     return typeof raw === 'string' ? parseJsonString(raw) : raw;
   };
   if (officialAccess) return collectOfficialTransport({ request, endpoints, plannedDate: pipeline.task.decision.plannedDate, official: officialAccess, query });
@@ -1500,7 +1549,7 @@ export async function runRespond(pipeline: PipelineDeps, signal: AbortSignal, re
       ? '候选旅程已保存，以下事项出发前仍需确认。' : '旅程规划已完成并保存。')
     : packingPartial ? '旅程主体已保存，装备清单已保存可用条目；少数条目或完整性检查未通过，已保留为待补齐项。'
     : '已保留本轮能够确认的规划结果，未完成部分可以继续补齐。';
-  const packingNote = packingPartial ? `装备清单已部分保存：${results.packing?.issues.slice(0, 3).map(issue => issue.message).join('；')}` : null;
+  const packingNote = packingPartial && results.packing ? partialPackingNote(results.packing) : null;
   const guideDates = (results.research?.guideEvidence ?? []).flatMap(guide => guide.asOf ? [`${guide.routeName}（${guide.asOf}）`] : []);
   const lines = [...new Set([text, ...(results.research?.guideEvidence ?? []).flatMap(guide => guideDisclosure(guide.routeName, guide.missingSections, guide.knowledgeReadFailed) ?? []),
     ...(guideDates.length ? [`指南资料截至：${guideDates.join('；')}`] : []),
@@ -1603,6 +1652,20 @@ class StageSession {
   addItems(items: unknown[]): Promise<void> { this.items.push(...items); return Promise.resolve(); }
   popItem(): Promise<unknown> { return Promise.resolve(this.items.pop()); }
   clearSession(): Promise<void> { this.items = []; return Promise.resolve(); }
+}
+
+// Draft issues are instructions for the repair model ("写入 weightKg"); the
+// reply says only what the user can act on.
+export function partialPackingNote(packing: PackingArtifact) {
+  const gaps = packing.issues.filter(issue => issue.code.startsWith('coverage:')).map(issue => issue.message);
+  const parts = [
+    packing.itemCount ? `装备清单已保存 ${packing.itemCount} 项` : '装备清单已保存可用条目',
+    gaps.length ? `还缺${gaps.slice(0, 3).join('、')}，请自行补上` : '',
+    packing.issues.some(issue => issue.code === 'item') ? '少数条目规格不完整，未写入清单' : '',
+    packing.issues.some(issue => issue.code === 'nutrition') ? '路餐份量请出发前按行程再核对' : '',
+    packing.issues.some(issue => issue.code === 'dietary') ? '部分食品可能与你的忌口冲突，请核对' : '',
+  ].filter(Boolean);
+  return `${parts.join('；')}。`;
 }
 
 function stageInput(agentInput: unknown, text: string): AgentInput {

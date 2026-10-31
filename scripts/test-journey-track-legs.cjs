@@ -170,17 +170,16 @@ test('mixed endpoints follow a bending track in either direction without a road 
   }
 });
 
-test('unverified or unavailable track connections remain unmeasured', () => {
-  for (const coords of [trackCoords, () => undefined]) {
-    const rows = [place('poi', 'Day 1', [100.02, 30]), place('camp', 'Day 1', LINE[3],
-      { ...TRACK_POINT, trackMeters: STEP * 3 })];
-    const leg = stops.buildJourneyLegs(stops.buildJourneyStops(rows, ['Day 1']), coords)[0];
-    assert.equal(leg.pendingTrack, true);
-    assert.equal(leg.recordedGeometry, undefined);
-    const days = stops.measureJourneyDays([leg], {});
-    assert.equal(days[0].pendingTrack, true);
-    assert.equal(days[0].meters, 0);
-  }
+test('a track connection that cannot be resolved at all remains unmeasured', () => {
+  const rows = [place('poi', 'Day 1', [100.02, 30]), place('camp', 'Day 1', LINE[3],
+    { ...TRACK_POINT, trackMeters: STEP * 3 })];
+  const leg = stops.buildJourneyLegs(stops.buildJourneyStops(rows, ['Day 1']), () => undefined)[0];
+  assert.equal(leg.pendingTrack, true);
+  assert.equal(leg.trackBridge, undefined);
+  assert.equal(leg.recordedGeometry, undefined);
+  const days = stops.measureJourneyDays([leg], {});
+  assert.equal(days[0].pendingTrack, true);
+  assert.equal(days[0].meters, 0);
 });
 
 test('a POI beside an out-and-back track requires an explicit track position', () => {
@@ -195,23 +194,33 @@ test('a POI beside an out-and-back track requires an explicit track position', (
 test('a distant POI approaching a track endpoint requests only the access road', () => {
   const rows = [place('poi', 'Day 1', [100, 29.99]),
     place('camp', 'Day 1', LINE[3], { ...TRACK_POINT, trackMeters: STEP * 3 })];
-  for (const ordered of [rows, [...rows].reverse()]) {
-    const leg = stops.buildJourneyLegs(stops.buildJourneyStops(ordered, ['Day 1']), trackCoords)[0];
-    assert.equal(leg.trackBridge, true);
-    assert.equal(leg.pendingTrack, true);
-    assert.deepEqual(leg.directionFrom, ordered[0] === rows[0] ? [100, 29.99] : LINE[0]);
-    assert.deepEqual(leg.directionTo, ordered[0] === rows[0] ? LINE[0] : [100, 29.99]);
-    assert.equal(stops.trackAccessReachesEndpoints(leg, leg.directionFrom, leg.directionTo), true);
-    assert.equal(stops.trackAccessReachesEndpoints(leg, leg.directionFrom, [100.02, 30]), false);
-    assert.equal(stops.trackAccessReachesEndpoints(leg), false);
-    const geometry = stops.composeJourneyLegGeometry(leg, [leg.directionFrom, leg.directionTo]);
-    assert.deepEqual(geometry[0], leg.from);
-    assert.deepEqual(geometry.at(-1), leg.to);
-    assert.ok(geometry.some(point => point[1] === 30.02));
-    const day = stops.measureJourneyDays([leg], { [leg.id]: geometry })[0];
-    assert.equal(day.pendingTrack, undefined);
-    assert.ok(day.meters > STEP * 3);
-  }
+  const leg = stops.buildJourneyLegs(stops.buildJourneyStops(rows, ['Day 1']), trackCoords)[0];
+  assert.equal(leg.trackBridge, true);
+  assert.equal(leg.pendingTrack, false, 'the entrance is settled; only the road is still planned');
+  assert.equal(leg.mode, 'walking', 'a kilometre from the trailhead is walked, not driven');
+  assert.deepEqual(leg.directionFrom, [100, 29.99]);
+  assert.deepEqual(leg.directionTo, LINE[0]);
+  assert.equal(stops.trackAccessReachesEndpoints(leg, leg.directionFrom, leg.directionTo), true);
+  assert.equal(stops.trackAccessReachesEndpoints(leg, leg.directionFrom, [100.02, 30]), false);
+  assert.equal(stops.trackAccessReachesEndpoints(leg), false);
+  const geometry = stops.composeJourneyLegGeometry(leg, [leg.directionFrom, leg.directionTo]);
+  assert.deepEqual(geometry[0], leg.from);
+  assert.deepEqual(geometry.at(-1), leg.to);
+  assert.ok(geometry.some(point => point[1] === 30.02));
+  const day = stops.measureJourneyDays([leg], { [leg.id]: geometry })[0];
+  assert.equal(day.pendingTrack, undefined);
+  assert.ok(day.meters > STEP * 3);
+});
+
+test('a place part-way down the line leaves by its own end, not by the other one', () => {
+  // The POI sits beside the track start, but the day starts three quarters along
+  // the line. Bridging there would first walk the whole track back to its start.
+  const rows = [place('camp', 'Day 1', LINE[3], { ...TRACK_POINT, trackMeters: STEP * 3 }),
+    place('poi', 'Day 1', [100, 29.99])];
+  const leg = stops.buildJourneyLegs(stops.buildJourneyStops(rows, ['Day 1']), trackCoords)[0];
+  assert.equal(leg.trackBridge, undefined);
+  assert.equal(leg.pendingTrack, true);
+  assert.equal(leg.recordedPrefix, undefined);
 });
 
 const access = load('src/lib/journeyAccess.ts');
@@ -240,6 +249,22 @@ test('imported access slices the real track in either direction and rejects unco
   assert.ok(forward);
   assert.deepEqual(forward, [...reverse].reverse());
   assert.equal(access.importedAccessPath([100, 29.9], path[2], path), null);
+});
+
+test('a short hop between the trail end and the road beside it stays a walk', () => {
+  // The 2 km road-transfer threshold is what these two gaps sit either side of.
+  for (const [gapDeg, expected] of [[0.01, 'walking'], [0.02, 'driving']]) {
+    const line = [[100, 30], [100, 30.005], [100, 30.01]];
+    const total = measureTrack(line).totalMeters;
+    const rows = [place('inn', 'Day 1', line[2], { trackId: 'spur', trackMeters: total, trackLengthMeters: total }),
+      place('station', 'Day 1', [100, 30.01 + gapDeg])];
+    const leg = stops.buildJourneyLegs(stops.buildJourneyStops(rows, ['Day 1']),
+      (id) => (id === 'spur' ? line : undefined))[0];
+    assert.equal(leg.trackBridge, true);
+    assert.equal(leg.mode, expected, `gap of ${gapDeg} degrees`);
+    assert.deepEqual(leg.directionFrom, line[2], 'the bridge starts at the place itself');
+    assert.equal(leg.recordedPrefix, undefined);
+  }
 });
 
 test('airport and station stops use normal driving navigation regardless of transport metadata', () => {

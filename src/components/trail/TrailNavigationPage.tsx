@@ -55,6 +55,8 @@ import { buildRouteEndpointMarkers } from '../discover/routeEndpointMarkers';
 import { buildRouteWaypointMarkers, buildWaypointLayer } from '../discover/routeWaypointMarkers';
 import { buildTrailKmMarkers, kmStepForZoom } from './trailKmMarkers';
 import { useMapPresentation } from '../maps/MapPresentationContext';
+import { formatTrackDistance } from '../../lib/trackParser';
+import { MapStylePickerSheet, type MapPresentationStyle } from '../MapStylePickerSheet';
 import { MapCompassReveal, useMapHeading } from '../maps/MapCompass';
 import { MapScaleBar, useMapScale } from '../maps/MapScale';
 import { MAP_CONTROL_SIZE, MapControlButton, MapControlGroup, MapRoundButton } from '../MapControls';
@@ -89,6 +91,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
   const trail = useTrail();
   const { session, fix, gps, error } = useTrailSnapshot();
   const { mapStyle, setMapStyle } = useMapPresentation();
+  const [layersOpen, setLayersOpen] = useState(false);
   const mapRef = useRef<NativeMapHandle>(null);
   const zoomRef = useRef(FOLLOW_ZOOM);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
@@ -747,8 +750,8 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
           <MapControlButton
             theme={theme}
             icon="layers"
-            active={mapStyle === 'satellite'}
-            onPress={() => setMapStyle((value) => (value === 'satellite' ? 'standard' : 'satellite'))}
+            active={layersOpen}
+            onPress={() => setLayersOpen(true)}
             accessibilityLabel={t('trail.action.layers')}
           />
           <MapControlButton theme={theme} icon={following ? 'locate' : 'locateOutline'} active={following} onPress={followMe} accessibilityLabel={t('trail.action.follow')} />
@@ -782,8 +785,6 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
               movingMs={movingMs}
               voice={guide.voiceAvailable ? guide.voice : null}
               onVoice={toggleVoice}
-              overlayHint={overlayHint}
-              onOverlays={() => setOverlayPicker(true)}
               footerHeight={footerHeight}
               compact={sheetIndex === 0}
               onPause={() => void pauseTrail()}
@@ -886,6 +887,68 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
           setTrailOverlays(ids);
         }}
       />
+
+      {layersOpen ? (
+        <MapStylePickerSheet
+          theme={theme}
+          title={t('journey.map.layerTitle')}
+          closeLabel={t('common.close')}
+          styleOptions={([
+            { id: 'standard', label: t('journey.map.layerStandard') },
+            { id: 'satellite', label: t('journey.map.layerSatellite') },
+          ] satisfies { id: MapPresentationStyle; label: string }[])}
+          value={mapStyle}
+          sections={[{
+            id: 'trail-display',
+            title: t('journey.map.displayTitle'),
+            options: [
+              {
+                id: 'distance-markers',
+                label: t('journey.map.trackDistanceMarkers'),
+                value: layers.km,
+                onChange: (on: boolean) => setTrailLayer('km', on),
+              },
+              {
+                id: 'waypoints',
+                label: t('journey.map.trackWaypointMarkers'),
+                value: layers.waypoints,
+                onChange: (on: boolean) => setTrailLayer('waypoints', on),
+              },
+            ],
+          }, {
+            id: 'trail-overlays',
+            title: t('trail.overlay.title'),
+            options: [
+              ...overlayTracks.map((track, index) => ({
+                id: track.id,
+                label: track.name,
+                distance: track.distM != null ? formatTrackDistance(track.distM) : undefined,
+                color: OVERLAY_COLORS[index % OVERLAY_COLORS.length],
+                visible: true,
+                // Off means gone: an overlay keeps no separate hidden state.
+                onChange: (on: boolean) => {
+                  if (!on) setTrailOverlays(overlayIds.filter((id) => id !== track.id));
+                },
+              })),
+              {
+                id: 'add-overlay',
+                label: t('trail.overlay.add'),
+                accent: true,
+                hint: overlayTracks.length ? undefined : overlayHint,
+                // Swap panels rather than stack them: the picker is a Modal
+                // and would leave this one waiting underneath.
+                onPress: () => {
+                  setLayersOpen(false);
+                  setOverlayPicker(true);
+                },
+              },
+            ],
+          }]}
+          bottomInset={insets.bottom}
+          onChange={setMapStyle}
+          onClose={() => setLayersOpen(false)}
+        />
+      ) : null}
 
       <AppActionDialog
         theme={theme}
@@ -1171,8 +1234,6 @@ type LiveSheetProps = {
   movingMs: number;
   voice: boolean | null;
   onVoice: () => void;
-  overlayHint: string;
-  onOverlays: () => void;
   footerHeight: number;
   compact: boolean;
   onPause: () => void;
@@ -1199,8 +1260,6 @@ function LiveSheetBody({
   movingMs,
   voice,
   onVoice,
-  overlayHint,
-  onOverlays,
   footerHeight,
   compact,
   onPause,
@@ -1331,7 +1390,6 @@ function LiveSheetBody({
           middle detent they would sit in the space left above the footer. */}
       <Animated.View pointerEvents={settingsActive ? 'auto' : 'none'} style={{ opacity: settingsOpacity }}>
         <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.fieldBorder, marginTop: space.xl, marginBottom: space.xs }} />
-        <OverlayRow theme={theme} hint={overlayHint} onPress={onOverlays} />
         <LayerRows theme={theme} />
         {voice != null ? (
           <SettingRow theme={theme} icon="volume" title={t('trail.settings.voice')} hint={t('trail.settings.voiceHint')}>

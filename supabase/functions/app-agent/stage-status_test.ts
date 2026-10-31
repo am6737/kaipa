@@ -11,7 +11,7 @@ function assert(condition: unknown, message: string): asserts condition {
 
 type Written = { stage: string; status: string; artifact?: unknown; error?: string | null };
 
-function harness(previous?: { status: string; artifact: unknown }) {
+function harness(previous?: { status: string; artifact: unknown }, stage: 'plan' | 'save' = 'plan') {
   const written: Written[] = [];
   const admin = {
     from(table: string) {
@@ -27,10 +27,10 @@ function harness(previous?: { status: string; artifact: unknown }) {
     },
   };
   const state = new Map();
-  if (previous) state.set('plan', { stage: 'plan', status: previous.status, artifact: previous.artifact });
+  if (previous) state.set(stage, { stage, status: previous.status, artifact: previous.artifact });
   return {
     written,
-    deps: { name: 'plan' as const, state, pipeline: { admin, runId: 'run', userId: 'user', attempt: 1, signal: new AbortController().signal } as unknown as PipelineDeps },
+    deps: { name: stage, state, pipeline: { admin, runId: 'run', userId: 'user', attempt: 1, signal: new AbortController().signal } as unknown as PipelineDeps },
   };
 }
 
@@ -69,4 +69,24 @@ Deno.test('a failed stage is still retried', async () => {
   const h = harness({ status: 'failed', artifact: null });
   await runStage({ ...h.deps, execute: async () => filledPlan, degrade });
   assert(h.written[1].status === 'completed', 'a failed stage must be re-run and persisted');
+});
+
+// The save stage is the one that writes the journey, so a resume must not run
+// it a second time: that would double the itinerary rows the first attempt
+// already committed.
+Deno.test('a retry reuses a completed save instead of writing the journey again', async () => {
+  const h = harness({ status: 'completed', artifact: { satisfied: ['add_itinerary_items'] } }, 'save');
+  let executed = false;
+  const result = await runStage<{ satisfied: string[] }>({ ...h.deps, execute: async () => { executed = true; return { satisfied: [] }; } });
+  assert(!executed, 'a completed save must not run again');
+  assert(result.artifact?.satisfied.length === 1, 'the resume returns the saved plan as it was written');
+  assert(h.written.length === 0, 'reusing a completed save must not rewrite its row');
+});
+
+Deno.test('a save interrupted mid-stage runs again', async () => {
+  const h = harness({ status: 'running', artifact: null }, 'save');
+  let executed = false;
+  await runStage({ ...h.deps, execute: async () => { executed = true; return { satisfied: ['add_itinerary_items'] }; } });
+  assert(executed, 'a row left running belongs to the attempt that died, so the save must run again');
+  assert(h.written[1].status === 'completed', 'the re-run persists the completed save');
 });

@@ -170,6 +170,43 @@ export function nutritionPlanError(items: NutritionPlanningItem[], target: { min
   return undefined;
 }
 
+// Size food quantities to the energy target. The model is good at choosing
+// foods and poor at the arithmetic of how many of each, so a list it gets
+// wrong is rescaled here instead of sent back for another repair round. Only a
+// list whose every food carries a plausible per-unit estimate is touched; the
+// remaining nutritionPlanError messages need the model.
+export function fitFoodEnergy<T extends NutritionPlanningItem>(items: T[], target: { min: number; max: number }): T[] {
+  const foods = items.flatMap((item, index) => isPlanningFoodItem(item) ? [index] : []);
+  if (!foods.length || target.max <= 0) return items;
+  const kcal = (index: number) => items[index].estimatedEnergyKcalPerUnit || 0;
+  if (foods.some(index => {
+    const grams = (items[index].weightKg || 0) * 1000;
+    return kcal(index) <= 0 || kcal(index) > 3000 || (grams > 0 && (kcal(index) / grams < 0.25 || kcal(index) / grams > 9));
+  })) return items;
+
+  const quantities = items.map(item => item.quantity);
+  const total = () => foods.reduce((sum, index) => sum + kcal(index) * quantities[index], 0);
+  const before = total();
+  if (before >= target.min && before <= target.max) return items;
+  const factor = (target.min + target.max) / 2 / before;
+  for (const index of foods) quantities[index] = Math.min(99, Math.max(1, Math.round(quantities[index] * factor)));
+  // Rounding leaves the total near the middle; step the largest or smallest
+  // portion until it is inside the range, bounded so a list that cannot fit
+  // (every food already at one unit) stops instead of looping.
+  for (let guard = 0; guard < 200 && total() > target.max; guard += 1) {
+    const reducible = foods.filter(index => quantities[index] > 1).sort((left, right) => kcal(right) - kcal(left));
+    if (!reducible.length) break;
+    const next = reducible.find(index => total() - kcal(index) >= target.min) ?? reducible[0];
+    quantities[next] -= 1;
+  }
+  for (let guard = 0; guard < 200 && total() < target.min; guard += 1) {
+    const growable = foods.filter(index => quantities[index] < 99).sort((left, right) => kcal(left) - kcal(right));
+    if (!growable.length) break;
+    quantities[growable.find(index => total() + kcal(index) <= target.max) ?? growable[0]] += 1;
+  }
+  return items.map((item, index) => quantities[index] === item.quantity ? item : { ...item, quantity: quantities[index] });
+}
+
 const DIETARY_RULES: Array<{ restriction: RegExp; conflicts: RegExp }> = [
   { restriction: /(花生|peanut)/i, conflicts: /(花生|peanut)/i },
   { restriction: /(不吃|忌|避免|过敏).{0,5}(牛肉|beef)|no beef/i, conflicts: /(牛肉|beef)/i },

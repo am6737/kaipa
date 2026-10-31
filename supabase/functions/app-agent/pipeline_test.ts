@@ -1,5 +1,5 @@
 import { researchBriefSchema } from './plan-document.ts';
-import { bindCatalogFacts, findRecentBrief, hasDuplicatedRouteEvidence, STAGE_BUDGETS, useStagedPipeline, type PipelineDeps } from './pipeline.ts';
+import { bindCatalogFacts, findRecentBrief, hasDuplicatedRouteEvidence, partialPackingNote, STAGE_BUDGETS, useStagedPipeline, type PipelineDeps } from './pipeline.ts';
 import { constrainTaskDecision, taskDecisionSchema, type TaskDecision } from './task.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -171,4 +171,14 @@ Deno.test('research reuse rejects pre-v4 briefs and legacy duplicated evidence, 
   assert(!hasDuplicatedRouteEvidence({ ...current, routes: current.routes.map(route => ({ ...route, sourceUrls: [] })) }), 'empty source sets alone must not count as contamination');
   artifact = { ...current, guideFingerprint: 'a'.repeat(64), routes: current.routes.map(route => ({ ...route, sourceUrls: ['https://example.com/shared-guide-source'] })) };
   assert(await findRecentBrief(pipeline, ['党岭', '雅拉']) !== null, 'trusted guides can legitimately cite the same post across routes');
+});
+
+Deno.test('a partially saved checklist is reported in words the user can act on', () => {
+  const note = partialPackingNote({ status: 'committed', revision: 3, itemCount: 38, issues: [
+    { code: 'item', field: 'name/attributes', message: '单件携带重量必须写入 weightKg，不要写在品名或自定义字段中' },
+    { code: 'coverage:lighting', field: 'additions', message: '头灯或手电' },
+    { code: 'nutrition', field: 'quantity/estimatedEnergyKcalPerUnit', message: '当前路餐和补给明显过量（总热量 6300 kcal，目标 2500–4450 kcal），请减少具体食品数量后重新提交。' },
+  ] });
+  if (note !== '装备清单已保存 38 项；还缺头灯或手电，请自行补上；少数条目规格不完整，未写入清单；路餐份量请出发前按行程再核对。') throw new Error(note);
+  if (/weightKg|kcal|重新提交/.test(note)) throw new Error(`internal wording leaked: ${note}`);
 });

@@ -140,6 +140,10 @@ export interface GlobeProps {
   /** numbered pins for itinerary stops that carry a place */
   journeyStops?: GlobeJourneyStop[];
   onJourneyStopPress?: (id: string) => void;
+  /** The stop whose detail is open: the caller draws its drop pin, so its
+   *  number is left off. Kept apart from `journeyStops` so opening one does
+   *  not hand the map a new stop list and refit the camera. */
+  hiddenJourneyStopId?: string | null;
   /** per-day mileage capsules along the itinerary chain */
   journeyDayLabels?: GlobeJourneyDayLabel[];
   onJourneyDayLabelPress?: (day: string) => void;

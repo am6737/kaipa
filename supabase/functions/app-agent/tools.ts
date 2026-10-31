@@ -1,4 +1,5 @@
 import { ruralLocationProvince, geocodeKeywordLadder, matchesWaypointName } from './itinerary-geocoding.ts';
+import { incomingModes, isHubIncomingMode } from './incoming-mode.ts';
 import { presentItinerary } from './itinerary-presentation.ts';
 import { expandItineraryLocations } from './itinerary-locations.ts';
 // @ts-ignore Deno npm specifier
@@ -10,7 +11,7 @@ import { lookupRouteKnowledge, type RouteGuide } from '../_shared/route-guides.t
 import type { AgentContext } from './types.ts';
 import { assertCreationFacts, assertTaskPackingMode, assertTaskWrite } from './task.ts';
 import { packingItem, packingPlanProfile, type PackingItem, type PackingProfile } from './packing-schema.ts';
-import { draftFeedback, draftPatchSchema, newPackingDraft, patchPackingDraft, type PackingDraft, type DraftIssue } from './packing-draft.ts';
+import { draftFeedback, draftPatchSchema, draftSchema, newPackingDraft, patchPackingDraft, type PackingDraft, type DraftIssue } from './packing-draft.ts';
 import { readPackingDraft, savePackingDraft } from './packing-draft-store.ts';
 import { validateDeletionTargets } from './deletion.ts';
 import { queryGroundTransport } from './search/ground-transport.ts';
@@ -18,10 +19,11 @@ import { queryTransport } from './search/transport.ts';
 import { journeyDayOrdinal, resolveJourneyDay } from './journey-days.ts';
 import { itineraryMinutes } from './itinerary-time.ts';
 import { itineraryValidationError, validIsoDate, validateItineraryItems, validateItineraryConflicts } from './itinerary-validation.ts';
-import { packingItemDisplayName, packingItemIdentityKey, packingValidationError, validatePackingItems } from './packing-validation.ts';
+import { readTimetableSnapshot, saveTimetableSnapshot, sha256, stable, type RailArgs, type SnapshotStore } from './rail-timetable.ts';
+import { autoFixPackingItem, packingItemDisplayName, packingItemIdentityKey, packingValidationError, validatePackingItems } from './packing-validation.ts';
 import { missingPackingCoverage, packingCoverageError } from './packing-coverage.ts';
 import type { PackingPlanProfile } from './packing-coverage.ts';
-import { dietaryConflictError, estimatePersonalPackingNeeds, isPlanningFoodItem, normalizePlanningProfile, nutritionPlanError } from './personal-planning.ts';
+import { dietaryConflictError, estimatePersonalPackingNeeds, fitFoodEnergy, isPlanningFoodItem, normalizePlanningProfile, nutritionPlanError } from './personal-planning.ts';
 import { assertTrackDistanceConsistency, endpointAtDistance, normalizeTrackCoordinates, trackLengthMeters, type TrackCoordinate } from './route-endpoints.ts';
 import { overnightReviewSchema, resolveHikingEndpoint, validateHikingBoundary } from './hiking-boundaries.ts';
 import { haversine, isTrackFilename } from './track.ts';
@@ -122,20 +124,6 @@ function contextFor(runContext?: RunContext): AgentContext {
   return runContext.context;
 }
 
-function stable(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
-  if (value && typeof value === 'object') {
-    const object = value as Record<string, unknown>;
-    return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${stable(object[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-async function sha256(value: string) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
 async function readExternalCache(client: Client, cacheKey: string): Promise<any | null> {
   const result = await client.rpc('read_agent_external_cache', { p_cache_key: cacheKey });
   if (result.error) throw result.error;
@@ -149,6 +137,10 @@ async function writeExternalCache(client: Client, cacheKey: string, payload: unk
     p_cache_key: cacheKey, p_payload: payload, p_ttl_seconds: ttlSeconds,
   });
   if (result.error) throw result.error;
+}
+
+export function timetableStore(client: Client): SnapshotStore {
+  return { read: key => readExternalCache(client, key), write: (key, payload, ttl) => writeExternalCache(client, key, payload, ttl) };
 }
 
 function cacheClientFor(runId: string, fallback: Client): Client | null {
@@ -532,7 +524,7 @@ export const itineraryItem = z.object({
   kind: z.enum(['activity', 'stay', 'custom']).default('activity'),
   location: z.object({
     name: z.string().min(1).max(160),
-    incomingMode: z.enum(['rail', 'flight']).nullable().default(null).describe('到达该地点的大交通方式标记，用于识别交通到达项；普通地点间的地图路线统一使用驾车导航'),
+    incomingMode: z.enum(incomingModes).nullable().default(null).describe('到达该地点的交通方式标记：rail/flight 是抵达行程枢纽的大交通，road 是乡镇或景区之间的包车、拼车、班车、景区观光车、出租、网约车、自驾接驳；普通地点间或不确定时留空'),
     trackId: z.string().max(100).nullable().default(null),
     trackMeters: z.number().min(0).nullable().default(null),
     trackLengthMeters: z.number().positive().nullable().default(null),
@@ -544,7 +536,7 @@ export const itineraryItem = z.object({
 });
 
 
-async function loadPersonalPlanningNeeds(client: Client, context: AgentContext, journeyId: string, plan: PackingPlanProfile) {
+async function loadPersonalPlanningNeeds(client: Client, context: AgentContext, journeyId: string, plan: PackingPlanProfile, plannedDays: number | null = null) {
   const [profile, journey, itinerary] = await Promise.all([
     client.from('user_planning_profiles').select('height_cm,weight_kg,age_years,dietary_restrictions').eq('user_id', context.userId).maybeSingle(),
     client.from('journeys').select('id,days,total_days,dist,asc_,tracks ( duration_ms )').eq('id', journeyId).is('deleted_at', null).single(),
@@ -554,7 +546,11 @@ async function loadPersonalPlanningNeeds(client: Client, context: AgentContext, 
   if (journey.error) throw journey.error;
   if (itinerary.error) throw itinerary.error;
   // A recorded duration now lives on the journey's track, not on the journey.
-  const { tracks, ...journeyFacts } = journey.data;
+  const { tracks, ...storedJourneyFacts } = journey.data;
+  // A draft built before the save stage sizes its quantities for the planned
+  // total; the journey row still holds the length the trip had beforehand.
+  const journeyFacts = plannedDays == null ? storedJourneyFacts
+    : { ...storedJourneyFacts, days: plannedDays, total_days: plannedDays };
   return estimatePersonalPackingNeeds(normalizePlanningProfile(profile.data), { ...journeyFacts, track_duration_ms: tracks?.duration_ms ?? null }, itinerary.data || [], plan, context.task?.decision.activeHoursPerDay);
 }
 
@@ -714,8 +710,8 @@ const estimatePersonalPackingParams = z.object({
   journeyId: z.string().min(1).max(100),
   planProfile: packingPlanProfile.describe('本次旅程已知的住宿、补水、餐食与环境条件；未知项使用 unknown'),
 });
-export const runEstimatePersonalPacking = async (args: z.infer<typeof estimatePersonalPackingParams>, runContext?: RunContext) => mutate('estimate_personal_packing_needs', args, runContext, async (client, context) => (
-  loadPersonalPlanningNeeds(client, context, args.journeyId, args.planProfile)
+export const runEstimatePersonalPacking = async (args: z.infer<typeof estimatePersonalPackingParams> & { plannedDays?: number | null }, runContext?: RunContext) => mutate('estimate_personal_packing_needs', args, runContext, async (client, context) => (
+  loadPersonalPlanningNeeds(client, context, args.journeyId, args.planProfile, args.plannedDays ?? null)
 ));
 export const estimatePersonalPacking = tool({
   name: 'estimate_personal_packing_needs',
@@ -821,6 +817,14 @@ export const searchTransport = tool({
         && Date.parse(cached.cacheMeta.observedAt) > Date.now() - railCacheTtl(args.departureDate) * 1000);
       if (fresh && (cached?.available || cached?.status === 'empty')) return { ...cached, cached: true,
         cacheMeta: { ...(cached.cacheMeta || {}), layer: 'transport', cacheHit: true } };
+      const store = cacheClient ? timetableStore(cacheClient) : null;
+      // Only the planning stages read snapshots: their trains are a reference
+      // the plan says to re-check, while a model asking this tool directly is
+      // usually asking about tickets.
+      if (store && args.mode === 'rail' && (runContext as RunContext & { timetableReference?: boolean }).timetableReference) {
+        const reference = await readTimetableSnapshot(store, args as RailArgs).catch(() => null);
+        if (reference) return reference;
+      }
       const result = await queryTransport(args, name => Deno.env.get(name));
       if ((result.available || result.status === 'empty') && cacheClient) {
         const isRail = args.mode === 'rail';
@@ -829,6 +833,7 @@ export const searchTransport = tool({
           isRail
             ? railCacheTtl(args.departureDate)
             : cacheTtl('FLIGHT_CACHE_TTL_SECONDS', 300, 15, 3600));
+        if (isRail && store) await saveTimetableSnapshot(store, args as RailArgs, result).catch(() => {});
       }
       return result;
     }),
@@ -1126,10 +1131,11 @@ export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, 
     // namesake instead (南太行's 韩口 resolves to a Jiangsu harbour, 马武寨 to
     // Beijing). A sightseeing stop far from the journey's own coordinate is that
     // namesake, and no coordinate beats a day leg driven across the country.
-    // Transport rows (kind custom) start and end far away by design.
     const destination = journey.data.lng != null && journey.data.lat != null && Number.isFinite(Number(journey.data.lng)) && Number.isFinite(Number(journey.data.lat))
       ? { lon: Number(journey.data.lng), lat: Number(journey.data.lat) } : null;
-    const transportNames = new Set(uniqueItems.filter(item => item.kind === 'custom' || item.location?.incomingMode).map(item => item.location?.name));
+    // Transport rows (kind custom) and hub arrivals start and end far away by
+    // design. A road leg's place is a local stop, so it keeps the namesake guard.
+    const transportNames = new Set(uniqueItems.filter(item => item.kind === 'custom' || isHubIncomingMode(item.location?.incomingMode)).map(item => item.location?.name));
     for (const [name, resolved] of locations) {
       if (destination && resolved && !transportNames.has(name) && haversine(destination, { lon: resolved.lng, lat: resolved.lat }) > 300_000) locations.set(name, null);
     }
@@ -1259,7 +1265,7 @@ export function resolvePackingOwner(companions: Array<{ id: number; user_id?: st
 
 type PackingArgs = { journeyId: string; mode: 'full' | 'incremental'; planProfile?: PackingProfile | null; items: PackingItem[] };
 
-async function preparePacking(client: Client, context: AgentContext, args: PackingArgs, partial = false) {
+async function preparePacking(client: Client, context: AgentContext, args: PackingArgs, partial = false, plannedDays: number | null = null) {
   if (args.mode === 'full' && !args.planProfile) {
     throw new Error('mode=full 时必须提交 planProfile，未知条件请明确填写 unknown。');
   }
@@ -1279,7 +1285,7 @@ async function preparePacking(client: Client, context: AgentContext, args: Packi
   if (existing.error) throw existing.error;
   const prepared = args.items.map((item) => ({ ...item, displayName: packingItemDisplayName(item) }));
   const personalNeeds = !partial && args.mode === 'full' && args.planProfile
-    ? await loadPersonalPlanningNeeds(client, context, args.journeyId, args.planProfile)
+    ? await loadPersonalPlanningNeeds(client, context, args.journeyId, args.planProfile, plannedDays)
     : undefined;
   const existingHasFood = (existing.data || []).some((item: { name: string; category_name?: string; quantity: number }) => isPlanningFoodItem({
     name: item.name,
@@ -1303,7 +1309,7 @@ async function preparePacking(client: Client, context: AgentContext, args: Packi
       ...args.items,
     ], args.planProfile)
     : [];
-  return { kind, ownerCompanionId, list, createdList, existing, prepared, validationIssues, coverageGaps, nutritionError, dietaryError };
+  return { kind, ownerCompanionId, list, createdList, existing, prepared, validationIssues, coverageGaps, nutritionError, dietaryError, personalNeeds };
 }
 
 async function executePackingItems(args: PackingArgs, runContext: RunContext | undefined, partialRevision?: number) {
@@ -1352,13 +1358,27 @@ export const addPackingItems = tool({
 
 async function validateDraft(client: Client, context: AgentContext, draft: PackingDraft) {
   assertTaskWrite(context.task, 'add_packing_items', draft.journeyId);
-  const checked = await preparePacking(client, context, { journeyId: draft.journeyId, mode: 'full', planProfile: draft.planProfile, items: draft.items.map(item => item.value) });
+  const checked = await preparePacking(client, context, { journeyId: draft.journeyId, mode: 'full', planProfile: draft.planProfile, items: draft.items.map(item => item.value) }, false, draft.plannedDays);
   const foods = draft.items.filter(item => isPlanningFoodItem(item.value)).map(item => item.id);
   const issues: DraftIssue[] = checked.validationIssues.map(issue => ({ code: 'item', itemIds: [draft.items[issue.index].id], field: 'name/attributes', message: issue.message }));
   issues.push(...checked.coverageGaps.map(gap => ({ code: `coverage:${gap.key}`, itemIds: [] as string[], field: 'additions', message: gap.label })));
   if (checked.nutritionError) issues.push({ code: 'nutrition', itemIds: foods, field: 'quantity/estimatedEnergyKcalPerUnit', message: checked.nutritionError });
   if (checked.dietaryError) issues.push({ code: 'dietary', itemIds: foods, field: 'name', message: checked.dietaryError });
   return draftFeedback(draft, issues);
+}
+
+// Apply the fixes code can make before the model sees the issues: a weight or
+// capacity written into the name and food quantities that miss the energy
+// target are mechanical, and every repair round is another model call. The
+// revision is unchanged; this is part of the write that produced the draft.
+async function settleDraft(client: Client, context: AgentContext, draft: PackingDraft): Promise<PackingDraft> {
+  let items = draft.items.map(item => ({ ...item, value: autoFixPackingItem(item.value) }));
+  const checked = await preparePacking(client, context, { journeyId: draft.journeyId, mode: 'full', planProfile: draft.planProfile, items: items.map(item => item.value) }, false, draft.plannedDays);
+  if (checked.nutritionError && checked.personalNeeds) {
+    const fitted = fitFoodEnergy(items.map(item => item.value), checked.personalNeeds.recommendation.carriedFoodEnergyKcal);
+    items = items.map((item, index) => ({ ...item, value: fitted[index] }));
+  }
+  return draftSchema.parse({ ...draft, items });
 }
 
 const draftLocks = new Map<string, Promise<unknown>>();
@@ -1373,10 +1393,13 @@ async function draftTool<T>(name: string, args: unknown, runContext: RunContext 
 }
 
 export const preparePackingDraftParams = z.object({ journeyId: z.string(), planProfile: packingPlanProfile, items: z.array(packingItem).min(1).max(100) });
-export const runPreparePackingDraft = (args: z.infer<typeof preparePackingDraftParams>, runContext?: RunContext) => draftTool('prepare_packing_draft', args, runContext, async (client, context) => {
+// plannedDays is not a model parameter: only the pipeline's pre-save generation
+// supplies it, because the journey row it would read still holds the previous
+// trip length at that point.
+export const runPreparePackingDraft = (args: z.infer<typeof preparePackingDraftParams> & { plannedDays?: number | null }, runContext?: RunContext) => draftTool('prepare_packing_draft', args, runContext, async (client, context) => {
   assertTaskWrite(context.task, 'add_packing_items', args.journeyId);
   const saved = await readPackingDraft(client, context.runId);
-  const draft = saved?.state || newPackingDraft(args.journeyId, args.planProfile, args.items);
+  const draft = saved?.state || await settleDraft(client, context, newPackingDraft(args.journeyId, args.planProfile, args.items, args.plannedDays ?? null));
   if (!saved) await savePackingDraft(context.runId, context.userId, draft);
   return validateDraft(client, context, draft);
 });
@@ -1403,7 +1426,7 @@ export const runRepairPackingDraft = (args: z.infer<typeof draftPatchSchema>, ru
   assertTaskWrite(context.task, 'add_packing_items', saved.state.journeyId);
   const edit = await sha256(stable(args));
   if (saved.last_edit === edit) return validateDraft(client, context, saved.state);
-  const draft = patchPackingDraft(saved.state, args);
+  const draft = await settleDraft(client, context, patchPackingDraft(saved.state, args));
   await savePackingDraft(context.runId, context.userId, draft, saved.state.revision, edit);
   return validateDraft(client, context, draft);
 });

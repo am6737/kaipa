@@ -17,7 +17,7 @@ const slots = (message: string) => {
 };
 
 Deno.test('gear fast path extracts every named item with its stated slots', () => {
-  const cases: Array<[string, unknown[]]> = [
+  const cases: Array<[string, ReturnType<typeof slots>]> = [
     ['添加装备：黑钻头灯、2L水袋、萨洛蒙登山鞋', [['黑钻头灯', 1, 0, 0], ['2L水袋', 1, 0, 0], ['萨洛蒙登山鞋', 1, 0, 0]]],
     ['帮我加一下始祖鸟冲锋衣、火枫炉头、防晒袖套', [['始祖鸟冲锋衣', 1, 0, 0], ['火枫炉头', 1, 0, 0], ['防晒袖套', 1, 0, 0]]],
     ['添加装备：MSR Hubba 帐篷 1.3kg 2800元，羽绒睡袋，登山杖两根', [['MSR Hubba 帐篷', 1, 1.3, 2800], ['羽绒睡袋', 1, 0, 0], ['登山杖', 2, 0, 0]]],

@@ -660,6 +660,9 @@ function DiscoverScreenView({
   // The card's 在地图上查看 hands the spot back to the map, and reopens it as the
   // sheet once the card has finished dismissing — iOS won't present over it.
   const waypointReopenRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The itinerary stop (by row id) whose detail sheet is open over the journey
+  // map — the same sheet and drop pin a route waypoint gets.
+  const [openJourneyStopId, setOpenJourneyStopId] = useState<string | null>(null);
   // Whether the finish (or a loop's trailhead) shows its 「从这里出发」 bubble.
   const [routeEndpointActionOpen, setRouteEndpointActionOpen] = useState(false);
   const [waypointClusterZoom, setWaypointClusterZoom] = useState<number | null>(null);
@@ -679,6 +682,7 @@ function DiscoverScreenView({
   }, [nav.pointInfo?.id]);
   useEffect(() => {
     setOpenRouteWaypoint(null);
+    setOpenJourneyStopId(null);
     setRouteEndpointActionOpen(false);
     setRouteElevationOpen(false);
     setWaypointClusterZoom(null);
@@ -2028,6 +2032,77 @@ function DiscoverScreenView({
         }))
       : []
   ), [itineraryColor, itineraryStops, journeyStopsVisible, selectedJourneyDay]);
+  // A stop pressed on the map reads like a route waypoint: the sheet pages
+  // through that day's places in order, and the open one wears the drop pin.
+  const openJourneyStop = openJourneyStopId != null
+    ? itineraryStops.find((stop) => stop.rowId === openJourneyStopId)
+    : undefined;
+  const openJourneyStopDay = openJourneyStop?.day;
+  const journeyStopPages = useMemo(() => (
+    openJourneyStop
+      ? itineraryStops.filter((stop) => stop.day === openJourneyStopDay)
+      : []
+  ), [itineraryStops, openJourneyStop, openJourneyStopDay]);
+  const journeyStopItems = useMemo<MarkDetailItem[]>(() => {
+    if (!journeyStopPages.length) return [];
+    const rowsById = new Map(focusedTimeline.rows.map((row) => [row.id, row]));
+    // An undated stop has no day to name, so its card leaves the line off.
+    const source = openJourneyStopDay
+      ? { name: journeyDayDisplayLabel(openJourneyStopDay, resolved), color: itineraryColor(openJourneyStopDay) }
+      : undefined;
+    return journeyStopPages.map((stop) => {
+      const media = rowsById.get(stop.rowId)?.media?.find((item) => item.thumb || (!item.video && item.uri));
+      return {
+        key: stop.rowId,
+        name: stop.name,
+        photo: media ? media.thumb ?? media.uri : undefined,
+        lng: stop.coordinate[0],
+        lat: stop.coordinate[1],
+        number: stop.order,
+        source,
+      };
+    });
+  }, [focusedTimeline.rows, itineraryColor, journeyStopPages, openJourneyStopDay, resolved]);
+  const openJourneyStopPage = openJourneyStop ? journeyStopPages.indexOf(openJourneyStop) : -1;
+  // The list can change under an open sheet (an edit, a hidden layer); the
+  // stop it shows is then gone.
+  useEffect(() => {
+    if (openJourneyStopId != null && (!openJourneyStop || !journeyStopsVisible)) setOpenJourneyStopId(null);
+  }, [journeyStopsVisible, openJourneyStop, openJourneyStopId]);
+  const {
+    photoReady: journeyPinPhotoReady,
+    photoRevision: journeyPinPhotoRevision,
+    onPhotoLoad: journeyPinPhotoLoad,
+  } = useDropPinPhoto(journeyStopItems[openJourneyStopPage]?.photo);
+  const journeyStopPin = useMemo<NativeMapMarker[]>(() => {
+    const item = journeyStopItems[openJourneyStopPage];
+    if (!openJourneyStop || !item) return NO_ROUTE_WAYPOINT_MARKERS;
+    return [waypointDropPinMarker({
+      theme,
+      pinKey: `journey-${openJourneyStop.rowId}`,
+      coordinate: openJourneyStop.coordinate,
+      number: openJourneyStop.order,
+      photo: item.photo,
+      photoReady: journeyPinPhotoReady,
+      photoRevision: journeyPinPhotoRevision,
+      onPhotoLoad: journeyPinPhotoLoad,
+      title: item.name,
+      onPress: () => { mapMarkerPressAtRef.current = Date.now(); },
+    })];
+  }, [journeyPinPhotoLoad, journeyPinPhotoReady, journeyPinPhotoRevision, journeyStopItems, openJourneyStop, openJourneyStopPage, theme]);
+  // Swiping the sheet moves the pin and the map with it, as on a route.
+  const swipeJourneyStopTo = useCallback((page: number) => {
+    const stop = journeyStopPages[page];
+    if (!stop || stop.rowId === openJourneyStopId) return;
+    setOpenJourneyStopId(stop.rowId);
+    setMapCameraAction((current) => ({
+      type: 'locate',
+      revision: (current?.revision ?? 0) + 1,
+      coordinate: stop.coordinate,
+      zoom: mapCameraRef.current?.zoom,
+      inFrame: true,
+    }));
+  }, [journeyStopPages, openJourneyStopId]);
   const journeyLegs = useMemo<GlobeJourneyLeg[]>(() => (
     journeyTrackVisible
       ? itineraryLegs.filter((leg) => !leg.pendingTrack || Boolean(legGeometry[leg.id])).map((leg) => {
@@ -2056,7 +2131,14 @@ function DiscoverScreenView({
         .map((measured) => ({
           day: measured.day,
           title: journeyDayDisplayLabel(measured.day, resolved),
-          distance: measured.pendingTrack ? t('journey.map.trackAccessPending') : `${measured.meters < 10_000 ? (measured.meters / 1000).toFixed(1) : Math.round(measured.meters / 1000)}km${measured.userDrawn ? ` · ${t('journey.map.drawnDistance')}` : ''}`,
+          distance: measured.pendingTrack ? t('journey.map.trackAccessPending') : [
+            `${measured.meters < 10_000 ? (measured.meters / 1000).toFixed(1) : Math.round(measured.meters / 1000)}km`,
+            measured.userDrawn ? t('journey.map.drawnDistance') : null,
+            // A straight link is not a distance anyone can walk or drive; say so
+            // rather than let it read like the road length.
+            measured.straightLine === 'all' ? t('journey.map.straightDistance') : null,
+            measured.straightLine === 'part' ? t('journey.map.partlyStraightDistance') : null,
+          ].filter(Boolean).join(' '),
           coordinate: measured.coordinate,
           color: itineraryColor(measured.day),
         }))
@@ -2457,9 +2539,9 @@ function DiscoverScreenView({
     });
   }, [focusCoords, nav.pointInfo?.kind, routeEndpointActionOpen, routeReversed, t, theme]);
   const mapExtraMarkers = useMemo(() => {
-    const route = [...routeEndpointMarkers, ...routeWaypointMarkers, ...routeWaypointPin];
+    const route = [...routeEndpointMarkers, ...routeWaypointMarkers, ...routeWaypointPin, ...journeyStopPin];
     return route.length ? [...companionPins, ...route] : companionPins;
-  }, [companionPins, routeEndpointMarkers, routeWaypointMarkers, routeWaypointPin]);
+  }, [companionPins, journeyStopPin, routeEndpointMarkers, routeWaypointMarkers, routeWaypointPin]);
   const toggleLocationShare = useCallback(async () => {
     if (!openJourneyId) return;
     if (locationShareToggleInFlightRef.current) return;
@@ -2748,7 +2830,12 @@ function DiscoverScreenView({
     onJourneyDayLabelPress: (day) => selectJourneyDayFromMap(selectedJourneyDay === day ? undefined : day),
     onJourneyStopPress: (rowId) => {
       const stop = itineraryStops.find((item) => item.rowId === rowId);
-      if (stop) selectJourneyDayFromMap(stop.day ?? '');
+      if (!stop) return;
+      // The overview's plain dots still open their day first; the sheet then
+      // reads the place, numbered as that day's pins are.
+      if (selectedJourneyDay !== (stop.day ?? '')) selectJourneyDayFromMap(stop.day ?? '');
+      else mapMarkerPressAtRef.current = Date.now();
+      setOpenJourneyStopId(rowId);
     },
     onUserLocationChange: ([lng, lat], accuracy) => {
       setCurrentLocation((current) => {
@@ -2918,6 +3005,7 @@ function DiscoverScreenView({
           extraMarkers={mapExtraMarkers}
           onJourneyDayLabelPress={globeHandlers.onJourneyDayLabelPress}
           onJourneyStopPress={globeHandlers.onJourneyStopPress}
+          hiddenJourneyStopId={openJourneyStop ? openJourneyStopId : null}
           center={mapCenter}
           pin={active ? currentLocation : null}
           followUserLocation={active && !nav.pointInfo && mapAtCurrentLocation}
@@ -3944,6 +4032,13 @@ function DiscoverScreenView({
         // Only the card needs a way back to the map; the sheet is already over it.
         onShowOnMap={routeWaypointPresentation === 'card' ? showWaypointOnMap : undefined}
         onClose={() => setOpenRouteWaypoint(null)}
+      />
+      <MarkDetail
+        theme={theme}
+        items={journeyStopItems}
+        index={openJourneyStopPage >= 0 ? openJourneyStopPage : null}
+        onPageChange={swipeJourneyStopTo}
+        onClose={() => setOpenJourneyStopId(null)}
       />
       <JourneyGroupMoveSheet
         theme={theme}

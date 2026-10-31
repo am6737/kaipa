@@ -41,6 +41,7 @@ function endpoint(day: string, overrides: Partial<Endpoint> = {}): Endpoint {
   return {
     day,
     routeId: "trk008",
+    officialStop: null,
     waypointIndex: null,
     trackFinish: null,
     endDistanceKm: null,
@@ -639,6 +640,7 @@ Deno.test("provider-only rows: past departure checked, city sleep anchored, no m
     unresolved: [],
     suggestedDays: null,
     durationBasis: "",
+    official: null,
   };
   const p = plan([{
     ...provider,
@@ -704,5 +706,20 @@ Deno.test("daily_load: overnight intervals require explicit overnight wording", 
   assert(
     evaluate(p).days[0].transferHours === null,
     "invalid reversed range silently skipped",
+  );
+});
+
+Deno.test("daily_load: a road leg is measured while a hub arrival marker counts zero", () => {
+  const withMode = (mode: "road" | "rail") => plan([
+    item("Day 2", { timeStart: "08:00", timeEnd: "16:00" }),
+    transfer("Day 2", { location: { ...place("雅拉起点"), incomingMode: mode } }),
+  ]);
+  assert(
+    evaluate(withMode("road"), { transportPlan: transport(180) }).days[0].transferHours === 3,
+    "the drive still owes its time",
+  );
+  assert(
+    evaluate(withMode("rail"), { transportPlan: transport(180) }).days[0].transferHours === 0,
+    "an arrival point is a marker, not a second journey",
   );
 });

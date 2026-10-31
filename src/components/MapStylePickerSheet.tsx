@@ -27,10 +27,20 @@ export interface MapTrackOption {
   onChange: (visible: boolean) => void;
 }
 
+/** A row that leads to another panel instead of switching something. */
+export interface MapLinkOption {
+  id: string;
+  label: string;
+  hint?: string;
+  /** Draws a leading plus and tints the label: an "add / open" entry. */
+  accent?: boolean;
+  onPress: () => void;
+}
+
 export interface MapDisplaySection {
   id: string;
   title: string;
-  options: MapDisplayOption[];
+  options: (MapDisplayOption | MapTrackOption | MapLinkOption)[];
 }
 
 /** The share of the window the panel may take before its body starts scrolling. */
@@ -122,42 +132,7 @@ export function MapStylePickerSheet({
         <View style={{ marginTop: space.xl }}>
           <GroupLabel theme={theme} title={tracks.title} />
           {tracks.options.map((route) => (
-            <View
-              key={route.id}
-              style={{
-                minHeight: 52,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: space.sm,
-              }}
-            >
-              <View
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: 5,
-                  backgroundColor: route.color,
-                }}
-              />
-              <View style={{ flex: 1, minWidth: 0, paddingVertical: space.xs }}>
-                <Text numberOfLines={1} style={[type.cardTitle, { lineHeight: 20, color: theme.text }]}>{route.label}</Text>
-                {route.distance ? <Text style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>{route.distance}</Text> : null}
-              </View>
-              <SwitchBox>
-                <Switch
-                  accessibilityLabel={route.label}
-                  value={route.visible}
-                  onValueChange={route.onChange}
-                  trackColor={{
-                    false: theme.progressTrack,
-                    true: theme.accent,
-                  }}
-                  thumbColor="#FFFFFF"
-                  ios_backgroundColor={theme.progressTrack}
-                  style={{ alignSelf: 'center' }}
-                />
-              </SwitchBox>
-            </View>
+            <TrackSwitchRow key={route.id} theme={theme} route={route} />
           ))}
         </View>
       ) : null}
@@ -165,7 +140,29 @@ export function MapStylePickerSheet({
       {sections.filter((section) => section.options.length > 0).map((section) => (
         <View key={section.id} style={{ marginTop: space.xl }}>
           <GroupLabel theme={theme} title={section.title} />
-          {section.options.map((detail) => (
+          {section.options.map((detail) => ('onPress' in detail ? (
+            <Press
+              key={detail.id}
+              onPress={detail.onPress}
+              accessibilityRole="button"
+              accessibilityLabel={detail.hint ? `${detail.label} ${detail.hint}` : detail.label}
+              style={{
+                minHeight: 52,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: space.sm,
+              }}
+            >
+              {detail.accent ? <Icon name="plus" color={theme.accent} size={20} strokeWidth={2.4} /> : null}
+              <View style={{ flex: 1, minWidth: 0, paddingVertical: space.xs }}>
+                <Text numberOfLines={1} style={[type.cardTitle, { lineHeight: 20, color: detail.accent ? theme.accent : theme.text }]}>{detail.label}</Text>
+                {detail.hint ? <Text numberOfLines={1} style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>{detail.hint}</Text> : null}
+              </View>
+              <Icon name="chevronR" color={theme.text3} size={20} />
+            </Press>
+          ) : 'visible' in detail ? (
+            <TrackSwitchRow key={detail.id} theme={theme} route={detail} />
+          ) : (
             <View
               key={detail.id}
               style={{
@@ -193,7 +190,7 @@ export function MapStylePickerSheet({
                 />
               </SwitchBox>
             </View>
-          ))}
+          )))}
         </View>
       ))}
     </>
@@ -228,6 +225,46 @@ export function MapStylePickerSheet({
 
 function GroupLabel({ theme, title }: { theme: Theme; title: string }) {
   return <Text style={[type.labelStrong, { color: theme.text2, marginBottom: space.xxs }]}>{title}</Text>;
+}
+
+function TrackSwitchRow({ theme, route }: { theme: Theme; route: MapTrackOption }) {
+  return (
+    <View
+      style={{
+        minHeight: 52,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: space.sm,
+      }}
+    >
+      <View
+        style={{
+          width: 10,
+          height: 10,
+          borderRadius: 5,
+          backgroundColor: route.color,
+        }}
+      />
+      <View style={{ flex: 1, minWidth: 0, paddingVertical: space.xs }}>
+        <Text numberOfLines={1} style={[type.cardTitle, { lineHeight: 20, color: theme.text }]}>{route.label}</Text>
+        {route.distance ? <Text style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>{route.distance}</Text> : null}
+      </View>
+      <SwitchBox>
+        <Switch
+          accessibilityLabel={route.label}
+          value={route.visible}
+          onValueChange={route.onChange}
+          trackColor={{
+            false: theme.progressTrack,
+            true: theme.accent,
+          }}
+          thumbColor="#FFFFFF"
+          ios_backgroundColor={theme.progressTrack}
+          style={{ alignSelf: 'center' }}
+        />
+      </SwitchBox>
+    </View>
+  );
 }
 
 function SwitchBox({ children }: { children: React.ReactNode }) {

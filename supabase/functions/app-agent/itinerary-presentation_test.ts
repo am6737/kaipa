@@ -134,3 +134,16 @@ Deno.test('overlong notes drop whole trailing sections without throwing', () => 
   assert(!result.groupNotes[0].note.includes('住宿：'));
   assert(result.groupNotes[0].note.includes('车'.repeat(400)));
 });
+
+Deno.test('a road leg keeps its words and its day instead of reading as a hub arrival', () => {
+  const ride = itineraryItem.parse({ day: 'Day 13', kind: 'custom', title: '拼车从韩口到新乡（约 1 小时）', location: { name: '新乡东', incomingMode: 'road' } });
+  assert(removeOutOfRangeArrivals([ride], 12).length === 1);
+  const shown = presentItinerary([ride], [], 13).items;
+  assert(shown.length === 1 && shown[0].title === '拼车从韩口到新乡（约 1 小时）' && shown[0].location?.incomingMode === 'road');
+  const arrowed = presentItinerary([itineraryItem.parse({ day: 'Day 2', kind: 'custom', title: '班车 新乡 → 马武寨', location: { name: '马武寨', incomingMode: 'road' } })], [], 3).items;
+  assert(arrowed[0].title === '班车 新乡 → 马武寨');
+  const arrival = itineraryItem.parse({ day: 'Day 13', kind: 'custom', title: '抵达新乡东 · G123', location: { name: '新乡东', incomingMode: 'rail' } });
+  assert(removeOutOfRangeArrivals([arrival], 12).length === 0);
+  assert(presentItinerary([arrival], [], 12).items.length === 0);
+  assert(presentItinerary([arrival], [], 13).items[0]?.title === '新乡东 G123');
+});

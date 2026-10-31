@@ -26,7 +26,7 @@ function routeEntry(patch: Partial<ResearchBrief['routes'][number]> = {}): Resea
 
 function evidenceOf(patch: Partial<RouteEvidence>): RouteEvidence {
   return {
-    name: '贡嘎', catalog: null, carried: null, guide: guideEvidence('贡嘎', null), facts: [], collected: [], error: null, ...patch,
+    name: '贡嘎', catalog: null, carried: null, guide: guideEvidence('贡嘎', null, () => null), facts: [], collected: [], error: null, ...patch,
   };
 }
 

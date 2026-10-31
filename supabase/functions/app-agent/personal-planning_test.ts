@@ -1,4 +1,4 @@
-import { dietaryConflictError, estimatePersonalPackingNeeds, isPlanningFoodItem, normalizePlanningProfile, nutritionPlanError } from './personal-planning.ts';
+import { dietaryConflictError, estimatePersonalPackingNeeds, fitFoodEnergy, isPlanningFoodItem, normalizePlanningProfile, nutritionPlanError } from './personal-planning.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -87,4 +87,27 @@ Deno.test('food classification recognizes meal words without treating face gear 
     { name: '饭盒', quantity: 1, weightKg: 0.1 },
   ], { min: 1000, max: 1500 });
   assert(!error, `gear must not require calories: ${error}`);
+});
+
+Deno.test('food quantities over the energy target are scaled into it instead of sent back', () => {
+  const target = { min: 2500, max: 4450 };
+  const items = [
+    { name: '能量棒', quantity: 20, weightKg: 0.05, estimatedEnergyKcalPerUnit: 220 },
+    { name: '自热米饭', quantity: 6, weightKg: 0.35, estimatedEnergyKcalPerUnit: 600 },
+    { name: '头灯', quantity: 1, weightKg: 0.08 },
+  ];
+  const fitted = fitFoodEnergy(items, target);
+  assert(nutritionPlanError(items, target)?.includes('过量'), 'the fixture starts over the target');
+  assert(nutritionPlanError(fitted, target) === undefined, `fitted list still fails: ${nutritionPlanError(fitted, target)}`);
+  const total = fitted.reduce((sum, item) => sum + (item.estimatedEnergyKcalPerUnit || 0) * item.quantity, 0);
+  assert(total >= target.min && total <= target.max, `total ${total} outside the target`);
+  assert(fitted[2] === items[2], 'non-food rows are untouched');
+});
+
+Deno.test('food quantities under the target grow, and a list without estimates is left to the model', () => {
+  const target = { min: 2500, max: 4450 };
+  const short = fitFoodEnergy([{ name: '能量棒', quantity: 2, weightKg: 0.05, estimatedEnergyKcalPerUnit: 220 }, { name: '牛肉干', quantity: 1, weightKg: 0.1, estimatedEnergyKcalPerUnit: 450 }], target);
+  assert(nutritionPlanError(short, target) === undefined, `short list still fails: ${nutritionPlanError(short, target)}`);
+  const unknown = [{ name: '能量棒', quantity: 30, weightKg: 0.05 }];
+  assert(fitFoodEnergy(unknown, target) === unknown, 'a food without a kcal estimate is not guessed at');
 });

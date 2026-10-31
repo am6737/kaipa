@@ -549,7 +549,19 @@ function NJDestinationField({
                   : 'journeyEdit.form.wherePlaceholder',
               )}
               placeholderTextColor={theme.text3}
-              style={[type.body, { flex: 1, padding: 0, color: theme.text }]}
+              style={[
+                type.body,
+                {
+                  flex: 1,
+                  alignSelf: 'stretch',
+                  minHeight: 52,
+                  padding: 0,
+                  lineHeight: 20,
+                  includeFontPadding: false,
+                  textAlignVertical: 'center',
+                  color: theme.text,
+                },
+              ]}
             />
             {locationSearching ? (
               <ActivityIndicator size="small" color={theme.text2} />
@@ -1058,9 +1070,10 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
         return;
       }
     } else if (route.trackCoords && route.trackCoords.length > 1 && userId) {
-      // Explore routes carry decimated geometry in the route catalog. Promote
-      // it to the user's track library so the new journey and AI share the
-      // same track contract as an uploaded GPX/KML file.
+      // Explore routes carry decimated geometry in the route catalog. The
+      // journey gets its own copy so it and the AI share the same track
+      // contract as an uploaded GPX/KML file, but the copy stays out of
+      // 「我的轨迹」: only the journey page's save action puts it there.
       const distanceKm = Number.parseFloat(route.dist.replace(/[^0-9.]/g, ''));
       const ascentM = Number.parseFloat(route.asc.replace(/[^0-9.]/g, ''));
       const track = await createTrack({
@@ -1074,6 +1087,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
         distM: Number.isFinite(distanceKm) ? Math.round(distanceKm * 1000) : undefined,
         ascM: Number.isFinite(ascentM) ? Math.round(ascentM) : undefined,
         pointCount: route.trackCoords.length,
+        inLibrary: false,
       });
       if (!track) {
         onToast(t('journeyEdit.form.trackUploadFailed'));
@@ -1082,7 +1096,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
       }
       poi.trackId = track.id;
     }
-    // Catalog routes are promoted to the track library above, but they do not
+    // Catalog routes get a journey-only track copy above, but they do not
     // populate `trackSource` (that field is only used for local uploads).
     // Keep the planning prompt aligned with the journey we are about to save.
     const hasRouteTrack = Boolean(route.trackCoords && route.trackCoords.length > 1);

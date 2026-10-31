@@ -1,5 +1,5 @@
 import { newPackingDraft } from './packing-draft.ts';
-import { railCacheTtl, runCommitPackingDraftBestEffort, runAddItinerary, trackPointAt, bindRunClient, releaseRunClient, createJourney, addPackingItems, resolvePackingOwner, searchRoutes, searchTransport, addGear, kaipaAllTools, kaipaGlobalTools, kaipaJourneyTools } from './tools.ts';
+import { railCacheTtl, runCommitPackingDraftBestEffort, runAddItinerary, trackPointAt, bindRunClient, releaseRunClient, createJourney, addPackingItems, resolvePackingOwner, searchRoutes, searchTransport, addGear, itineraryItem, kaipaAllTools, kaipaGlobalTools, kaipaJourneyTools } from './tools.ts';
 import type { AgentContext } from './types.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -271,6 +271,40 @@ Deno.test('a full packing task commits only valid rows of its own draft and stil
   } finally { h.dispose(); }
 });
 
+Deno.test('planning stages read a stored timetable without asking 12306; direct tool calls do not', async () => {
+  const saved = Deno.env.get('RAIL_QUERY_URL');
+  const originalFetch = globalThis.fetch;
+  const departureDate = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10);
+  const observedDate = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+  try {
+    Deno.env.set('RAIL_QUERY_URL', 'http://rail-query:8787');
+    for (const planning of [true, false]) {
+      const h = planningHarness('Query rail');
+      let requests = 0;
+      globalThis.fetch = async () => {
+        requests++;
+        return Response.json({ provider: '12306-mcp', available: true, status: 'empty', offers: [], retrievedAt: new Date().toISOString(), limitation: 'Snapshot' });
+      };
+      bindRunClient(h.context.runId, h.client, { rpc: async (name: string, args: Record<string, any>) => {
+        if (name === 'write_agent_external_cache') return { data: null, error: null };
+        return { data: String(args.p_cache_key).startsWith('rail-timetable:') ? { observedAt: new Date(Date.now() - 86400000).toISOString(), observedDate,
+          result: { available: true, status: 'results', offers: [{ trainNumber: 'G1', from: '杭州东', to: '成都东', departure: `${observedDate}T08:00:00+08:00`,
+            arrival: `${observedDate}T20:00:00+08:00`, seats: [{ name: '二等座', availability: '有', pricePerAdult: 800 }] }] } } : null, error: null };
+      } });
+      try {
+        const raw = await searchTransport.invoke({ context: h.context, timetableReference: planning } as never,
+          JSON.stringify({ mode: 'rail', origin: '杭州东', destination: '成都东', departureDate, adults: 1 }));
+        const result = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        assert(requests === (planning ? 0 : 1), `planning=${planning} made ${requests} provider requests`);
+        if (planning) assert(result.offers[0].departure.startsWith(departureDate) && result.offers[0].seats[0].availability === '参考', JSON.stringify(result.offers[0]));
+      } finally { h.dispose(); }
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    saved === undefined ? Deno.env.delete('RAIL_QUERY_URL') : Deno.env.set('RAIL_QUERY_URL', saved);
+  }
+});
+
 Deno.test('rail cache reads reject older long-lived snapshots and write the shorter TTL', async () => {
   const names = ['RAIL_QUERY_URL', 'RAIL_CACHE_TTL_SECONDS'];
   const saved = names.map(name => Deno.env.get(name));
@@ -282,13 +316,16 @@ Deno.test('rail cache reads reject older long-lived snapshots and write the shor
     for (const age of [60000, 16 * 60000, null]) {
       const h = planningHarness('Query rail');
       let requests = 0;
-      const writes: number[] = [];
+      const writes: number[] = [], snapshots: number[] = [];
       globalThis.fetch = async () => {
         requests++;
         return Response.json({ provider: '12306-mcp', available: true, status: 'empty', offers: [], retrievedAt: new Date().toISOString(), limitation: 'Snapshot' });
       };
       bindRunClient(h.context.runId, h.client, { rpc: async (name: string, args: Record<string, any>) => {
-        if (name === 'write_agent_external_cache') { writes.push(args.p_ttl_seconds); return { data: null, error: null }; }
+        if (name === 'write_agent_external_cache') {
+          (String(args.p_cache_key).startsWith('rail-timetable:') ? snapshots : writes).push(args.p_ttl_seconds);
+          return { data: null, error: null };
+        }
         return { data: { available: true, status: 'results', offers: [{ trainNumber: 'STALE' }],
           cacheMeta: age == null ? {} : { observedAt: new Date(Date.now() - age).toISOString() } }, error: null };
       } });
@@ -296,6 +333,7 @@ Deno.test('rail cache reads reject older long-lived snapshots and write the shor
         await searchTransport.invoke({ context: h.context } as never, JSON.stringify({ mode: 'rail', origin: '杭州东', destination: '成都东', departureDate, adults: 1 }));
         assert(requests === (age === 60000 ? 0 : 1), 'only a fresh rail snapshot can avoid the provider');
         if (age !== 60000) assert(writes.length === 1 && writes[0] === 900, 'refreshed rail snapshots must use the capped TTL');
+        if (age !== 60000) assert(snapshots.length === 2, 'a live answer also keeps a weekday and an any-day timetable snapshot');
       } finally { h.dispose(); }
     }
   } finally {
@@ -505,6 +543,15 @@ Deno.test('identical add_gear calls sent in one batch insert the item once, with
     assert(inserted.length === 1, `inserted ${inserted.length} rows`);
     assert(inserted[0].price === 100, `price ${inserted[0].price}`);
   } finally { releaseRunClient(context.runId); }
+});
+
+Deno.test('the itinerary schema accepts a road arrival and refuses an unknown mode', () => {
+  const parsed = itineraryItem.parse({ day: 'Day 2', kind: 'custom', title: '拼车从新乡到马武寨', location: { name: '马武寨', incomingMode: 'road' } });
+  assert(parsed.location?.incomingMode === 'road', 'a road leg parses');
+  assert(itineraryItem.parse({ day: 'Day 2', title: '马武寨', location: { name: '马武寨' } }).location?.incomingMode === null, 'a plain stop claims no arrival mode');
+  let refused = false;
+  try { itineraryItem.parse({ day: 'Day 2', title: '马武寨', location: { name: '马武寨', incomingMode: 'boat' } }); } catch { refused = true; }
+  assert(refused, 'an unknown arrival mode is refused');
 });
 
 Deno.test('trackPointAt reads a place off the stored line', () => {

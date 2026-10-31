@@ -1,6 +1,7 @@
 import type { z } from 'npm:zod@4.1.12';
 import type { itineraryItem } from './tools.ts';
 import { omitGenericLodging } from './itinerary-locations.ts';
+import { isHubIncomingMode } from './incoming-mode.ts';
 import { journeyDayOrdinal } from './journey-days.ts';
 
 type Item = z.infer<typeof itineraryItem>;
@@ -40,9 +41,12 @@ export function presentItinerary(items: Item[], groupNotes: GroupNote[] = [], to
     const original = item.title;
     const service = serviceCode(original);
     const isMarker = item.location && (original === item.location.name || /^(?:从|抵达|到达|前往|入住)/.test(original));
-    const descriptive = original.length > 40 || /[；;]| · /.test(original);
+    // A road leg keeps its own title: renamed to its destination it would read
+    // as a stop and drop the only row saying how the day gets there.
+    const roadLeg = item.location?.incomingMode === 'road' && original !== item.location.name;
+    const descriptive = !roadLeg && (original.length > 40 || /[；;]| · /.test(original));
     let title = original;
-    if (item.location && (isMarker || descriptive || original.includes('→'))) {
+    if (item.location && (isMarker || descriptive || (original.includes('→') && !roadLeg))) {
       title = `${placeKey(item.location.name)}${service ? ` ${service}` : ''}`.slice(0, 120);
     } else if (descriptive) {
       title = item.kind === 'activity' && item.routeId
@@ -127,6 +131,6 @@ export function presentItinerary(items: Item[], groupNotes: GroupNote[] = [], to
 }
 
 export function removeOutOfRangeArrivals(items: Item[], totalDays?: number | null): Item[] {
-  return items.filter(item => !(totalDays != null && item.location?.incomingMode
+  return items.filter(item => !(totalDays != null && isHubIncomingMode(item.location?.incomingMode)
     && /^(?:抵达|到达)/.test(item.title) && (journeyDayOrdinal(item.day) ?? 0) > totalDays));
 }

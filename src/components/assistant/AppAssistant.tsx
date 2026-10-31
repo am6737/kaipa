@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { File as FSFile } from 'expo-file-system';
 import * as Clipboard from 'expo-clipboard';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, AppState, Easing, Keyboard, Linking, Modal, Platform, Pressable as Press, ScrollView, StyleSheet, Text, TextInput, View, type GestureResponderEvent } from 'react-native';
 import { Image } from 'expo-image';
 import { ArrowUp, ArrowUpRight, BriefcaseBusiness, CalendarDays, CarFront, Check, CheckCircle2, ChevronDown, ChevronRight, CircleQuestionMark, Clock3, Copy, CornerDownLeft, FileText, Globe2, Link2, MapPin, Menu, Mic, Mountain, Plus, RotateCcw, Square, SquarePen, TentTree, Trash2, X } from 'lucide-react-native';
@@ -28,7 +28,7 @@ import { DepartureCard, departureFailureKey } from './DepartureCard';
 import { retryAgentRun } from '../../lib/appAgent';
 import { AssistantAttachmentTray, type LocalAgentAttachment } from './AssistantAttachmentTray';
 import { SourceBrandIcon, sourceBrandKind } from './SourceBrandIcon';
-import { journeyDayDisplayLabel } from '../../lib/journeyDays';
+import { journeyDayDisplayLabel, journeyDayOrdinal } from '../../lib/journeyDays';
 import { TwoStageSwipeable } from '../TwoStageSwipeable';
 import { useSpeechRecognitionInput, type SpeechRecognitionInputError } from './useSpeechRecognitionInput';
 import { RouteGuidePage } from '../discover/RouteGuidePage';
@@ -169,6 +169,16 @@ type ResearchStep = {
   text: string;
   status: AgentRunActivity['status'];
 };
+
+// Draft and needs-estimation calls are internal steps of the checklist, not
+// separate results. They are collapsed into the checklist indicator instead of
+// listed as raw tool names, which is also what keeps an official plan's parallel
+// checklist work from looking like a second itinerary.
+const INTERNAL_PACKING_TOOLS = new Set([
+  'estimate_personal_packing_needs', 'prepare_packing_draft', 'read_packing_draft',
+  'repair_packing_draft', 'commit_packing_draft', 'commit_packing_draft_partial',
+]);
+const PACKING_WRITE_TOOLS = [...INTERNAL_PACKING_TOOLS, 'add_packing_items'];
 
 function formatElapsed(ms?: number) {
   if (ms == null || !Number.isFinite(ms)) return '';
@@ -340,6 +350,7 @@ function completedJourneyTrackLabel(output: unknown, t: ReturnType<typeof useI18
 function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI18n>['t']): ResearchStep[] {
   return activities.flatMap((activity, index) => {
     const key = `${activity.toolName}_${index}`;
+    if (INTERNAL_PACKING_TOOLS.has(activity.toolName)) return [];
     const query = String(activity.arguments.query || '').trim();
     if (activity.toolName === 'search_ground_transport') {
       const result = activity.output as { status?: string; distanceKm?: number; durationMinutes?: number } | undefined;
@@ -807,7 +818,56 @@ function SourcesStrip({ theme, sources, title }: { theme: Theme; sources: AgentS
   );
 }
 
-function PlanPreviewCard({ theme, preview, openLabel, onOpen }: { theme: Theme; preview: AgentPlanPreview; openLabel: string; onOpen: (journeyId: string) => void }) {
+function clockMinutes(value: unknown) {
+  const clock = typeof value === 'string' ? value.match(/^([01]\d|2[0-3]):([0-5]\d)$/) : null;
+  return clock ? Number(clock[1]) * 60 + Number(clock[2]) : undefined;
+}
+
+/**
+ * The plan the run has already written, read back from its own tool activity.
+ * The staged pipeline saves the itinerary before the checklist, so the days are
+ * openable while the run is still going instead of after its final reply.
+ */
+function savedPlanPreview(activities: AgentRunActivity[], journeys: Array<{ id: string; name: string }>, fallbackTitle: string): AgentPlanPreview | undefined {
+  const written = [...activities].reverse().find((activity) => activity.toolName === 'add_itinerary_items' && activity.status === 'completed');
+  const writeArgs = written?.arguments as { journeyId?: unknown; items?: unknown } | undefined;
+  const journeyId = typeof writeArgs?.journeyId === 'string' ? writeArgs.journeyId : '';
+  const items = Array.isArray(writeArgs?.items) ? writeArgs.items as Array<Record<string, unknown>> : [];
+  if (!journeyId || !items.length) return undefined;
+  const grouped = new Map<string, AgentPlanPreview['days'][number]['items']>();
+  for (const item of items) {
+    const title = typeof item.title === 'string' ? item.title.trim() : '';
+    if (!title) continue;
+    const label = typeof item.day === 'string' && item.day.trim() ? item.day.trim() : 'Day 1';
+    const rows = grouped.get(label) || [];
+    rows.push({ title, timeStart: clockMinutes(item.timeStart), timeEnd: clockMinutes(item.timeEnd) });
+    grouped.set(label, rows);
+  }
+  if (!grouped.size) return undefined;
+  const created = [...activities].reverse().find((activity) => activity.toolName === 'create_journey' && activity.status === 'completed');
+  const createdArgs = created?.arguments as { name?: unknown; plannedDate?: unknown } | undefined;
+  const schedule = [...activities].reverse().find((activity) => activity.toolName === 'update_journey_schedule' && activity.status === 'completed');
+  const plannedDate = createdArgs?.plannedDate ?? (schedule?.arguments as { plannedDate?: unknown } | undefined)?.plannedDate;
+  const name = typeof createdArgs?.name === 'string' ? createdArgs.name.trim() : '';
+  return {
+    journeyId,
+    title: name || journeys.find((journey) => journey.id === journeyId)?.name || fallbackTitle,
+    dateLabel: typeof plannedDate === 'string' && plannedDate ? plannedDate : undefined,
+    days: [...grouped]
+      .sort(([left], [right]) => (journeyDayOrdinal(left) ?? Infinity) - (journeyDayOrdinal(right) ?? Infinity))
+      .map(([label, rows]) => ({ label, items: rows.sort((a, b) => (a.timeStart ?? Infinity) - (b.timeStart ?? Infinity)) })),
+  };
+}
+
+/** Whether this run is still working on the checklist. A run whose stage rows
+ * are missing predates the staged pipeline, so its checklist tools decide. */
+function packingInFlight(activities: AgentRunActivity[], stages: AgentStage[]) {
+  const packing = stages.find((stage) => stage.stage === 'packing');
+  if (packing) return packing.status === 'running';
+  return activities.some((activity) => PACKING_WRITE_TOOLS.includes(activity.toolName) && activity.status === 'running');
+}
+
+function PlanPreviewCard({ theme, preview, openLabel, onOpen, pendingNote }: { theme: Theme; preview: AgentPlanPreview; openLabel: string; onOpen: (journeyId: string) => void; pendingNote?: string }) {
   const { resolved } = useI18n();
   return (
     <View style={[styles.planPreview, { backgroundColor: theme.surfaceTop }] }>
@@ -831,6 +891,12 @@ function PlanPreviewCard({ theme, preview, openLabel, onOpen }: { theme: Theme; 
           </View>
         ))}
       </View> : null}
+      {pendingNote ? (
+        <View style={styles.planPendingNote}>
+          <LoadingDots color={theme.text3} />
+          <Text style={[styles.planMeta, { color: theme.text3 }]}>{pendingNote}</Text>
+        </View>
+      ) : null}
       <Press onPress={() => onOpen(preview.journeyId)} accessibilityRole="button" accessibilityLabel={openLabel} style={styles.viewJourney}>
         <ArrowUpRight size={18} color={theme.text} strokeWidth={2} />
         <Text style={[styles.viewJourneyText, { color: theme.text }]}>{openLabel}</Text>
@@ -1402,6 +1468,10 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   const [changingDepartureTurn, setChangingDepartureTurn] = useState<string>();
   const [recentDepartures, setRecentDepartures] = useState<string[]>([]);
   const [restoring, setRestoring] = useState(false);
+  // An auto-sent prompt (AI 规划 from the new-journey sheet) only shows its
+  // user turn after submit's first await; keep the spinner up until then so
+  // the empty-state suggestions never flash.
+  const [autoSubmitStarting, setAutoSubmitStarting] = useState(false);
   const [copiedTurnId, setCopiedTurnId] = useState<string>();
   const [undoingRunId, setUndoingRunId] = useState<string>();
   const [threadSheetOpen, setThreadSheetOpen] = useState(false);
@@ -1660,8 +1730,11 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     return () => subscription.remove();
   }, []);
 
-  useEffect(() => {
+  // Layout effect: the previous view must be reset before the opening frame
+  // paints, or the last conversation (or its empty state) flashes first.
+  useLayoutEffect(() => {
     if (!visible) {
+      setAutoSubmitStarting(false);
       pendingAutoSubmitRef.current = undefined;
       pendingAutoDisplayRef.current = undefined;
       voiceHoldingRef.current = false;
@@ -1679,6 +1752,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     let active = true;
     const autoSubmitPrompt = autoSubmitInitialPrompt ? initialPrompt : undefined;
     const autoDisplayPrompt = autoSubmitInitialPrompt ? initialDisplayPrompt : undefined;
+    setAutoSubmitStarting(Boolean(autoSubmitPrompt));
     pendingAutoSubmitRef.current = undefined;
     pendingAutoDisplayRef.current = undefined;
     const key = storageKey(data.userId, currentJourneyId, currentGearSetId);
@@ -1823,6 +1897,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         if (active) {
           pendingAutoSubmitRef.current = skipAutoSubmit ? undefined : autoSubmitPrompt;
           pendingAutoDisplayRef.current = skipAutoSubmit ? undefined : autoDisplayPrompt;
+          if (skipAutoSubmit) setAutoSubmitStarting(false);
           if (initialPrompt && (!autoSubmitPrompt || skipAutoSubmit)) onClearPrompt();
           setRestoring(false);
         }
@@ -2173,7 +2248,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     pendingAutoSubmitRef.current = undefined;
     pendingAutoDisplayRef.current = undefined;
     onClearPrompt();
-    void submit(prompt, autoSubmitIntent, true, undefined, displayPrompt);
+    void submit(prompt, autoSubmitIntent, true, undefined, displayPrompt).finally(() => setAutoSubmitStarting(false));
   }, [attachmentUploading, loading, restoring, trackPicking, visible]);
 
   useEffect(() => {
@@ -2392,6 +2467,19 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       : !turn.undoAction);
   };
 
+  const showSpinner = restoring || (autoSubmitStarting && turns.length === 0);
+  // The run writes its own itinerary, so the saved days are readable from its
+  // tool activity as soon as they land. Showing them then lets the user open the
+  // plan while the checklist is still being assembled.
+  const savedPlan = useMemo(() => {
+    if (!loading) return undefined;
+    // Stage rows decide when the pipeline has them: a half-finished save is not
+    // a saved plan. A run predating the staged pipeline only has its own write.
+    if (runStages.length && !runStages.some((stage) => stage.stage === 'save' && (stage.status === 'completed' || stage.status === 'degraded'))) return undefined;
+    return savedPlanPreview(runActivities, data.journeys, t('agent.journeyFallback'));
+  }, [data.journeys, loading, runActivities, runStages, t]);
+  const packingNote = savedPlan && packingInFlight(runActivities, runStages) ? t('agent.planSavedWhilePacking') : undefined;
+
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
       <GestureHandlerRootView style={styles.root}>
@@ -2426,8 +2514,8 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
           </Press>
         </View>
 
-        <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, turns.length === 0 && (currentJourney ? styles.journeyEmptyContent : styles.emptyContent)]}>
-          {restoring ? <View style={styles.center}><ActivityIndicator color={theme.accent} /></View> : turns.length === 0 ? (
+        <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, turns.length === 0 && !showSpinner && (currentJourney ? styles.journeyEmptyContent : styles.emptyContent)]}>
+          {showSpinner ? <View style={styles.center}><ActivityIndicator color={theme.accent} /></View> : turns.length === 0 ? (
             currentJourney ? (
               <View style={styles.journeySuggestions}>
                 {journeySuggestions.map((suggestion) => {
@@ -2607,7 +2695,10 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
               ) : null}
             </View>
           ); })}
-          {loading ? requestPhase === 'planning' || requestPhase === 'queued' ? <ResearchActivity theme={theme} activities={runActivities} modelMetrics={runModelMetrics} runTiming={runTiming} stages={runStages} running showTiming={showTiming} /> : (
+          {loading ? requestPhase === 'planning' || requestPhase === 'queued' ? <>
+            <ResearchActivity theme={theme} activities={runActivities} modelMetrics={runModelMetrics} runTiming={runTiming} stages={runStages} running showTiming={showTiming} />
+            {savedPlan ? <PlanPreviewCard theme={theme} preview={savedPlan} openLabel={t('agent.viewJourney')} onOpen={onOpenJourney} pendingNote={packingNote} /> : null}
+          </> : (
             <View style={styles.researchProgress}>
               <View style={styles.researchHeader}>
                 {requestPhase === 'sending' || requestPhase === 'locating' ? <ActivityIndicator size="small" color={theme.text} />
@@ -2867,6 +2958,7 @@ const styles = StyleSheet.create({
   planItem: { marginTop: space.xs, flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
   planTime: { width: 78, ...type.planTime },
   planItemText: { flex: 1, minWidth: 0, ...type.planItem },
+  planPendingNote: { marginTop: space.md, minHeight: 20, flexDirection: 'row', alignItems: 'center', gap: space.xs },
   viewJourney: { alignSelf: 'flex-start', minHeight: 42, marginTop: space.sm, paddingHorizontal: space.md, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs },
   viewJourneyText: { ...type.chatAction },
   packingNames: { marginTop: space.md, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.xs },

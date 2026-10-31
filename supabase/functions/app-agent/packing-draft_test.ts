@@ -56,3 +56,14 @@ Deno.test('full packing exposes draft tools while incremental and discuss retain
   task.decision.mode = 'discuss';
   assert(!names().includes('add_packing_items') && !names().includes('commit_packing_draft'));
 });
+
+Deno.test('a patch that only renames keeps the item attributes, category and energy estimate', () => {
+  const draft = newPackingDraft('j1', { accommodation: 'unknown', waterRefill: 'unknown', mealPreparation: 'unknown', conditions: null }, [
+    { name: '能量棒', attributes: [{ name: '单份净重', value: '50g/根' }], categoryName: '饮食系统', quantity: 4, weightKg: 0.05, weightEstimated: true, carryStatus: 'consumable', estimatedEnergyKcalPerUnit: 220 },
+  ]);
+  const next = patchPackingDraft(draft, { revision: 1, changes: [{ id: 'item-1', patch: { name: '燕麦能量棒' } }], additions: [], removals: [] });
+  const value = next.items[0].value;
+  if (value.name !== '燕麦能量棒' || value.attributes?.[0]?.value !== '50g/根' || value.categoryName !== '饮食系统' || value.estimatedEnergyKcalPerUnit !== 220) {
+    throw new Error(JSON.stringify(value));
+  }
+});

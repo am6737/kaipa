@@ -1,3 +1,4 @@
+import { REFERENCE_SEAT } from './rail-timetable.ts';
 import { collectMainTransport, collectOfficialTransport, timetableDate, mainTransportSchema, mergeMainTransportItems, mainTransportQueries, providerItinerary, transportEndpointsSchema } from './main-transport.ts';
 import { resolveTravelRequest, travelIntake, travelRequestSchema, travelContextFromRequest } from './travel-request.ts';
 import { constrainTaskDecision, taskDecisionSchema, type TaskState } from './task.ts';
@@ -435,6 +436,86 @@ Deno.test('a sold-out meeting train adds the day there', async () => {
   assert(main.itineraryItems.some(item => item.day === 'Day 1' && item.title.includes('T50')), 'a daytime train instead');
 });
 
+Deno.test('a train not on sale yet still makes the plan and is saved with the presale note', async () => {
+  const main = await collectOfficialTransport({ request: travelRequestSchema.parse({ origin: '郑州', returnDestination: '郑州', modes: ['rail'] }),
+    endpoints: homeRail('郑州'), plannedDate: '2026-10-10', official: meeting, now, query: timetable([
+      train('K2276', '郑州', '新乡', '2026-10-10', '05:30', '06:27', '*'),
+    ]) });
+  assert(main.official?.accessDay === false, `presale is not sold out: ${JSON.stringify(main.official)}`);
+  assert(!main.official.basis.some(value => value.includes('无余票')), main.official.basis.join(' / '));
+  assert(main.itineraryItems.some(item => item.day === 'Day 1' && item.title.includes('K2276') && item.title.includes('未开售')),
+    main.itineraryItems.map(item => item.title).join(' | '));
+  assert(main.unresolved.some(value => value.includes('K2276 次车票尚未开售')), main.unresolved.join(' / '));
+  assert(!main.unresolved.some(value => value.includes('尚无可保存')), main.unresolved.join(' / '));
+});
+
+Deno.test('a stored timetable plans the train as a reference and says when it was observed', async () => {
+  const stored = timetable([train('K2276', '郑州', '新乡', '2026-10-10', '05:30', '06:27', REFERENCE_SEAT)]);
+  const main = await collectOfficialTransport({ request: travelRequestSchema.parse({ origin: '郑州', returnDestination: '郑州', modes: ['rail'] }),
+    endpoints: homeRail('郑州'), plannedDate: '2026-10-10', official: meeting, now,
+    query: async query => ({ ...await stored(query), cacheMeta: { layer: 'timetable', observedDate: '2026-10-03' } }) });
+  assert(main.official?.accessDay === false, JSON.stringify(main.official));
+  assert(main.itineraryItems.some(item => item.title.includes('K2276') && item.title.includes('参考票价')), main.itineraryItems.map(item => item.title).join(' | '));
+  assert(main.unresolved.some(value => value.includes('K2276 次按 10月3日查询的时刻表参考')), main.unresolved.join(' / '));
+  assert(!main.unresolved.some(value => value.includes('尚未开售')), main.unresolved.join(' / '));
+});
+
+Deno.test('the travel-day retry asks a pair that has trains, not an empty station pair', async () => {
+  // 郑州东 is high-speed only and 新乡 conventional only: that pair never has a train.
+  const official = { ...meeting, accessStations: ['新乡', '新乡东'] };
+  const asked: string[] = [];
+  const main = await collectOfficialTransport({ request: travelRequestSchema.parse({ origin: '郑州', returnDestination: '郑州', modes: ['rail'] }),
+    endpoints: transportEndpointsSchema.parse({ endpoints: [{ mode: 'rail', outboundOrigin: '郑州东', outboundDestination: '新乡',
+      returnOrigin: '新乡', returnDestination: '郑州东' }] }),
+    plannedDate: '2026-10-10', official, now, query: async value => {
+      asked.push(`${value.origin}→${value.destination}@${value.earliestHour}`);
+      // Like 12306's first page, the 04:00 query stops before the daytime trains.
+      if (value.earliestHour === 4) return timetable([train('G552', '郑州东', '新乡东', '2026-10-10', '06:39', '06:59')])(value);
+      return timetable([train('G374', '郑州东', '新乡东', '2026-10-10', '09:03', '09:22')])(value);
+    } });
+  assert(main.official?.accessDay === true, JSON.stringify(main.official));
+  assert(asked.includes('郑州东→新乡东@9') && !asked.includes('郑州东→新乡@9'), asked.join(','));
+  assert(main.itineraryItems.some(item => item.day === 'Day 1' && item.title.includes('G374')), main.itineraryItems.map(item => item.title).join(' | '));
+});
+
+Deno.test('a same-city station is queried only when the first one cannot make the meeting time', async () => {
+  const twoStations = transportEndpointsSchema.parse({ endpoints: [{ mode: 'rail',
+    outboundOrigin: '郑州东', outboundDestination: '新乡东', returnOrigin: '新乡东', returnDestination: '郑州东',
+    railAlternatives: [{ direction: 'outbound', origin: '郑州', destination: '新乡东' }] }] });
+  const asked: string[] = [];
+  const record = (query: { origin: string; destination: string }) => { asked.push(`${query.origin}→${query.destination}`); };
+  const main = await collectOfficialTransport({ request: travelRequestSchema.parse({ origin: '郑州', returnDestination: '郑州', modes: ['rail'] }),
+    endpoints: twoStations, plannedDate: '2026-10-10', official: meeting, now, query: async value => {
+      record(value);
+      return timetable([
+        train('G1234', '郑州东', '新乡东', '2026-10-10', '06:12', '06:31'),
+        train('K2276', '郑州', '新乡', '2026-10-10', '05:30', '06:27'),
+      ])(value);
+    } });
+  assert(main.official?.accessDay === false, JSON.stringify(main.official));
+  assert(main.official.basis[0].includes('G1234'), main.official.basis[0]);
+  assert(!asked.some(route => route.startsWith('郑州→')), `the alternative station is left unqueried: ${asked.join(',')}`);
+});
+
+Deno.test('the alternative station is probed when the first has nothing in time', async () => {
+  const twoStations = transportEndpointsSchema.parse({ endpoints: [{ mode: 'rail',
+    outboundOrigin: '郑州东', outboundDestination: '新乡东', returnOrigin: '新乡东', returnDestination: '郑州东',
+    railAlternatives: [{ direction: 'outbound', origin: '郑州', destination: '新乡东' }] }] });
+  const asked: string[] = [];
+  const main = await collectOfficialTransport({ request: travelRequestSchema.parse({ origin: '郑州', returnDestination: '郑州', modes: ['rail'] }),
+    endpoints: twoStations, plannedDate: '2026-10-10', official: meeting, now, query: async value => {
+      asked.push(`${value.origin}→${value.destination}`);
+      return timetable([
+        train('G5678', '郑州东', '新乡东', '2026-10-10', '09:12', '09:31'),
+        train('K2276', '郑州', '新乡', '2026-10-10', '05:30', '06:27'),
+      ])(value);
+    } });
+  assert(asked.some(route => route.startsWith('郑州→')), `the second station is paid for only when needed: ${asked.join(',')}`);
+  assert(main.official?.accessDay === false, JSON.stringify(main.official));
+  assert(main.official.basis[0].includes('K2276'), main.official.basis[0]);
+  assert(main.hubs[0].outboundOrigin === '郑州', 'the saved hub follows the chosen train');
+});
+
 Deno.test('a date outside the sale window is read from the same weekday inside it', async () => {
   assert(timetableDate('2026-11-07', now) === '2026-10-17', 'a Saturday maps to a Saturday within 15 days');
   assert(timetableDate('2026-10-12', now) === '2026-10-12', 'a sold date is kept');
@@ -446,6 +527,7 @@ Deno.test('a date outside the sale window is read from the same weekday inside i
   assert(main.official?.accessDay === false && main.official.basis[0].startsWith('按 10月17日 的时刻表推算'), JSON.stringify(main.official));
   assert(main.itineraryItems.length === 0, 'no ticket rows on a date the trains were not read for');
   assert(main.unresolved.some(value => value.includes('不在 12306 可售期内')), 'the approximation is disclosed');
+  assert(!main.unresolved.some(value => value.includes('尚无可保存')), 'a projected timetable is not reported as a missing ticket');
 });
 
 Deno.test('without rail the official plan keeps the day there', async () => {
@@ -454,4 +536,19 @@ Deno.test('without rail the official plan keeps the day there', async () => {
     query: async () => ({ available: true, status: 'results', distanceKm: 90, durationMinutes: 80 }) });
   assert(main.official?.accessDay, JSON.stringify(main.official));
   assert(main.itineraryItems.every(item => item.day === 'Day 1'), 'only the way there');
+});
+
+Deno.test('a road leg stays with the plan while a hub arrival belongs to the chain', async () => {
+  const main = await collectMainTransport({ now, request, endpoints, plannedDate: '2026-10-09', days: 5, query: async () => rail });
+  const road = itineraryItem.parse({ day: 'Day 1', kind: 'custom', title: '拼车从成都东到卡尔杂村（约 3 小时）',
+    location: { name: '卡尔杂村', incomingMode: 'road' } });
+  const modelHubArrival = itineraryItem.parse({ day: 'Day 1', kind: 'custom', title: '抵达成都东 · G999',
+    location: { name: '成都东', incomingMode: 'rail' } });
+  const merged = mergeMainTransportItems([road, modelHubArrival], main, 5);
+  const titles = merged.map(item => `${item.day} ${item.title}`).join(' | ');
+  assert(merged.some(item => item.title === road.title && item.location?.incomingMode === 'road'),
+    `the hub chain replaces a hub arrival, not a road leg: ${titles}`);
+  assert(merged.filter(item => item.location?.incomingMode === 'road').length === 1, `no hub row is relabelled as road: ${titles}`);
+  assert(!merged.some(item => item.title.includes('G999')), `the model rail arrival gives way to the queried service: ${titles}`);
+  assert(merged.filter(item => item.location?.incomingMode === 'rail').length === 1, `one rail arrival row: ${titles}`);
 });

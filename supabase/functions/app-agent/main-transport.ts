@@ -1,6 +1,8 @@
 import { z } from 'npm:zod@4.1.12';
 import { itineraryItem } from './tools.ts';
 import { travelRequestSchema, travelModes, type TravelRequest } from './travel-request.ts';
+import { isHubIncomingMode, type IncomingMode } from './incoming-mode.ts';
+import { REFERENCE_SEAT } from './rail-timetable.ts';
 
 const transportEndpointCanonicalSchema = z.object({
     mode: z.enum(travelModes),
@@ -103,8 +105,15 @@ function departureTime(value: unknown) {
   return Date.parse(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(text) ? text : `${text}+08:00`);
 }
 
+// 12306 marks a fare that is not on sale yet with '*': the train and its fare
+// are real, the ticket just cannot be bought today. Only '无' means sold out.
+const presaleSeat = (seat: any) => String(seat.availability) === '*';
+// A seat read from a stored timetable (rail-timetable.ts): the train ran on the
+// same weekday when it was observed; whether it has tickets is the user's check.
+const referenceSeat = (seat: any) => String(seat.availability) === REFERENCE_SEAT;
+
 function availableSeats(seats: any[]) {
-  return seats.filter(seat => seat.availability === '有' || /^[1-9]\d*$/.test(String(seat.availability)))
+  return seats.filter(seat => seat.availability === '有' || /^[1-9]\d*$/.test(String(seat.availability)) || presaleSeat(seat) || referenceSeat(seat))
     .sort((a, b) => (typeof a.pricePerAdult === 'number' ? a.pricePerAdult : Infinity) - (typeof b.pricePerAdult === 'number' ? b.pricePerAdult : Infinity));
 }
 
@@ -209,7 +218,7 @@ function providerRowsForDirection(main: MainTransport, direction: 'outbound' | '
   });
 }
 
-function skeletonItem(day: string, title: string, location: MergeLocation, startLocation?: MergeLocation, incomingMode?: 'rail' | 'flight' | null) {
+function skeletonItem(day: string, title: string, location: MergeLocation, startLocation?: MergeLocation, incomingMode?: IncomingMode | null) {
   return itineraryItem.parse({ day, kind: 'custom', title: title.slice(0, 120), startLocation: startLocation || null,
     location: { ...location, source: location.source || 'custom', incomingMode: incomingMode || null } });
 }
@@ -276,7 +285,8 @@ export function mergeMainTransportItems(items: MainTransport['itineraryItems'], 
     // ends still at the origin. It is not a place in the hub chain.
     if (item.startLocation && item.location && item.startLocation.name === item.location.name
       && /^(?:前往|抵达|到达)/.test(item.title)) return false;
-    if (item.location?.incomingMode && replaced) return false;
+    // Only a hub arrival is the chain's to replace; a road leg stays in the plan.
+    if (isHubIncomingMode(item.location?.incomingMode) && replaced) return false;
     if (sameCity && item.day === 'Day 1' && /^(?:前往|从)/.test(item.title)) return false;
     if (sameCity && item.day === 'Day 1'
       && (item.location?.name === requestOrigin || item.startLocation?.name === requestOrigin)) return false;
@@ -365,7 +375,7 @@ export function providerItinerary(query: MainTransportQuery, result: unknown, fi
     const arrivalDay = 1 + Math.round((Date.parse(`${arrive.slice(0, 10)}T00:00:00Z`) - Date.parse(firstDate)) / 86400000);
     if (arrivalDay > 30 || Date.parse(arrive) <= Date.parse(depart)) return [];
     const seat = query.mode === 'rail' ? availableSeats(segment.seats || [])[0] : null;
-    const price = seat && typeof seat.pricePerAdult === 'number' ? ` · ${seat.name || ''}¥${seat.pricePerAdult}/人`
+    const price = seat && typeof seat.pricePerAdult === 'number' ? ` · ${seat.name || ''}¥${seat.pricePerAdult}/人${presaleSeat(seat) ? '（未开售）' : referenceSeat(seat) ? '（参考票价）' : ''}`
       : query.mode === 'flight' && segment === segments[0] && typeof offer.pricePerAdult === 'number'
         ? ` · ${segments.length > 1 ? '全程' : ''}¥${offer.pricePerAdult}/人（查询价）` : '';
     const provider = query.mode === 'rail' ? '12306' : data.provider === 'flyai' ? '飞猪FlyAI' : 'Amadeus';
@@ -522,10 +532,21 @@ export async function collectOfficialTransport(args: {
 
   // The latest train that still reaches the meeting point in time.
   const meetBy = `${firstDate}T${official.arriveBy}`;
-  const early = await Promise.all(origins.flatMap(origin => official.accessStations.slice(0, 2).map(destination => run({ direction: 'outbound', mode: 'rail',
-    origin, destination, departureDate: firstDate, earliestHour: 4, stationAlternative: null }))));
-  const inTime = early.flatMap(entry => entry.offers.filter(offer => offer.arrival.slice(0, 16) <= meetBy).map(offer => ({ ...entry, offer })))
-    .sort((a, b) => b.offer.departure.localeCompare(a.offer.departure));
+  const destinations = official.accessStations.slice(0, 2);
+  const reaches = (entries: { query: MainTransportQuery; offers: RailOffer[] }[]) => entries
+    .flatMap(entry => entry.offers.filter(offer => offer.arrival.slice(0, 16) <= meetBy).map(offer => ({ ...entry, offer })));
+  const early: { query: MainTransportQuery; offers: RailOffer[] }[] = [];
+  // The rail sidecar admits one query and one waiting, so firing every origin
+  // and station at once only reports the extras as rate_limited — which reads
+  // the same as "no trains" and silently adds a travel day. One station per
+  // wave, and a later station is paid for only when the earlier one cannot
+  // make the meeting time.
+  for (const origin of origins) {
+    early.push(...await Promise.all(destinations.map(destination => run({ direction: 'outbound', mode: 'rail',
+      origin, destination, departureDate: firstDate, earliestHour: 4, stationAlternative: null }))));
+    if (reaches(early).some(entry => seated(entry.offer))) break;
+  }
+  const inTime = reaches(early).sort((a, b) => b.offer.departure.localeCompare(a.offer.departure));
   const basis: string[] = [];
   let outbound: { query: MainTransportQuery; offer: RailOffer } | null = inTime.find(entry => seated(entry.offer)) ?? null;
   const accessDay = !outbound;
@@ -539,14 +560,27 @@ export async function collectOfficialTransport(args: {
     const daytime = (entry: { offer: RailOffer }) => clock(entry.offer.departure) >= '07:00' && seated(entry.offer)
       && entry.offer.arrival.slice(0, 10) === firstDate;
     outbound = early.flatMap(entry => entry.offers.map(offer => ({ ...entry, offer }))).find(daytime) ?? null;
-    if (!outbound && early.length) {
-      const later = await run({ ...early[0].query, earliestHour: 9 });
+    // A pair that answered at all is the one worth asking again: the early
+    // query starts at 04:00 and can stop before the daytime trains, while a
+    // pair with no trains (a high-speed station to a conventional one) stays empty.
+    const pair = early.find(entry => entry.offers.length) ?? early[0];
+    if (!outbound && pair) {
+      const later = await run({ ...pair.query, earliestHour: 9 });
       outbound = later.offers.map(offer => ({ ...later, offer })).find(daytime) ?? null;
     }
   }
 
   const itineraryItems = live && outbound ? providerItinerary(outbound.query, { available: true, status: 'results', offers: [outbound.offer] }, firstDate, now) : [];
-  if (!itineraryItems.length) unresolved.push('去程大交通尚无可保存的实际班次或道路方案。');
+  // A projected timetable is never saved as a ticket row; the note below
+  // already says the trains are an estimate, so this is only for a live date.
+  if (live && !itineraryItems.length) unresolved.push('去程大交通尚无可保存的实际班次或道路方案。');
+  const observed = outbound && record(results.find(entry => entry.origin === outbound!.query.origin && entry.destination === outbound!.query.destination
+    && entry.earliestHour === outbound!.query.earliestHour)?.result).cacheMeta;
+  if (live && outbound && observed?.layer === 'timetable') {
+    unresolved.push(`${outbound.offer.trainNumber} 次按 ${monthDay(String(observed.observedDate))}查询的时刻表参考，出发前请在 12306 核对班次和余票。`);
+  } else if (live && outbound && !availableSeats(outbound.offer.seats).some(seat => !presaleSeat(seat))) {
+    unresolved.push(`${outbound.offer.trainNumber} 次车票尚未开售，开售后需在 12306 购买并核对班次。`);
+  }
   if (!live) unresolved.push(args.plannedDate
     ? `出发日期不在 12306 可售期内，去程按 ${monthDay(firstDate)} 同星期的时刻表推算，开售后需重新核对班次。`
     : `出发日期未定，去程按 ${monthDay(firstDate)} 的时刻表推算，定好日期后需重新核对班次。`);

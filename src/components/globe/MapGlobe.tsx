@@ -13,6 +13,8 @@ import type { GlobePoi, GlobeProps } from './types';
 import { useI18n } from '../../i18n';
 import { measureTrack, positionAtDistance } from '../../lib/routeSegments';
 import { cappedStepKm } from '../maps/distanceMarkers';
+import { EndpointBadge, ROUTE_START_COLOR } from '../discover/routeEndpointMarkers';
+import { isLoopTrack } from '../../lib/routeDirection';
 
 // The camera the native map is created with. Needed to judge a press before the
 // map has ever reported a zoom change.
@@ -77,6 +79,7 @@ export default function MapGlobe({
   journeyLegs,
   journeyStops,
   onJourneyStopPress,
+  hiddenJourneyStopId,
   journeyDayLabels,
   onJourneyDayLabelPress,
   extraMarkers,
@@ -521,9 +524,9 @@ export default function MapGlobe({
       const finalDistanceKm = Math.round(totalKm * 10) / 10;
       const finalPosition = positionAtDistance(measure, measure.totalMeters);
       values.push({ id: `route-distance-${track.id}-end`, coordinate: finalPosition.coordinate, anchor: Platform.OS === 'android' ? { x: 0.5, y: 1 } : { x: 0, y: 0.5 }, content: Platform.OS === 'android' ? (
-        // Over a caller's own finish badge the label stands clear of it
-        // instead of planting its dot on top.
-        <View style={styles.distanceMarkerWrap}><View style={[styles.distanceMarker, { backgroundColor: theme.dark ? 'rgba(30,32,34,0.9)' : 'rgba(255,255,255,0.94)' }]}><Text style={[styles.distanceText, { color: theme.text }]}>{finalDistanceKm} km</Text></View>{'endpoints' in track && track.endpoints === false ? <View style={styles.distanceMarkerBadgeSpacer} /> : <View style={[styles.distanceDot, { backgroundColor: theme.accent }]} />}</View>
+        // The finish wears a 终 badge (the caller's or this map's own), so the
+        // label stands clear of it instead of planting its dot on top.
+        <View style={styles.distanceMarkerWrap}><View style={[styles.distanceMarker, { backgroundColor: theme.dark ? 'rgba(30,32,34,0.9)' : 'rgba(255,255,255,0.94)' }]}><Text style={[styles.distanceText, { color: theme.text }]}>{finalDistanceKm} km</Text></View><View style={styles.distanceMarkerBadgeSpacer} /></View>
       ) : (
         <View style={styles.distanceMarkerSideWrap}><View style={styles.distanceMarkerEndpointSpacer} /><View style={[styles.distanceMarker, { backgroundColor: theme.dark ? 'rgba(30,32,34,0.9)' : 'rgba(255,255,255,0.94)' }]}><Text style={[styles.distanceText, { color: theme.text }]}>{finalDistanceKm} km</Text></View></View>
       ) });
@@ -670,6 +673,7 @@ export default function MapGlobe({
     values.push(...distanceMarkers);
 
     validJourneyStops?.forEach((stop) => {
+      if (stop.id === hiddenJourneyStopId) return;
       values.push({
         // Android caches marker content by id, so the number has to live in it.
         id: `journey-stop-${stop.id}-${stop.order ?? 'dot'}`,
@@ -732,24 +736,32 @@ export default function MapGlobe({
     if (extraMarkers?.length) values.push(...extraMarkers);
 
     // The track's own endpoints only earn a marker once the route is big on
-    // screen; zoomed out they compete with the itinerary dots.
+    // screen; zoomed out they compete with the itinerary dots. They wear the
+    // route page's 起/终 badges, and a loop has one trailhead, as there.
     if (trackEndpointsVisible) {
+      const pushEndpoints = (key: string, coordinates: MapCoordinate[]) => {
+        const start = coordinates[0];
+        const end = coordinates[coordinates.length - 1];
+        if (!start || !end) return;
+        const startLabel = t('route.direction.start');
+        const finishLabel = t('route.direction.finish');
+        // Android snapshots marker content by id, so the wording lives in it.
+        values.push({ id: `${key}-start-${startLabel}`, coordinate: start, anchor: { x: 0.5, y: 0.5 }, zIndex: 3, content: <EndpointBadge color={ROUTE_START_COLOR} label={startLabel} /> });
+        if (coordinates.length > 1 && !isLoopTrack(coordinates)) {
+          values.push({ id: `${key}-end-${finishLabel}`, coordinate: end, anchor: { x: 0.5, y: 0.5 }, zIndex: 3, content: <EndpointBadge color={theme.danger} label={finishLabel} /> });
+        }
+      };
       if (validFocusSegments) {
         validFocusSegments.forEach((segment, index) => {
           if (segment.endpoints === false) return;
-          const start = segment.coordinates[0];
-          const end = segment.coordinates[segment.coordinates.length - 1];
-          if (!start || !end) return;
-          values.push({ id: `focus-start-${segment.id}-${index}`, coordinate: start, anchor: { x: 0.5, y: 0.5 }, content: <View style={styles.startMarker} /> });
-          values.push({ id: `focus-end-${segment.id}-${index}`, coordinate: end, anchor: { x: 0.5, y: 0.5 }, content: <View style={[styles.endMarker, { backgroundColor: theme.danger }]} /> });
+          pushEndpoints(`focus-${segment.id}-${index}`, segment.coordinates);
         });
       } else if (validFocusCoords?.[0] && !validJourneyStops?.length) {
-        values.push({ id: 'focus-start', coordinate: validFocusCoords[0], anchor: { x: 0.5, y: 0.5 }, content: <View style={styles.startMarker} /> });
-        if (validFocusCoords.length > 1) values.push({ id: 'focus-end', coordinate: validFocusCoords[validFocusCoords.length - 1], anchor: { x: 0.5, y: 0.5 }, content: <View style={[styles.endMarker, { backgroundColor: theme.danger }]} /> });
+        pushEndpoints('focus', validFocusCoords);
       }
     }
     return values;
-  }, [distanceMarkers, extraMarkers, theme, trackEndpointsVisible, validFocusCoords, validFocusSegments, validJourneyDayLabels, validJourneyStops]);
+  }, [distanceMarkers, extraMarkers, hiddenJourneyStopId, t, theme, trackEndpointsVisible, validFocusCoords, validFocusSegments, validJourneyDayLabels, validJourneyStops]);
 
   // Concatenated rather than spread into one array so that the common case
   // (nothing overlaid) hands NativeMap the very same array instance it already
@@ -857,8 +869,6 @@ const styles = StyleSheet.create({
   distanceMarker: { minWidth: 38, paddingHorizontal: 6, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', shadowColor: '#000000', shadowOpacity: 0.16, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
   distanceText: { fontSize: 9.5, lineHeight: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
   distanceDot: { width: 5, height: 5, marginTop: -1, borderRadius: 3, borderWidth: 1.5, borderColor: '#FFFFFF' },
-  startMarker: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#34C759', borderWidth: 2.5, borderColor: '#FFFFFF' },
-  endMarker: { width: 14, height: 14, borderRadius: 7, borderWidth: 2.5, borderColor: '#FFFFFF' },
   journeyStop: {
     width: 22,
     height: 22,

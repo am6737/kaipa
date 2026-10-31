@@ -34,8 +34,9 @@ export interface TimelineLocation {
   /** An explicitly supplied path from the previous stop; ignored after reorder/move. */
   incomingPath?: TimelineIncomingPath;
   name: string;
-  /** Transport metadata; ordinary map places still use driving navigation. */
-  incomingMode?: 'rail' | 'flight' | null;
+  /** Transport metadata; ordinary map places still use driving navigation.
+   *  `road` is a 拼车/包车/班车/出租 transfer the planner writes on the arrival row. */
+  incomingMode?: 'rail' | 'flight' | 'road' | null;
   source?: 'map' | 'custom' | 'track';
   longitude?: number;
   latitude?: number;

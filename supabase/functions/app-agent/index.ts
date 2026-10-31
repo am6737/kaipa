@@ -6,7 +6,8 @@ import { createClient } from 'npm:@supabase/supabase-js@2.108.1';
 import { AGENT_VERSION, createAgentRuntime } from './agent.ts';
 import { buildItineraryCard, extractItineraryBrief } from './itinerary-card.ts';
 import { SupabaseAgentSession } from './session.ts';
-import { addGear, bindRunClient, parseJsonString, releaseRunClient } from './tools.ts';
+import { addGear, bindRunClient, parseJsonString, releaseRunClient, timetableStore } from './tools.ts';
+import { refreshRailTimetables } from './rail-timetable-refresh.ts';
 import { gearFastPathReply } from './gear-fast-path.ts';
 import { bindPackingDraftStore, releasePackingDraftStore, readPackingDraft } from './packing-draft-store.ts';
 import type { ModelMetric } from './model-metrics.ts';
@@ -451,6 +452,17 @@ Deno.serve(async (req) => {
   try {
     const token = bearerToken(req);
     if (!token) return json({ error: { code: 'unauthorized', message: '请先登录' } }, 401);
+    // The nightly timetable refresher (infra/supabase/rail-timetable-refresher.mjs)
+    // calls with the service-role key; no end-user JWT reaches this branch.
+    if (token === env('SUPABASE_SERVICE_ROLE_KEY')) {
+      const body = await boundedJson(req) as { action?: string; offset?: number; limit?: number; freshDays?: number };
+      if (body.action !== 'refresh_rail_timetables') return json({ error: { code: 'unauthorized', message: 'Unsupported service action' } }, 401);
+      const admin = serviceClient();
+      const result = await refreshRailTimetables({ admin, store: timetableStore(admin),
+        offset: Math.max(0, Math.floor(Number(body.offset) || 0)), limit: Math.min(5, Math.max(1, Math.floor(Number(body.limit) || 1))),
+        freshDays: Math.min(14, Math.max(0, Number(body.freshDays ?? 3))) });
+      return json(result);
+    }
     const supabaseUrl = env('SUPABASE_URL');
     const anonKey = env('SUPABASE_ANON_KEY');
     const client = createClient(supabaseUrl, anonKey, {

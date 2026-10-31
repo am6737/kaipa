@@ -9,11 +9,14 @@ import {
   projectOnTrack,
   trackSliceBetweenMeters,
   type Coordinate,
+  type TrackMeasure,
 } from './routeSegments';
 
 export interface JourneyStop {
   rowId: string;
   incomingPath?: TimelineLocation['incomingPath'];
+  /** How the trip arrived here; `road` means this row is a road transfer. */
+  incomingMode?: TimelineLocation['incomingMode'];
   /** 1-based position within its own day — the pin's number while that day is
    *  open on its own. The overview draws places, not numbered steps. */
   order: number;
@@ -33,6 +36,8 @@ export interface JourneyLeg {
   /** The day this travel belongs to. Legs never cross days, so this is also
    *  the day it leaves from. */
   day?: string;
+  /** What the road planner is asked for. A leg that touches a recorded track
+   *  walks it, except where the off-track end is far enough to be a road transfer. */
   mode: 'driving' | 'walking';
   /** Track routing could not be resolved; never send this leg to a road planner. */
   pendingTrack?: boolean;
@@ -50,12 +55,14 @@ export interface JourneyLeg {
    */
   directionFrom?: Coordinate;
   directionTo?: Coordinate;
-  /** Recorded track pieces before/after the AMap bridge. */
+  /** Recorded track pieces before/after the AMap bridge. Never a piece the day
+   *  would have to walk backwards. */
   recordedPrefix?: Coordinate[];
   recordedSuffix?: Coordinate[];
   /** Geometry shown while the bridge is still being planned. */
   fallbackGeometry?: Coordinate[];
-  /** Straight-line length: what decides walking versus driving above. */
+  /** Straight-line length between the two stops. The road transfer decision
+   *  measures the bridge to the trailhead instead — see ROAD_TRANSFER_METERS. */
   directMeters: number;
 }
 
@@ -118,6 +125,7 @@ export function buildJourneyStops(rows: TLRow[], knownGroups: string[]): Journey
     stops.push({
       rowId: row.id,
       incomingPath: found.location?.incomingPath,
+      incomingMode: found.location?.incomingMode,
       order: dayCount,
       day: row.day || undefined,
       name: found.name,
@@ -160,7 +168,8 @@ export function buildJourneyLegs(
     const validSupplied = usableIncomingPath(supplied, from.rowId, from.coordinate, to.coordinate);
     const fullRecordedGeometry = (validSupplied ? suppliedCoords : undefined) ?? trackGeometry ?? mixedGeometry ?? undefined;
     const onSomeTrack = Boolean(from.trackId || to.trackId);
-    const mode = trackGeometry || onSomeTrack ? 'walking' : 'driving';
+    const bridge = mixed && !fullRecordedGeometry ? buildTrackAccess(from, to, trackCoords) : null;
+    const mode = bridge?.mode ?? (trackGeometry || onSomeTrack ? 'walking' : 'driving');
     const leg: JourneyLeg = {
       id: `${from.rowId}->${to.rowId}`,
       day: to.day,
@@ -169,13 +178,12 @@ export function buildJourneyLegs(
       to: to.coordinate,
       recordedGeometry: fullRecordedGeometry,
       userPath: validSupplied ? supplied?.source : undefined,
-      pendingTrack: onSomeTrack && !fullRecordedGeometry,
+      // A bridge is a settled answer about where the day joins the trail: what is
+      // still missing is road geometry, which is how every other leg behaves.
+      pendingTrack: onSomeTrack && !fullRecordedGeometry && !bridge,
       directMeters,
     };
-    if (mixed && !fullRecordedGeometry) {
-      const bridge = buildTrackAccess(from, to, trackCoords);
-      if (bridge) Object.assign(leg, bridge, { trackBridge: true });
-    }
+    if (bridge) Object.assign(leg, bridge.access, { trackBridge: true });
     legs.push(leg);
   }
   return legs;
@@ -183,6 +191,12 @@ export function buildJourneyLegs(
 
 // Only associate a nearby map place; proximity does not establish an access trail.
 const TRACK_AUTO_SNAP_METERS = 50;
+/** A track place this close to the recorded start or end is the trailhead itself:
+ *  the bridge runs to that place instead of guessing an entrance from a projection. */
+const TRACK_ENTRANCE_ANCHOR_METERS = 100;
+/** How far a mixed leg's off-track place may sit from the trailhead before the day
+ *  travels it by road (拼车/包车/班车) rather than on foot. */
+const ROAD_TRANSFER_METERS = 2_000;
 const COORDINATE_EPSILON = 1e-9;
 
 function appendCoordinates(target: Coordinate[], coordinates?: Coordinate[]) {
@@ -244,38 +258,85 @@ function buildMixedTrackGeometry(
     ?? [positionAtDistance(measure, start).coordinate, positionAtDistance(measure, finish).coordinate];
 }
 
-/** Distant places connect through the nearest end of the recorded track.
+/** A mixed leg's road bridge: what to ask the planner for, and how to get there. */
+interface TrackBridge {
+  mode: JourneyLeg['mode'];
+  access: Partial<JourneyLeg>;
+}
+
+/** Distant places connect through an end of the recorded track.
  * Never ask the road planner to route into the middle of a mountain trail.
- * Only use an endpoint when the nearest projected position is near that end;
- * interior/ambiguous access needs an explicit track-point selection.
+ * When the recorded place itself sits on a trailhead, that is the entrance — its
+ * distance along the track is a fact, while projecting a station blind picks
+ * whichever bend happens to be nearest and can land in the middle of the line.
+ * Otherwise only use an end the nearest projected position reaches; interior or
+ * ambiguous access needs an explicit track-point selection.
  */
 function buildTrackAccess(
   from: JourneyStop,
   to: JourneyStop,
   trackCoords: ((trackId: string) => Coordinate[] | undefined) | undefined,
-): Partial<JourneyLeg> | null {
+): TrackBridge | null {
   const fromOnTrack = Boolean(from.trackId && from.trackMeters != null);
   const trackStop = fromOnTrack ? from : to;
   const mapStop = fromOnTrack ? to : from;
   const measure = trackForStop(trackStop, trackCoords);
   if (!measure) return null;
+  const stopMeters = trackStop.trackMeters as number;
+  // A place on a trailhead is one: the day joins the line there, whatever the
+  // nearest point of the whole line happens to be.
+  if (stopMeters <= TRACK_ENTRANCE_ANCHOR_METERS || measure.totalMeters - stopMeters <= TRACK_ENTRANCE_ANCHOR_METERS) {
+    return bridgeLeg(from, to, measure, trackStop.coordinate, stopMeters);
+  }
   const projected = projectOnTrack(measure, mapStop.coordinate);
   if (!projected || distanceMeters(projected.coordinate, mapStop.coordinate) <= TRACK_AUTO_SNAP_METERS) return null;
-  const atStart = projected.distanceMeters <= 100;
-  const atEnd = measure.totalMeters - projected.distanceMeters <= 100;
-  if (!atStart && !atEnd) return null;
+  const projectedAtStart = projected.distanceMeters <= TRACK_ENTRANCE_ANCHOR_METERS;
+  const projectedAtEnd = measure.totalMeters - projected.distanceMeters <= TRACK_ENTRANCE_ANCHOR_METERS;
+  if (!projectedAtStart && !projectedAtEnd) return null;
   const start = measure.coordinates[0];
   const end = measure.coordinates[measure.coordinates.length - 1];
   if (measure.totalMeters > 200
     && Math.abs(distanceMeters(start, mapStop.coordinate) - distanceMeters(end, mapStop.coordinate)) < 50) return null;
-  const entranceMeters = atStart ? 0 : measure.totalMeters;
-  const entrance = positionAtDistance(measure, entranceMeters).coordinate;
-  const recorded = trackSliceBetweenMeters(measure,
-    fromOnTrack ? trackStop.trackMeters as number : entranceMeters,
-    fromOnTrack ? entranceMeters : trackStop.trackMeters as number) ?? [entrance, entrance];
-  return fromOnTrack
-    ? { directionFrom: entrance, directionTo: mapStop.coordinate, recordedPrefix: recorded }
-    : { directionFrom: mapStop.coordinate, directionTo: entrance, recordedSuffix: recorded };
+  const entranceMeters = projectedAtStart ? 0 : measure.totalMeters;
+  // Tracks are directional. An access bridge may only join the line ahead of the
+  // place it leaves or behind the place it reaches — otherwise the day would walk
+  // the recorded track in reverse to get there.
+  const againstDirection = fromOnTrack ? entranceMeters < stopMeters : entranceMeters > stopMeters;
+  if (againstDirection) return null;
+  return bridgeLeg(from, to, measure, positionAtDistance(measure, entranceMeters).coordinate, entranceMeters);
+}
+
+/** The road half of a mixed leg, plus the recorded piece it joins to. */
+function bridgeLeg(
+  from: JourneyStop,
+  to: JourneyStop,
+  measure: TrackMeasure,
+  entrance: Coordinate,
+  entranceMeters: number,
+): TrackBridge {
+  const fromOnTrack = Boolean(from.trackId && from.trackMeters != null);
+  const trackStop = fromOnTrack ? from : to;
+  const mapStop = fromOnTrack ? to : from;
+  const stopMeters = trackStop.trackMeters as number;
+  // The row says the day arrives by 拼车/包车/班车, so it is a road however close
+  // the two places look on the map.
+  // The mode sits on the row being arrived at: the trailhead on the way in, the
+  // town on the way out.
+  const roadTransfer = to.incomingMode === 'road'
+    || distanceMeters(mapStop.coordinate, entrance) > ROAD_TRANSFER_METERS;
+  const mode: JourneyLeg['mode'] = roadTransfer ? 'driving' : 'walking';
+  const recorded = fromOnTrack
+    ? trackSliceBetweenMeters(measure, stopMeters, entranceMeters)
+    : trackSliceBetweenMeters(measure, entranceMeters, stopMeters);
+  const access: Partial<JourneyLeg> = fromOnTrack
+    ? { directionFrom: entrance, directionTo: mapStop.coordinate }
+    : { directionFrom: mapStop.coordinate, directionTo: entrance };
+  // An entrance at the recorded place itself leaves no track to walk beside it.
+  if (recorded) {
+    if (fromOnTrack) access.recordedPrefix = recorded;
+    else access.recordedSuffix = recorded;
+  }
+  return { mode, access };
 }
 
 /** Validate provider endpoints before accepting any normalized/joined geometry. */
@@ -308,10 +369,13 @@ function trackGeometryFor(
 
 export interface JourneyDayDistance {
   day: string;
-  /** Road length of everything that day travels, in metres. */
+  /** Length of everything that day travels, in metres. */
   meters: number;
   pendingTrack?: boolean;
   userDrawn?: boolean;
+  /** Some (`part`) or every (`all`) leg of the day has no road or track yet
+   *  and was measured as a straight line, so `meters` is not a real distance. */
+  straightLine?: 'part' | 'all';
   /** Middle of the day's chain, which is where its label sits on the map. */
   coordinate: Coordinate;
 }
@@ -327,6 +391,11 @@ export function measureJourneyDays(
 ): JourneyDayDistance[] {
   const byDay = new Map<string, Coordinate[]>();
   const pendingDays = new Set<string>();
+  // Legs measured with a real geometry vs. ones that fell back to a straight
+  // link (offline, never planned, or no road). A bridge leg's fallback is
+  // track plus a straight bridge, so it counts as straight too.
+  const realLegs = new Map<string, number>();
+  const straightLegs = new Map<string, number>();
   legs.forEach((leg) => {
     if (!leg.day) return;
     if (leg.pendingTrack && (!leg.trackBridge || !geometryByLeg[leg.id])) {
@@ -334,8 +403,11 @@ export function measureJourneyDays(
       if (!byDay.has(leg.day)) byDay.set(leg.day, []);
       return;
     }
+    const geometry = geometryByLeg[leg.id];
+    const tally = geometry ? realLegs : straightLegs;
+    tally.set(leg.day, (tally.get(leg.day) ?? 0) + 1);
     const coordinates = byDay.get(leg.day) ?? [];
-    coordinates.push(...(geometryByLeg[leg.id] ?? leg.fallbackGeometry ?? [leg.from, leg.to]));
+    coordinates.push(...(geometry ?? leg.fallbackGeometry ?? [leg.from, leg.to]));
     byDay.set(leg.day, coordinates);
   });
   const measured: JourneyDayDistance[] = [];
@@ -351,6 +423,7 @@ export function measureJourneyDays(
       day,
       meters: track.totalMeters,
       userDrawn: legs.some((leg) => leg.day === day && leg.userPath === 'drawn'),
+      straightLine: straightLegs.has(day) ? (realLegs.has(day) ? 'part' : 'all') : undefined,
       coordinate: positionAtDistance(track, track.totalMeters / 2).coordinate,
     });
   });
